@@ -70,3 +70,4 @@ wheels/
 .env.prod
 
 skills/
+deprecated/
