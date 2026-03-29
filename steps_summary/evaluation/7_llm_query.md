@@ -1,4 +1,4 @@
-# Step 6: LLM Query for Final Answer
+# LLM Query for Final Answer
 
 Use the textualized subgraph as context and query the LLM to generate the final answer.
 

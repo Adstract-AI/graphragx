@@ -1,4 +1,4 @@
-# Step 3: Subgraph Construction
+# Subgraph Construction
 
 Construct a question-specific subgraph that connects the query nodes and candidate nodes, capturing relevant relationships for reasoning.
 

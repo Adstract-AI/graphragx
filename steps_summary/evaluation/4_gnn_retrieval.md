@@ -1,4 +1,4 @@
-# Step 2: GNN Retrieval
+# GNN Retrieval
 
 There are two main approaches for retrieving relevant nodes using GNN embeddings. Both rely on the same embedding space but differ in how similarity is computed.
 
