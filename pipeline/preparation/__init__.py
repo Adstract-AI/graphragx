@@ -1,5 +1,9 @@
 """Preparation steps and related models for graphragX."""
 
+from pipeline.preparation.dataset_definitions import (
+    FB15K_237_DATASET_ID,
+    KNOWLEDGE_GRAPH_DATASETS,
+)
 from pipeline.preparation.dataset_selection import (
     KnowledgeGraphDatasetSelection,
     SelectedKnowledgeGraphDataset,
@@ -7,7 +11,9 @@ from pipeline.preparation.dataset_selection import (
 )
 
 __all__ = [
+    "FB15K_237_DATASET_ID",
     "KnowledgeGraphDatasetSelection",
+    "KNOWLEDGE_GRAPH_DATASETS",
     "SelectedKnowledgeGraphDataset",
     "SelectKnowledgeGraphDatasetStep",
 ]

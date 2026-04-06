@@ -13,6 +13,7 @@ from pipeline.exceptions import (
     UnsupportedKnowledgeGraphDatasetException,
 )
 from pipeline.models import InitialStepResult, PipelineExecutionResult
+from pipeline.models import PipelineResultBank
 from pipeline.pipeline import Pipeline
 from pipeline.preparation import (
     KnowledgeGraphDatasetSelection,
@@ -28,6 +29,7 @@ __all__ = [
     "PipelineException",
     "PipelineExecutionException",
     "PipelineExecutionResult",
+    "PipelineResultBank",
     "SelectedKnowledgeGraphDataset",
     "SelectKnowledgeGraphDatasetStep",
     "StepContext",

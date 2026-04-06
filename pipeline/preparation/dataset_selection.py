@@ -7,8 +7,11 @@ from pydantic import Field
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import UnsupportedKnowledgeGraphDatasetException
 from pipeline.models import InitialStepResult
-
-FB15K_237_DATASET_ID = "FB15K-237"
+from pipeline.preparation.dataset_definitions import (
+    FB15K_237_DATASET_ID,
+    KNOWLEDGE_GRAPH_DATASETS,
+    KnowledgeGraphDatasetDefinition,
+)
 
 
 class KnowledgeGraphDatasetSelection(InitialStepResult):
@@ -41,23 +44,13 @@ class SelectKnowledgeGraphDatasetStep(
         context: StepContext[KnowledgeGraphDatasetSelection],
     ) -> SelectedKnowledgeGraphDataset:
         requested_dataset = self._get_requested_dataset(context)
-
-        if requested_dataset != FB15K_237_DATASET_ID:
+        dataset_definition = KNOWLEDGE_GRAPH_DATASETS.get(requested_dataset)
+        if dataset_definition is None or dataset_definition.dataset_id != FB15K_237_DATASET_ID:
             raise UnsupportedKnowledgeGraphDatasetException(
                 f"Unsupported knowledge graph dataset: {requested_dataset}"
             )
 
-        return SelectedKnowledgeGraphDataset(
-            dataset_id=FB15K_237_DATASET_ID,
-            display_name="FB15K-237",
-            dataset_family="knowledge_graph",
-            task_domain="multi_hop_reasoning",
-            description=(
-                "A Freebase-derived knowledge graph benchmark commonly used for "
-                "link prediction and graph reasoning experiments."
-            ),
-            supported=True,
-        )
+        return self._build_selected_dataset(dataset_definition)
 
     @staticmethod
     def _get_requested_dataset(context: StepContext[KnowledgeGraphDatasetSelection]) -> str:
@@ -66,3 +59,10 @@ class SelectKnowledgeGraphDatasetStep(
             return FB15K_237_DATASET_ID
 
         return context.result.requested_dataset
+
+    @staticmethod
+    def _build_selected_dataset(
+        dataset_definition: KnowledgeGraphDatasetDefinition,
+    ) -> SelectedKnowledgeGraphDataset:
+        """Create the step result from the typed dataset definition."""
+        return SelectedKnowledgeGraphDataset(**dataset_definition.model_dump())

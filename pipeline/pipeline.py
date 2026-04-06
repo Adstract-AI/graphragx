@@ -31,22 +31,40 @@ class Pipeline:
 
     def prepare(self, initial_context: StepContext) -> PipelineExecutionResult:
         """Run the preparation phase."""
-        return self._run_steps(self.preparation_steps, initial_context)
+        return self._run_steps(
+            self.preparation_steps,
+            initial_context,
+            reset_result_bank=True,
+        )
 
     def evaluate(self, initial_context: StepContext) -> PipelineExecutionResult:
         """Run the evaluation phase."""
-        return self._run_steps(self.evaluation_steps, initial_context)
+        return self._run_steps(
+            self.evaluation_steps,
+            initial_context,
+            reset_result_bank=True,
+        )
 
     def run(self, initial_context: StepContext) -> PipelineExecutionResult:
         """Run the full pipeline by executing preparation and then evaluation."""
-        preparation_result = self.prepare(initial_context)
+        self.context_builder.clear_result_bank()
+
+        preparation_result = self._run_steps(
+            self.preparation_steps,
+            initial_context,
+            reset_result_bank=False,
+        )
         if not preparation_result.success:
             return preparation_result
 
         evaluation_context = self.context_builder.create_context(
             result=preparation_result.final_result,
         )
-        evaluation_result = self.evaluate(evaluation_context)
+        evaluation_result = self._run_steps(
+            self.evaluation_steps,
+            evaluation_context,
+            reset_result_bank=False,
+        )
         if not evaluation_result.success:
             return evaluation_result
 
@@ -70,8 +88,12 @@ class Pipeline:
         self,
         steps: list[AbstractStep],
         initial_context: StepContext,
+        reset_result_bank: bool,
     ) -> PipelineExecutionResult:
         """Run a configured phase in order and return success/failure metadata."""
+        if reset_result_bank:
+            self.context_builder.clear_result_bank()
+
         start_time = time.perf_counter()
         steps_executed = 0
         current_context = initial_context

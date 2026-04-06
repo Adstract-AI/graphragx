@@ -8,6 +8,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from pipeline.abstract import StepResult
+from pipeline.exceptions import PipelineException
 
 
 class PipelineExecutionResult(BaseModel):
@@ -79,3 +80,45 @@ class PipelineExecutionResult(BaseModel):
 
 class InitialStepResult(StepResult):
     """Neutral bootstrap artifact for the first pipeline context."""
+
+
+class PipelineResultBank(BaseModel):
+    """In-memory bank of latest step results keyed by result type."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    stored_results: dict[str, StepResult] = Field(
+        default_factory=dict,
+        description="Latest stored result for each result type.",
+    )
+
+    def store(self, result: StepResult) -> None:
+        """Store the latest result for its concrete result type."""
+        self.stored_results[self._get_result_key(type(result))] = result
+
+    def get(self, result_type: type[StepResult]) -> StepResult | None:
+        """Return the latest stored result for the given type."""
+        return self.stored_results.get(self._get_result_key(result_type))
+
+    def get_required(self, result_type: type[StepResult]) -> StepResult:
+        """Return a stored result or raise when the result type is missing."""
+        result = self.get(result_type)
+        if result is None:
+            raise PipelineException(
+                f"No stored result found for type {result_type.__name__}."
+            )
+
+        return result
+
+    def has(self, result_type: type[StepResult]) -> bool:
+        """Check whether a result type is stored in the bank."""
+        return self._get_result_key(result_type) in self.stored_results
+
+    def clear(self) -> None:
+        """Clear all stored results."""
+        self.stored_results.clear()
+
+    @staticmethod
+    def _get_result_key(result_type: type[StepResult]) -> str:
+        """Build a stable internal key for a result type."""
+        return f"{result_type.__module__}.{result_type.__qualname__}"
