@@ -1,13 +1,13 @@
 """Preparation steps and related models for graphragX."""
 
-from pipeline.preparation.dataset_scope import (
-    KnowledgeGraphDatasetChoice,
-    KnowledgeGraphDatasetScopeResult,
-    KnowledgeGraphDatasetScopeStep,
+from pipeline.preparation.dataset_selection import (
+    KnowledgeGraphDatasetSelection,
+    SelectedKnowledgeGraphDataset,
+    SelectKnowledgeGraphDatasetStep,
 )
 
 __all__ = [
-    "KnowledgeGraphDatasetChoice",
-    "KnowledgeGraphDatasetScopeResult",
-    "KnowledgeGraphDatasetScopeStep",
+    "KnowledgeGraphDatasetSelection",
+    "SelectedKnowledgeGraphDataset",
+    "SelectKnowledgeGraphDatasetStep",
 ]
