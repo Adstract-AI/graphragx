@@ -7,7 +7,7 @@ from pydantic import Field
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import UnsupportedKnowledgeGraphDatasetException
 from pipeline.models import InitialStepResult
-from pipeline.preparation.helpes.dataset_definitions import (
+from pipeline.preparation.helpers.dataset_definitions import (
     FB15K_237_DATASET_ID,
     KNOWLEDGE_GRAPH_DATASETS,
     KnowledgeGraphDatasetDefinition,
