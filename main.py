@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from pipeline import (
     KnowledgeGraphDatasetSelection,
     Pipeline,
-    PipelineExecutionException,
     PipelineExecutionResult,
     SelectKnowledgeGraphDatasetStep,
     StepContext,
@@ -27,27 +26,16 @@ def build_pipeline(force_all_default: bool = False) -> Pipeline:
     )
 
 
-def run_prepare(
+def run_pipeline(
     dataset: str,
     force_all_default: bool = False,
 ) -> PipelineExecutionResult:
-    """Run the currently available preparation pipeline."""
+    """Run the full graphragX pipeline."""
     pipeline = build_pipeline(force_all_default=force_all_default)
     initial_context = StepContext(
         result=KnowledgeGraphDatasetSelection(requested_dataset=dataset),
     )
-    return pipeline.prepare(initial_context)
-
-
-def run_evaluate(force_all_default: bool = False) -> PipelineExecutionResult:
-    """Run the evaluation pipeline once evaluation steps exist."""
-    pipeline = build_pipeline(force_all_default=force_all_default)
-    if not pipeline.evaluation_steps:
-        raise PipelineExecutionException(
-            "No evaluation steps are configured yet."
-        )
-
-    return pipeline.evaluate(StepContext(result=None))
+    return pipeline.run(initial_context)
 
 
 def _serialize_value(value: Any) -> Any:
@@ -75,26 +63,14 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the framework entry point."""
     parser = argparse.ArgumentParser(description="Run graphragX.")
     parser.add_argument(
+        "--dataset",
+        default="FB15K-237",
+        help="Knowledge graph dataset choice for the current run.",
+    )
+    parser.add_argument(
         "--force-default",
         action="store_true",
         help="Force steps to use their default execution path.",
-    )
-
-    subparsers = parser.add_subparsers(dest="command")
-
-    prepare_parser = subparsers.add_parser(
-        "prepare",
-        help="Run the preparation pipeline.",
-    )
-    prepare_parser.add_argument(
-        "--dataset",
-        default="FB15K-237",
-        help="Knowledge graph dataset choice for preparation.",
-    )
-
-    subparsers.add_parser(
-        "evaluate",
-        help="Run the evaluation pipeline.",
     )
 
     return parser
@@ -104,18 +80,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point for graphragX."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    command = args.command or "prepare"
 
     try:
-        if command == "prepare":
-            result = run_prepare(
-                dataset=args.dataset,
-                force_all_default=args.force_default,
-            )
-        elif command == "evaluate":
-            result = run_evaluate(force_all_default=args.force_default)
-        else:
-            raise PipelineExecutionException(f"Unknown command: {command}")
+        result = run_pipeline(
+            dataset=args.dataset,
+            force_all_default=args.force_default,
+        )
     except Exception as error:
         error_payload = {
             "success": False,

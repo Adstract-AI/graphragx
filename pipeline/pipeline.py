@@ -37,6 +37,35 @@ class Pipeline:
         """Run the evaluation phase."""
         return self._run_steps(self.evaluation_steps, initial_context)
 
+    def run(self, initial_context: StepContext) -> PipelineExecutionResult:
+        """Run the full pipeline by executing preparation and then evaluation."""
+        preparation_result = self.prepare(initial_context)
+        if not preparation_result.success:
+            return preparation_result
+
+        evaluation_context = self.context_builder.create_context(
+            result=preparation_result.final_result,
+        )
+        evaluation_result = self.evaluate(evaluation_context)
+        if not evaluation_result.success:
+            return evaluation_result
+
+        total_steps_executed = (
+            preparation_result.steps_executed + evaluation_result.steps_executed
+        )
+        total_steps = preparation_result.total_steps + evaluation_result.total_steps
+        total_execution_time_ms = (
+            (preparation_result.execution_time_ms or 0.0)
+            + (evaluation_result.execution_time_ms or 0.0)
+        )
+
+        return PipelineExecutionResult.success_result(
+            final_result=evaluation_result.final_result,
+            execution_time_ms=total_execution_time_ms,
+            steps_executed=total_steps_executed,
+            total_steps=total_steps,
+        )
+
     def _run_steps(
         self,
         steps: list[AbstractStep],

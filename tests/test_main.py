@@ -9,15 +9,15 @@ import main
 
 
 class MainEntrypointTests(unittest.TestCase):
-    def test_run_prepare_returns_success_for_fb15k_237(self) -> None:
-        result = main.run_prepare(dataset="FB15K-237")
+    def test_run_pipeline_returns_success_for_fb15k_237(self) -> None:
+        result = main.run_pipeline(dataset="FB15K-237")
 
         self.assertTrue(result.success)
         self.assertEqual(result.final_result.dataset_id, "FB15K-237")
 
-    def test_main_prepare_command_prints_success_payload(self) -> None:
+    def test_main_prints_success_payload_for_full_run(self) -> None:
         with patch("sys.stdout", new_callable=StringIO) as stdout:
-            exit_code = main.main(["prepare", "--dataset", "FB15K-237"])
+            exit_code = main.main(["--dataset", "FB15K-237"])
 
         payload = json.loads(stdout.getvalue())
         self.assertEqual(exit_code, 0)
@@ -26,7 +26,7 @@ class MainEntrypointTests(unittest.TestCase):
 
     def test_main_returns_error_for_unsupported_dataset(self) -> None:
         with patch("sys.stdout", new_callable=StringIO) as stdout:
-            exit_code = main.main(["prepare", "--dataset", "WN18RR"])
+            exit_code = main.main(["--dataset", "WN18RR"])
 
         payload = json.loads(stdout.getvalue())
         self.assertEqual(exit_code, 1)

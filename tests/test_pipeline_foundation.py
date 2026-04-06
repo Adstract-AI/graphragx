@@ -102,6 +102,19 @@ class PipelineFoundationTests(unittest.TestCase):
         self.assertEqual(result.total_steps, 1)
         self.assertEqual(result.final_result.answer, "done")
 
+    def test_run_executes_full_pipeline(self) -> None:
+        pipeline = Pipeline(
+            preparation_steps=[InitialToQueryStep(), QueryToCandidatesStep()],
+            evaluation_steps=[CandidateToAnswerStep()],
+        )
+
+        result = pipeline.run(self.make_initial_context())
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.steps_executed, 3)
+        self.assertEqual(result.total_steps, 3)
+        self.assertEqual(result.final_result.answer, "done")
+
     def test_step_failure_stops_phase_execution(self) -> None:
         pipeline = Pipeline(
             preparation_steps=[InitialToQueryStep(), FailingStep(), CandidateToAnswerStep()],
