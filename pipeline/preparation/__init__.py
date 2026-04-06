@@ -1,10 +1,10 @@
 """Preparation steps and related models for graphragX."""
 
-from pipeline.preparation.dataset_definitions import (
+from pipeline.preparation.helpes.dataset_definitions import (
     FB15K_237_DATASET_ID,
     KNOWLEDGE_GRAPH_DATASETS,
 )
-from pipeline.preparation.dataset_selection import (
+from pipeline.preparation.steps.dataset_selection import (
     KnowledgeGraphDatasetSelection,
     SelectedKnowledgeGraphDataset,
     SelectKnowledgeGraphDatasetStep,
