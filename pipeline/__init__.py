@@ -15,21 +15,21 @@ from pipeline.exceptions import (
 from pipeline.models import InitialStepResult, PipelineExecutionResult
 from pipeline.pipeline import Pipeline
 from pipeline.preparation import (
-    KnowledgeGraphDatasetChoice,
-    KnowledgeGraphDatasetScopeResult,
-    KnowledgeGraphDatasetScopeStep,
+    KnowledgeGraphDatasetSelection,
+    SelectKnowledgeGraphDatasetStep,
+    SelectedKnowledgeGraphDataset,
 )
 
 __all__ = [
     "AbstractStep",
     "InitialStepResult",
-    "KnowledgeGraphDatasetChoice",
-    "KnowledgeGraphDatasetScopeResult",
-    "KnowledgeGraphDatasetScopeStep",
+    "KnowledgeGraphDatasetSelection",
     "Pipeline",
     "PipelineException",
     "PipelineExecutionException",
     "PipelineExecutionResult",
+    "SelectedKnowledgeGraphDataset",
+    "SelectKnowledgeGraphDatasetStep",
     "StepContext",
     "StepContextBuilder",
     "StepNotImplementedException",
