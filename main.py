@@ -33,11 +33,12 @@ class PipelineRuntimeConfig(BaseModel):
     assistant_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
+    use_default_config_values: bool = False
     force_all_default: bool = False
 
     def with_defaulted_user_inputs(self) -> "PipelineRuntimeConfig":
         """Fill all user-provided selections with recommended defaults when requested."""
-        if not self.force_all_default:
+        if not self.use_default_config_values:
             return self
 
         return self.model_copy(
@@ -132,9 +133,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--default",
+        dest="use_default_config_values",
+        action="store_true",
+        help="Use default values for all configurable user selections.",
+    )
+    parser.add_argument(
+        "--force-default",
         dest="force_all_default",
         action="store_true",
-        help="Force steps to use their default execution path.",
+        help="Force every pipeline step to use its execute_default path.",
     )
 
     return parser
@@ -150,6 +157,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         assistant_llm_model=args.assistant_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,
+        use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )
 

@@ -104,12 +104,23 @@ class MainEntrypointTests(unittest.TestCase):
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
         with patch("builtins.input", side_effect=AssertionError("input should not be called")):
             result = main.run_pipeline(
-                config=main.PipelineRuntimeConfig(force_all_default=True),
+                config=main.PipelineRuntimeConfig(use_default_config_values=True),
             )
 
         self.assertTrue(result.success)
         self.assertEqual(result.final_result.dataset_id, "FB15K-237")
         self.assertEqual(result.final_result.main_llm_model, "gpt-5.4")
+
+    def test_force_default_flag_sets_step_execution_mode_only(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(force_all_default=True),
+        )
+
+        self.assertTrue(pipeline.force_all_default)
+        self.assertTrue(all(step.force_default for step in pipeline.preparation_steps))
+        self.assertIsNone(
+            pipeline.preparation_steps[0].requested_dataset,
+        )
 
 
 if __name__ == "__main__":
