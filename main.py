@@ -9,32 +9,75 @@ from typing import Any, Sequence
 from pydantic import BaseModel
 
 from pipeline import (
-    KnowledgeGraphDatasetSelection,
+    BuildPipelineConfigurationStep,
+    InitialStepResult,
     Pipeline,
     PipelineExecutionResult,
     SelectKnowledgeGraphDatasetStep,
     StepContext,
 )
+from pipeline.preparation.helpers.configuration_definitions import (
+    RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
+    RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
+    RECOMMENDED_MAIN_LLM_MODEL_ID,
+    RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
+)
+from pipeline.preparation.helpers.dataset_definitions import FB15K_237_DATASET_ID
 
 
-def build_pipeline(force_all_default: bool = False) -> Pipeline:
+class PipelineRuntimeConfig(BaseModel):
+    """Runtime configuration used to initialize the current framework pipeline."""
+
+    dataset: str | None = None
+    main_llm_model: str | None = None
+    assistant_llm_model: str | None = None
+    subgraph_algorithm: str | None = None
+    context_strategy: str | None = None
+    force_all_default: bool = False
+
+    def with_defaulted_user_inputs(self) -> "PipelineRuntimeConfig":
+        """Fill all user-provided selections with recommended defaults when requested."""
+        if not self.force_all_default:
+            return self
+
+        return self.model_copy(
+            update={
+                "dataset": self.dataset or FB15K_237_DATASET_ID,
+                "main_llm_model": self.main_llm_model or RECOMMENDED_MAIN_LLM_MODEL_ID,
+                "assistant_llm_model": self.assistant_llm_model
+                or RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
+                "subgraph_algorithm": self.subgraph_algorithm
+                or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
+                "context_strategy": self.context_strategy
+                or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
+            }
+        )
+
+
+def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     """Build the current runnable graphragX pipeline."""
+    resolved_config = config.with_defaulted_user_inputs()
     return Pipeline(
-        preparation_steps=[SelectKnowledgeGraphDatasetStep()],
+        preparation_steps=[
+            SelectKnowledgeGraphDatasetStep(
+                requested_dataset=resolved_config.dataset,
+            ),
+            BuildPipelineConfigurationStep(
+                main_llm_model=resolved_config.main_llm_model,
+                assistant_llm_model=resolved_config.assistant_llm_model,
+                subgraph_algorithm=resolved_config.subgraph_algorithm,
+                context_strategy=resolved_config.context_strategy,
+            ),
+        ],
         evaluation_steps=[],
-        force_all_default=force_all_default,
+        force_all_default=resolved_config.force_all_default,
     )
 
 
-def run_pipeline(
-    dataset: str,
-    force_all_default: bool = False,
-) -> PipelineExecutionResult:
+def run_pipeline(config: PipelineRuntimeConfig) -> PipelineExecutionResult:
     """Run the full graphragX pipeline."""
-    pipeline = build_pipeline(force_all_default=force_all_default)
-    initial_context = StepContext(
-        result=KnowledgeGraphDatasetSelection(requested_dataset=dataset),
-    )
+    pipeline = build_pipeline(config=config)
+    initial_context = StepContext(result=InitialStepResult())
     return pipeline.run(initial_context)
 
 
@@ -64,11 +107,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run graphragX.")
     parser.add_argument(
         "--dataset",
-        default="FB15K-237",
+        default=None,
         help="Knowledge graph dataset choice for the current run.",
     )
     parser.add_argument(
-        "--force-default",
+        "--main-llm-model",
+        default=None,
+        help="Optional main LLM model id for non-interactive configuration.",
+    )
+    parser.add_argument(
+        "--assistant-llm-model",
+        default=None,
+        help="Optional assistant LLM model id for non-interactive configuration.",
+    )
+    parser.add_argument(
+        "--subgraph-algorithm",
+        default=None,
+        help="Optional subgraph construction algorithm id for non-interactive configuration.",
+    )
+    parser.add_argument(
+        "--context-strategy",
+        default=None,
+        help="Optional context construction strategy id for non-interactive configuration.",
+    )
+    parser.add_argument(
+        "--default",
+        dest="force_all_default",
         action="store_true",
         help="Force steps to use their default execution path.",
     )
@@ -80,12 +144,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point for graphragX."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    runtime_config = PipelineRuntimeConfig(
+        dataset=args.dataset,
+        main_llm_model=args.main_llm_model,
+        assistant_llm_model=args.assistant_llm_model,
+        subgraph_algorithm=args.subgraph_algorithm,
+        context_strategy=args.context_strategy,
+        force_all_default=args.force_all_default,
+    )
 
     try:
-        result = run_pipeline(
-            dataset=args.dataset,
-            force_all_default=args.force_default,
-        )
+        result = run_pipeline(config=runtime_config)
     except Exception as error:
         error_payload = {
             "success": False,

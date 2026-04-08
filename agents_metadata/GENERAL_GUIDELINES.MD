@@ -26,3 +26,4 @@
 - Do not restate guideline compliance in normal summaries unless the user explicitly asks for a compliance report.
 - Do not restate implementation decisions given as instructions in docstrings or comments. Docstrings and comments describe what the code does and why, not the reasoning that led to its design (e.g. do not write "X is stored here because Y is already stored elsewhere").
 - Do not describe data placement or ownership in docstrings (e.g. "X is carried on Y, not on Z" or "every Y carries X so that…"). Where a field lives is visible from the code itself. Docstrings should describe behavior and purpose, not narrate structural decisions.
+- After refactors, remove obsolete wrappers, pass-through helpers, compatibility shims, and dead indirection immediately. Do not leave tiny helper methods that only forward arguments or rebuild the same value without adding real behavior, validation, or reuse.
