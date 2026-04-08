@@ -70,6 +70,7 @@ class LoadKnowledgeGraphDatasetStepTests(unittest.TestCase):
                 assistant_llm_model="gpt-5.4-mini",
                 subgraph_construction_algorithm="shortest_path",
                 context_construction_strategy="textualized",
+                gnn_architecture="rgcn",
             )
         )
 
@@ -140,6 +141,7 @@ class LoadKnowledgeGraphDatasetStepTests(unittest.TestCase):
                     assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
                     context_strategy="textualized",
+                    gnn_architecture="rgcn",
                 ),
             )
 

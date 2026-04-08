@@ -33,6 +33,10 @@ class InvalidContextConstructionSelectionException(PipelineException):
     """Raised when an invalid context construction option is provided."""
 
 
+class InvalidGnnArchitectureSelectionException(PipelineException):
+    """Raised when an invalid GNN architecture option is provided."""
+
+
 class InvalidInteractiveConfigurationInputException(PipelineException):
     """Raised when interactive configuration input cannot be read safely."""
 

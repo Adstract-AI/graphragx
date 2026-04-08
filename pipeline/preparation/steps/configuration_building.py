@@ -8,6 +8,7 @@ from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import (
     InvalidAssistantLlmSelectionException,
     InvalidContextConstructionSelectionException,
+    InvalidGnnArchitectureSelectionException,
     InvalidInteractiveConfigurationInputException,
     InvalidMainLlmSelectionException,
     InvalidSubgraphConstructionSelectionException,
@@ -15,8 +16,10 @@ from pipeline.exceptions import (
 from pipeline.services.selection import SelectionService
 from pipeline.preparation.helpers.configuration_definitions import (
     CONTEXT_CONSTRUCTION_STRATEGIES,
+    GNN_ARCHITECTURES,
     RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
+    RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
     SHARED_LLM_MODELS,
@@ -32,6 +35,7 @@ class PipelineConfigurationInput(BaseModel):
     assistant_llm_model: str | None = Field(default=None)
     subgraph_construction_algorithm: str | None = Field(default=None)
     context_construction_strategy: str | None = Field(default=None)
+    gnn_architecture: str | None = Field(default=None)
 
 
 class BuiltPipelineConfiguration(StepResult):
@@ -46,6 +50,7 @@ class BuiltPipelineConfiguration(StepResult):
     context_construction_strategy: str = Field(
         ..., description="Selected context construction strategy id."
     )
+    gnn_architecture: str = Field(..., description="Selected GNN architecture id.")
 
 
 class BuildPipelineConfigurationStep(
@@ -59,6 +64,7 @@ class BuildPipelineConfigurationStep(
         assistant_llm_model: str | None = None,
         subgraph_algorithm: str | None = None,
         context_strategy: str | None = None,
+        gnn_architecture: str | None = None,
         input_func=None,
         force_default: bool = False,
     ):
@@ -68,6 +74,7 @@ class BuildPipelineConfigurationStep(
             assistant_llm_model=assistant_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
+            gnn_architecture=gnn_architecture,
         )
         self.selection_service = SelectionService(input_func=input_func)
 
@@ -81,6 +88,16 @@ class BuildPipelineConfigurationStep(
                 "Configuration building requires a selected dataset in the incoming context."
             )
 
+        gnn_architecture = self.selection_service.resolve_choice(
+            provided_value=self.configuration_input.gnn_architecture,
+            options=GNN_ARCHITECTURES,
+            prompt_title="GNN Architecture",
+            prompt_help="Select the graph neural network architecture used for knowledge graph modeling.",
+            recommended_id=RECOMMENDED_GNN_ARCHITECTURE_ID,
+            invalid_exception_type=InvalidGnnArchitectureSelectionException,
+            value_getter=lambda item: item.architecture_id,
+            label_getter=lambda item: item.display_name,
+        )
         main_llm_model = self.selection_service.resolve_choice(
             provided_value=self.configuration_input.main_llm_model,
             options=SHARED_LLM_MODELS,
@@ -128,4 +145,5 @@ class BuildPipelineConfigurationStep(
             assistant_llm_model=assistant_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
+            gnn_architecture=gnn_architecture,
         )

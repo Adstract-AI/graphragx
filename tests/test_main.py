@@ -72,6 +72,7 @@ class MainEntrypointTests(unittest.TestCase):
                     assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
                     context_strategy="textualized",
+                    gnn_architecture="rgcn",
                 ),
             )
 
@@ -87,6 +88,7 @@ class MainEntrypointTests(unittest.TestCase):
                 "--assistant-llm-model", "gpt-5.4-mini",
                 "--subgraph-algorithm", "shortest_path",
                 "--context-strategy", "textualized",
+                "--gnn-architecture", "rgcn",
             ])
 
         payload = self._extract_json_payload(stdout.getvalue())
@@ -103,6 +105,7 @@ class MainEntrypointTests(unittest.TestCase):
                 "--assistant-llm-model", "gpt-5.4-mini",
                 "--subgraph-algorithm", "shortest_path",
                 "--context-strategy", "textualized",
+                "--gnn-architecture", "rgcn",
             ])
 
         payload = self._extract_json_payload(stdout.getvalue())
@@ -114,7 +117,7 @@ class MainEntrypointTests(unittest.TestCase):
         )
 
     def test_main_interactively_prompts_missing_configuration_flags(self) -> None:
-        with self._patch_dataset_loading_step(), patch("builtins.input", side_effect=["1", "2", "1", "1"]), patch(
+        with self._patch_dataset_loading_step(), patch("builtins.input", side_effect=["1", "2", "1", "1", "1"]), patch(
             "sys.stdout", new_callable=StringIO
         ) as stdout:
             exit_code = main.main(["--dataset", "FB15K-237"])

@@ -37,6 +37,16 @@ class ContextConstructionDefinition(BaseModel):
     description: str = Field(..., description="Short description of the context strategy.")
 
 
+class GnnArchitectureDefinition(BaseModel):
+    """Typed definition of an available GNN architecture option."""
+
+    model_config = ConfigDict(frozen=True)
+
+    architecture_id: str = Field(..., description="Stable GNN architecture identifier.")
+    display_name: str = Field(..., description="Human-readable GNN architecture name.")
+    description: str = Field(..., description="Short description of the GNN architecture.")
+
+
 SHARED_LLM_MODELS: Final[dict[str, LlmModelDefinition]] = {
     "gpt-5.4": LlmModelDefinition(
         model_id="gpt-5.4",
@@ -96,7 +106,16 @@ CONTEXT_CONSTRUCTION_STRATEGIES: Final[dict[str, ContextConstructionDefinition]]
     ),
 }
 
+GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
+    "rgcn": GnnArchitectureDefinition(
+        architecture_id="rgcn",
+        display_name="R-GCN",
+        description="Relational Graph Convolutional Network for multi-relational knowledge graphs.",
+    ),
+}
+
 RECOMMENDED_MAIN_LLM_MODEL_ID: Final[str] = "gpt-5.4"
 RECOMMENDED_ASSISTANT_LLM_MODEL_ID: Final[str] = "gpt-5.4-mini"
 RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID: Final[str] = "shortest_path"
 RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID: Final[str] = "textualized"
+RECOMMENDED_GNN_ARCHITECTURE_ID: Final[str] = "rgcn"

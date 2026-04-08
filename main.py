@@ -20,6 +20,7 @@ from pipeline import (
 from pipeline.preparation.helpers.configuration_definitions import (
     RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
+    RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
 )
@@ -34,6 +35,7 @@ class PipelineRuntimeConfig(BaseModel):
     assistant_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
+    gnn_architecture: str | None = None
     use_default_config_values: bool = False
     force_all_default: bool = False
 
@@ -52,6 +54,8 @@ class PipelineRuntimeConfig(BaseModel):
                 or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
                 "context_strategy": self.context_strategy
                 or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
+                "gnn_architecture": self.gnn_architecture
+                or RECOMMENDED_GNN_ARCHITECTURE_ID,
             }
         )
 
@@ -69,6 +73,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 assistant_llm_model=resolved_config.assistant_llm_model,
                 subgraph_algorithm=resolved_config.subgraph_algorithm,
                 context_strategy=resolved_config.context_strategy,
+                gnn_architecture=resolved_config.gnn_architecture,
             ),
             LoadKnowledgeGraphDatasetStep(),
         ],
@@ -134,6 +139,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional context construction strategy id for non-interactive configuration.",
     )
     parser.add_argument(
+        "--gnn-architecture",
+        default=None,
+        help="Optional GNN architecture id for non-interactive configuration.",
+    )
+    parser.add_argument(
         "--default",
         dest="use_default_config_values",
         action="store_true",
@@ -159,6 +169,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         assistant_llm_model=args.assistant_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,
+        gnn_architecture=args.gnn_architecture,
         use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )
