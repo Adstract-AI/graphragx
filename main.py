@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from pipeline import (
     BuildPipelineConfigurationStep,
     InitialStepResult,
+    LoadKnowledgeGraphDatasetStep,
     Pipeline,
     PipelineExecutionResult,
     SelectKnowledgeGraphDatasetStep,
@@ -69,6 +70,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 subgraph_algorithm=resolved_config.subgraph_algorithm,
                 context_strategy=resolved_config.context_strategy,
             ),
+            LoadKnowledgeGraphDatasetStep(),
         ],
         evaluation_steps=[],
         force_all_default=resolved_config.force_all_default,

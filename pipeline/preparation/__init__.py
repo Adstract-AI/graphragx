@@ -3,6 +3,9 @@
 from pipeline.preparation.helpers.dataset_definitions import (
     FB15K_237_DATASET_ID,
     KNOWLEDGE_GRAPH_DATASETS,
+    KNOWLEDGE_GRAPH_DATASET_CACHE_ROOT,
+    KNOWLEDGE_GRAPH_DATASET_LOADERS,
+    KnowledgeGraphDatasetLoaderDefinition,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
     CONTEXT_CONSTRUCTION_STRATEGIES,
@@ -25,6 +28,11 @@ from pipeline.preparation.steps.dataset_selection import (
     SelectedKnowledgeGraphDataset,
     SelectKnowledgeGraphDatasetStep,
 )
+from pipeline.preparation.steps.dataset_loading import (
+    KnowledgeGraphRawTriple,
+    LoadKnowledgeGraphDatasetStep,
+    LoadedKnowledgeGraphDataset,
+)
 
 __all__ = [
     "FB15K_237_DATASET_ID",
@@ -32,7 +40,13 @@ __all__ = [
     "BuiltPipelineConfiguration",
     "CONTEXT_CONSTRUCTION_STRATEGIES",
     "ContextConstructionDefinition",
+    "KnowledgeGraphDatasetLoaderDefinition",
+    "KnowledgeGraphRawTriple",
     "KNOWLEDGE_GRAPH_DATASETS",
+    "KNOWLEDGE_GRAPH_DATASET_CACHE_ROOT",
+    "KNOWLEDGE_GRAPH_DATASET_LOADERS",
+    "LoadedKnowledgeGraphDataset",
+    "LoadKnowledgeGraphDatasetStep",
     "LlmModelDefinition",
     "PipelineConfigurationInput",
     "RECOMMENDED_ASSISTANT_LLM_MODEL_ID",

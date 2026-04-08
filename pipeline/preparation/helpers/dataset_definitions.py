@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,7 +20,23 @@ class KnowledgeGraphDatasetDefinition(BaseModel):
     description: str = Field(..., description="Short dataset description.")
     supported: bool = Field(..., description="Whether the dataset is currently supported.")
 
+
+class KnowledgeGraphDatasetLoaderDefinition(BaseModel):
+    """Typed loader configuration for a built-in knowledge graph dataset."""
+
+    model_config = ConfigDict(frozen=True)
+
+    dataset_id: str = Field(..., description="Stable dataset identifier.")
+    torch_geometric_dataset_class: str = Field(
+        ...,
+        description="Torch Geometric dataset class name used for loading.",
+    )
+    cache_root: Path = Field(..., description="Local cache directory for downloaded data.")
+
 FB15K_237_DATASET_ID: Final[str] = "FB15K-237"
+KNOWLEDGE_GRAPH_DATASET_CACHE_ROOT: Final[Path] = (
+    Path(__file__).resolve().parents[3] / "data" / "knowledge_graphs"
+)
 
 KNOWLEDGE_GRAPH_DATASETS: Final[dict[str, KnowledgeGraphDatasetDefinition]] = {
     FB15K_237_DATASET_ID: KnowledgeGraphDatasetDefinition(
@@ -32,5 +49,13 @@ KNOWLEDGE_GRAPH_DATASETS: Final[dict[str, KnowledgeGraphDatasetDefinition]] = {
             "link prediction and graph reasoning experiments."
         ),
         supported=True,
+    ),
+}
+
+KNOWLEDGE_GRAPH_DATASET_LOADERS: Final[dict[str, KnowledgeGraphDatasetLoaderDefinition]] = {
+    FB15K_237_DATASET_ID: KnowledgeGraphDatasetLoaderDefinition(
+        dataset_id=FB15K_237_DATASET_ID,
+        torch_geometric_dataset_class="FB15k_237",
+        cache_root=KNOWLEDGE_GRAPH_DATASET_CACHE_ROOT,
     ),
 }
