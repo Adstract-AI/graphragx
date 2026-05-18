@@ -41,9 +41,8 @@ from pipeline.preparation.steps.dataset_selection import (
     SelectDatasetStep,
 )
 from pipeline.preparation.steps.dataset_loading import (
-    KnowledgeGraphRawTriple,
-    LoadKnowledgeGraphDatasetStep,
-    LoadedKnowledgeGraphDataset,
+    LoadDatasetStep,
+    LoadedDataset,
 )
 
 __all__ = [
@@ -57,9 +56,8 @@ __all__ = [
     "DatasetLoaderDefinition",
     "GNN_LAYER_COUNT_OPTIONS",
     "GnnLayerCountDefinition",
-    "KnowledgeGraphRawTriple",
-    "LoadedKnowledgeGraphDataset",
-    "LoadKnowledgeGraphDatasetStep",
+    "LoadedDataset",
+    "LoadDatasetStep",
     "LlmModelDefinition",
     "NODE_CLASSIFIERS",
     "NodeClassifierDefinition",

@@ -27,6 +27,10 @@ class DatasetLoaderDefinition(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     dataset_id: str = Field(..., description="Stable dataset identifier.")
+    hugging_face_dataset_name: str = Field(
+        ...,
+        description="Hugging Face dataset repository name.",
+    )
     cache_root: Path = Field(..., description="Local cache directory for downloaded data.")
 
 WEBQSP_DATASET_ID: Final[str] = "WebQSP"
@@ -51,6 +55,7 @@ PIPELINE_DATASETS: Final[dict[str, DatasetDefinition]] = {
 DATASET_LOADERS: Final[dict[str, DatasetLoaderDefinition]] = {
     WEBQSP_DATASET_ID: DatasetLoaderDefinition(
         dataset_id=WEBQSP_DATASET_ID,
+        hugging_face_dataset_name="ml1996/webqsp",
         cache_root=DATASET_CACHE_ROOT / "webqsp",
     ),
 }

@@ -57,21 +57,17 @@ class InvalidInteractiveConfigurationInputException(PipelineException):
     """Raised when interactive configuration input cannot be read safely."""
 
 
-class MissingTorchDependencyException(PipelineException):
-    """Raised when torch is required but not installed."""
+class MissingHuggingFaceDatasetsDependencyException(PipelineException):
+    """Raised when Hugging Face datasets is required but not installed."""
 
 
-class MissingTorchGeometricDependencyException(PipelineException):
-    """Raised when torch_geometric is required but not installed."""
-
-
-class UnsupportedKnowledgeGraphDatasetLoaderException(PipelineException):
+class UnsupportedDatasetLoaderException(PipelineException):
     """Raised when no supported dataset loader configuration exists."""
 
 
-class KnowledgeGraphDatasetLoadingException(PipelineException):
+class DatasetLoadingException(PipelineException):
     """Raised when dataset loading fails."""
 
 
-class MalformedKnowledgeGraphDatasetException(PipelineException):
+class MalformedDatasetException(PipelineException):
     """Raised when a loaded dataset does not expose the expected structure."""

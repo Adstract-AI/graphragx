@@ -6,40 +6,25 @@ from io import StringIO
 from unittest.mock import patch
 
 import main
-from pipeline import LoadKnowledgeGraphDatasetStep
+from pipeline import LoadDatasetStep
 from pipeline.services import AbstractDatasetLoaderService
 
 
-class FakeTensor:
-    def __init__(self, values):
-        self._values = values
+class FakeSplit:
+    def __init__(self, size: int):
+        self.size = size
 
-    def tolist(self):
-        return list(self._values)
-
-    def __getitem__(self, index):
-        return FakeTensor(self._values[index])
-
-
-class FakeData:
-    edge_index = FakeTensor([[0, 1], [1, 0]])
-    edge_type = FakeTensor([0, 0])
-    num_nodes = 2
-
-
-class FakeDataset:
-    num_relations = 1
-
-    def __getitem__(self, index):
-        if index != 0:
-            raise IndexError(index)
-        return FakeData()
+    def __len__(self) -> int:
+        return self.size
 
 
 class FakeLoaderService(AbstractDatasetLoaderService):
-    def load_dataset(self, dataset_id: str) -> tuple[FakeDataset, FakeData]:
-        dataset = FakeDataset()
-        return dataset, dataset[0]
+    def load_dataset(self, dataset_id: str) -> dict[str, FakeSplit]:
+        return {
+            "train": FakeSplit(3),
+            "validation": FakeSplit(2),
+            "test": FakeSplit(1),
+        }
 
 
 class MainEntrypointTests(unittest.TestCase):
@@ -57,8 +42,8 @@ class MainEntrypointTests(unittest.TestCase):
     @staticmethod
     def _patch_dataset_loading_step():
         return patch(
-            "main.LoadKnowledgeGraphDatasetStep",
-            return_value=LoadKnowledgeGraphDatasetStep(
+            "main.LoadDatasetStep",
+            return_value=LoadDatasetStep(
                 loader_service=FakeLoaderService(),
             ),
         )
@@ -82,7 +67,7 @@ class MainEntrypointTests(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(result.final_result.dataset_id, "WebQSP")
-        self.assertEqual(result.final_result.triple_count, 2)
+        self.assertEqual(result.final_result.split_sizes["train"], 3)
 
     def test_main_prints_success_payload_for_full_run(self) -> None:
         with self._patch_dataset_loading_step(), patch("sys.stdout", new_callable=StringIO) as stdout:
@@ -103,7 +88,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["success"])
         self.assertEqual(payload["final_result"]["dataset_id"], "WebQSP")
-        self.assertEqual(payload["final_result"]["triple_count"], 2)
+        self.assertEqual(payload["final_result"]["split_sizes"]["train"], 3)
 
     def test_main_returns_error_for_unsupported_dataset(self) -> None:
         with self._patch_dataset_loading_step(), patch("sys.stdout", new_callable=StringIO) as stdout:
@@ -137,7 +122,7 @@ class MainEntrypointTests(unittest.TestCase):
         payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["success"])
-        self.assertEqual(payload["final_result"]["triple_count"], 2)
+        self.assertEqual(payload["final_result"]["split_sizes"]["train"], 3)
 
     def test_main_default_flag_runs_without_prompting(self) -> None:
         with self._patch_dataset_loading_step(), patch("builtins.input", side_effect=AssertionError("input should not be called")), patch(
@@ -149,8 +134,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["success"])
         self.assertEqual(payload["final_result"]["dataset_id"], "WebQSP")
-        self.assertEqual(payload["final_result"]["triple_count"], 2)
-        self.assertEqual(payload["final_result"]["entity_count"], 2)
+        self.assertEqual(payload["final_result"]["split_sizes"]["train"], 3)
 
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
         with self._patch_dataset_loading_step(), patch("builtins.input", side_effect=AssertionError("input should not be called")):
@@ -160,7 +144,7 @@ class MainEntrypointTests(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(result.final_result.dataset_id, "WebQSP")
-        self.assertEqual(result.final_result.triple_count, 2)
+        self.assertEqual(result.final_result.split_sizes["train"], 3)
 
     def test_force_default_flag_sets_step_execution_mode_only(self) -> None:
         pipeline = main.build_pipeline(

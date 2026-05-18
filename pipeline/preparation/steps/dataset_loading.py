@@ -1,104 +1,88 @@
-"""Knowledge graph dataset loading step for preparation."""
+"""Dataset loading step for preparation."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import TYPE_CHECKING, Any
+
+from pydantic import ConfigDict, Field
 
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import (
     InvalidInteractiveConfigurationInputException,
-    UnsupportedKnowledgeGraphDatasetLoaderException,
+    MalformedDatasetException,
+    UnsupportedDatasetLoaderException,
 )
-from pipeline.preparation.helpers.dataset_definitions import (
-    KNOWLEDGE_GRAPH_DATASETS,
-)
+from pipeline.preparation.helpers.dataset_definitions import PIPELINE_DATASETS
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.services import (
     AbstractDatasetLoaderService,
-    AbstractKnowledgeGraphDatasetProcessingService,
-    KnowledgeGraphDatasetProcessingService,
-    TorchGeometricKnowledgeGraphLoaderService,
+    HuggingFaceWebQSPDatasetLoaderService,
 )
 
-
-class KnowledgeGraphRawTriple(BaseModel):
-    """Typed raw triple extracted from a loaded knowledge graph dataset."""
-
-    head_id: int = Field(..., description="Integer id of the head entity.")
-    relation_id: int = Field(..., description="Integer id of the relation type.")
-    tail_id: int = Field(..., description="Integer id of the tail entity.")
+if TYPE_CHECKING:
+    from datasets import DatasetDict as HuggingFaceDatasetDict
+else:
+    HuggingFaceDatasetDict = Any
 
 
-class LoadedKnowledgeGraphDataset(StepResult):
-    """Loaded knowledge graph artifact for later standardization and training."""
+class LoadedDataset(StepResult):
+    """Loaded dataset artifact for later local-graph construction and training."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     dataset_family: str = Field(..., description="Dataset family classification.")
-    raw_triples: list[KnowledgeGraphRawTriple] = Field(
-        default_factory=list,
-        description="Typed raw triple view extracted from the loaded graph.",
-    )
-    entity_count: int = Field(..., description="Number of entities in the graph.")
-    relation_count: int = Field(..., description="Number of relation types in the graph.")
-    triple_count: int = Field(..., description="Number of raw triples in the graph.")
-    torch_geometric_dataset: object = Field(
+    hugging_face_dataset_name: str = Field(..., description="Hugging Face dataset name.")
+    split_names: list[str] = Field(..., description="Available dataset split names.")
+    split_sizes: dict[str, int] = Field(..., description="Number of examples per split.")
+    hugging_face_dataset: HuggingFaceDatasetDict = Field(
         ...,
-        description="Loaded Torch Geometric dataset wrapper.",
-    )
-    torch_geometric_data: object = Field(
-        ...,
-        description="Concrete Torch Geometric data object for the graph.",
+        description="Loaded Hugging Face dataset.",
     )
 
 
-class LoadKnowledgeGraphDatasetStep(
-    AbstractStep[LoadedKnowledgeGraphDataset, BuiltPipelineConfiguration]
-):
-    """Load the selected knowledge graph dataset through Torch Geometric."""
+class LoadDatasetStep(AbstractStep[LoadedDataset, BuiltPipelineConfiguration]):
+    """Load the selected dataset."""
 
     def __init__(
         self,
         loader_service: AbstractDatasetLoaderService | None = None,
-        processing_service: AbstractKnowledgeGraphDatasetProcessingService | None = None,
         force_default: bool = False,
     ):
         super().__init__(force_default=force_default)
-        self.loader_service = loader_service or TorchGeometricKnowledgeGraphLoaderService()
-        self.processing_service = (
-            processing_service or KnowledgeGraphDatasetProcessingService()
-        )
+        self.loader_service = loader_service or HuggingFaceWebQSPDatasetLoaderService()
 
     def execute_default(
         self,
         context: StepContext[BuiltPipelineConfiguration],
-    ) -> LoadedKnowledgeGraphDataset:
+    ) -> LoadedDataset:
         configuration = context.result
         if configuration is None:
             raise InvalidInteractiveConfigurationInputException(
                 "Dataset loading requires a built pipeline configuration in the incoming context."
             )
 
-        dataset_definition = KNOWLEDGE_GRAPH_DATASETS.get(configuration.dataset_id)
+        dataset_definition = PIPELINE_DATASETS.get(configuration.dataset_id)
         if dataset_definition is None:
-            raise UnsupportedKnowledgeGraphDatasetLoaderException(
+            raise UnsupportedDatasetLoaderException(
                 f"Unsupported dataset loader configuration for dataset: {configuration.dataset_id}"
             )
 
-        dataset, data = self.loader_service.load_dataset(configuration.dataset_id)
-        raw_triples = self.processing_service.extract_raw_triples(
-            dataset_id=configuration.dataset_id,
-            data=data,
+        dataset = self.loader_service.load_dataset(configuration.dataset_id)
+        loader_definition = self.loader_service.get_loader_definition(
+            configuration.dataset_id
         )
+        split_names = list(dataset.keys())
+        if not split_names:
+            raise MalformedDatasetException(
+                f"Loaded dataset {configuration.dataset_id} does not contain any splits."
+            )
 
-        return LoadedKnowledgeGraphDataset(
+        return LoadedDataset(
             dataset_id=configuration.dataset_id,
             dataset_family=dataset_definition.dataset_family,
-            raw_triples=raw_triples,
-            entity_count=int(data.num_nodes),
-            relation_count=len({triple.relation_id for triple in raw_triples}),
-            triple_count=len(raw_triples),
-            torch_geometric_dataset=dataset,
-            torch_geometric_data=data,
+            hugging_face_dataset_name=loader_definition.hugging_face_dataset_name,
+            split_names=split_names,
+            split_sizes={split_name: len(dataset[split_name]) for split_name in split_names},
+            hugging_face_dataset=dataset,
         )

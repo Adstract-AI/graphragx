@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from pipeline import (
     BuildPipelineConfigurationStep,
     InitialStepResult,
-    LoadKnowledgeGraphDatasetStep,
+    LoadDatasetStep,
     Pipeline,
     PipelineExecutionResult,
     SelectDatasetStep,
@@ -95,7 +95,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 relation_embedding_model=resolved_config.relation_embedding_model,
                 entity_embedding_model=resolved_config.entity_embedding_model,
             ),
-            LoadKnowledgeGraphDatasetStep(),
+            LoadDatasetStep(),
         ],
         evaluation_steps=[],
         force_all_default=resolved_config.force_all_default,
