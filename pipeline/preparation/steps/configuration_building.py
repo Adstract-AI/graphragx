@@ -8,24 +8,34 @@ from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import (
     InvalidAssistantLlmSelectionException,
     InvalidContextConstructionSelectionException,
-    InvalidGnnArchitectureSelectionException,
+    InvalidEntityEmbeddingModelSelectionException,
+    InvalidGnnLayerCountSelectionException,
     InvalidInteractiveConfigurationInputException,
     InvalidMainLlmSelectionException,
+    InvalidNodeClassifierSelectionException,
+    InvalidQuestionEmbeddingModelSelectionException,
+    InvalidRelationEmbeddingModelSelectionException,
     InvalidSubgraphConstructionSelectionException,
 )
 from pipeline.services.selection import SelectionService
 from pipeline.preparation.helpers.configuration_definitions import (
     CONTEXT_CONSTRUCTION_STRATEGIES,
-    GNN_ARCHITECTURES,
+    GNN_LAYER_COUNT_OPTIONS,
+    NODE_CLASSIFIERS,
+    OPENAI_EMBEDDING_MODELS,
     RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
-    RECOMMENDED_GNN_ARCHITECTURE_ID,
+    RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
+    RECOMMENDED_GNN_LAYER_COUNT,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
+    RECOMMENDED_NODE_CLASSIFIER_ID,
+    RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
+    RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
     SHARED_LLM_MODELS,
     SUBGRAPH_CONSTRUCTION_ALGORITHMS,
 )
-from pipeline.preparation.steps.dataset_selection import SelectedKnowledgeGraphDataset
+from pipeline.preparation.steps.dataset_selection import SelectedDataset
 
 
 class PipelineConfigurationInput(BaseModel):
@@ -35,7 +45,11 @@ class PipelineConfigurationInput(BaseModel):
     assistant_llm_model: str | None = Field(default=None)
     subgraph_construction_algorithm: str | None = Field(default=None)
     context_construction_strategy: str | None = Field(default=None)
-    gnn_architecture: str | None = Field(default=None)
+    gnn_layer_count: int | None = Field(default=None)
+    node_classifier: str | None = Field(default=None)
+    question_embedding_model: str | None = Field(default=None)
+    relation_embedding_model: str | None = Field(default=None)
+    entity_embedding_model: str | None = Field(default=None)
 
 
 class BuiltPipelineConfiguration(StepResult):
@@ -50,11 +64,21 @@ class BuiltPipelineConfiguration(StepResult):
     context_construction_strategy: str = Field(
         ..., description="Selected context construction strategy id."
     )
-    gnn_architecture: str = Field(..., description="Selected GNN architecture id.")
+    gnn_layer_count: int = Field(..., description="Selected number of GNN layers.")
+    node_classifier: str = Field(..., description="Selected node classifier id.")
+    question_embedding_model: str = Field(
+        ..., description="OpenAI embedding model for question text."
+    )
+    relation_embedding_model: str = Field(
+        ..., description="OpenAI embedding model for relation text."
+    )
+    entity_embedding_model: str = Field(
+        ..., description="OpenAI embedding model for entity text."
+    )
 
 
 class BuildPipelineConfigurationStep(
-    AbstractStep[BuiltPipelineConfiguration, SelectedKnowledgeGraphDataset]
+    AbstractStep[BuiltPipelineConfiguration, SelectedDataset]
 ):
     """Build the core pipeline configuration after dataset selection."""
 
@@ -64,7 +88,11 @@ class BuildPipelineConfigurationStep(
         assistant_llm_model: str | None = None,
         subgraph_algorithm: str | None = None,
         context_strategy: str | None = None,
-        gnn_architecture: str | None = None,
+        gnn_layer_count: int | None = None,
+        node_classifier: str | None = None,
+        question_embedding_model: str | None = None,
+        relation_embedding_model: str | None = None,
+        entity_embedding_model: str | None = None,
         input_func=None,
         force_default: bool = False,
     ):
@@ -74,13 +102,17 @@ class BuildPipelineConfigurationStep(
             assistant_llm_model=assistant_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
-            gnn_architecture=gnn_architecture,
+            gnn_layer_count=gnn_layer_count,
+            node_classifier=node_classifier,
+            question_embedding_model=question_embedding_model,
+            relation_embedding_model=relation_embedding_model,
+            entity_embedding_model=entity_embedding_model,
         )
         self.selection_service = SelectionService(input_func=input_func)
 
     def execute_default(
         self,
-        context: StepContext[SelectedKnowledgeGraphDataset],
+        context: StepContext[SelectedDataset],
     ) -> BuiltPipelineConfiguration:
         selected_dataset = context.result
         if selected_dataset is None:
@@ -88,14 +120,28 @@ class BuildPipelineConfigurationStep(
                 "Configuration building requires a selected dataset in the incoming context."
             )
 
-        gnn_architecture = self.selection_service.resolve_choice(
-            provided_value=self.configuration_input.gnn_architecture,
-            options=GNN_ARCHITECTURES,
-            prompt_title="GNN Architecture",
-            prompt_help="Select the graph neural network architecture used for knowledge graph modeling.",
-            recommended_id=RECOMMENDED_GNN_ARCHITECTURE_ID,
-            invalid_exception_type=InvalidGnnArchitectureSelectionException,
-            value_getter=lambda item: item.architecture_id,
+        selected_gnn_layer_count = self.selection_service.resolve_choice(
+            provided_value=(
+                str(self.configuration_input.gnn_layer_count)
+                if self.configuration_input.gnn_layer_count is not None
+                else None
+            ),
+            options=GNN_LAYER_COUNT_OPTIONS,
+            prompt_title="GNN Layer Count",
+            prompt_help="Select the number of GNN message-passing layers.",
+            recommended_id=str(RECOMMENDED_GNN_LAYER_COUNT),
+            invalid_exception_type=InvalidGnnLayerCountSelectionException,
+            value_getter=lambda item: str(item.layer_count),
+            label_getter=lambda item: item.display_name,
+        )
+        node_classifier = self.selection_service.resolve_choice(
+            provided_value=self.configuration_input.node_classifier,
+            options=NODE_CLASSIFIERS,
+            prompt_title="Node Classifier",
+            prompt_help="Select the classifier used after the final GNN layer.",
+            recommended_id=RECOMMENDED_NODE_CLASSIFIER_ID,
+            invalid_exception_type=InvalidNodeClassifierSelectionException,
+            value_getter=lambda item: item.classifier_id,
             label_getter=lambda item: item.display_name,
         )
         main_llm_model = self.selection_service.resolve_choice(
@@ -138,6 +184,36 @@ class BuildPipelineConfigurationStep(
             value_getter=lambda item: item.strategy_id,
             label_getter=lambda item: item.display_name,
         )
+        question_embedding_model = self.selection_service.resolve_choice(
+            provided_value=self.configuration_input.question_embedding_model,
+            options=OPENAI_EMBEDDING_MODELS,
+            prompt_title="Question Embedding Model",
+            prompt_help="Select the OpenAI embedding model used for question text.",
+            recommended_id=RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
+            invalid_exception_type=InvalidQuestionEmbeddingModelSelectionException,
+            value_getter=lambda item: item.model_id,
+            label_getter=lambda item: item.display_name,
+        )
+        relation_embedding_model = self.selection_service.resolve_choice(
+            provided_value=self.configuration_input.relation_embedding_model,
+            options=OPENAI_EMBEDDING_MODELS,
+            prompt_title="Relation Embedding Model",
+            prompt_help="Select the OpenAI embedding model used for relation text.",
+            recommended_id=RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
+            invalid_exception_type=InvalidRelationEmbeddingModelSelectionException,
+            value_getter=lambda item: item.model_id,
+            label_getter=lambda item: item.display_name,
+        )
+        entity_embedding_model = self.selection_service.resolve_choice(
+            provided_value=self.configuration_input.entity_embedding_model,
+            options=OPENAI_EMBEDDING_MODELS,
+            prompt_title="Entity Embedding Model",
+            prompt_help="Select the OpenAI embedding model used for entity text.",
+            recommended_id=RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
+            invalid_exception_type=InvalidEntityEmbeddingModelSelectionException,
+            value_getter=lambda item: item.model_id,
+            label_getter=lambda item: item.display_name,
+        )
 
         return BuiltPipelineConfiguration(
             dataset_id=selected_dataset.dataset_id,
@@ -145,5 +221,9 @@ class BuildPipelineConfigurationStep(
             assistant_llm_model=assistant_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
-            gnn_architecture=gnn_architecture,
+            gnn_layer_count=int(selected_gnn_layer_count),
+            node_classifier=node_classifier,
+            question_embedding_model=question_embedding_model,
+            relation_embedding_model=relation_embedding_model,
+            entity_embedding_model=entity_embedding_model,
         )

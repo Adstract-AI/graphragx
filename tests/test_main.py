@@ -63,38 +63,46 @@ class MainEntrypointTests(unittest.TestCase):
             ),
         )
 
-    def test_run_pipeline_returns_success_for_fb15k_237(self) -> None:
+    def test_run_pipeline_returns_success_for_webqsp(self) -> None:
         with self._patch_dataset_loading_step():
             result = main.run_pipeline(
                 config=main.PipelineRuntimeConfig(
-                    dataset="FB15K-237",
+                    dataset="WebQSP",
                     main_llm_model="gpt-5.4",
                     assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
                     context_strategy="textualized",
-                    gnn_architecture="rgcn",
+                    gnn_layer_count=2,
+                    node_classifier="mlp",
+                    question_embedding_model="text-embedding-3-small",
+                    relation_embedding_model="text-embedding-3-small",
+                    entity_embedding_model="text-embedding-3-small",
                 ),
             )
 
         self.assertTrue(result.success)
-        self.assertEqual(result.final_result.dataset_id, "FB15K-237")
+        self.assertEqual(result.final_result.dataset_id, "WebQSP")
         self.assertEqual(result.final_result.triple_count, 2)
 
     def test_main_prints_success_payload_for_full_run(self) -> None:
         with self._patch_dataset_loading_step(), patch("sys.stdout", new_callable=StringIO) as stdout:
             exit_code = main.main([
-                "--dataset", "FB15K-237",
+                "--dataset", "WebQSP",
                 "--main-llm-model", "gpt-5.4",
                 "--assistant-llm-model", "gpt-5.4-mini",
                 "--subgraph-algorithm", "shortest_path",
                 "--context-strategy", "textualized",
-                "--gnn-architecture", "rgcn",
+                "--gnn-layers", "2",
+                "--node-classifier", "mlp",
+                "--question-embedding-model", "text-embedding-3-small",
+                "--relation-embedding-model", "text-embedding-3-small",
+                "--entity-embedding-model", "text-embedding-3-small",
             ])
 
         payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["success"])
-        self.assertEqual(payload["final_result"]["dataset_id"], "FB15K-237")
+        self.assertEqual(payload["final_result"]["dataset_id"], "WebQSP")
         self.assertEqual(payload["final_result"]["triple_count"], 2)
 
     def test_main_returns_error_for_unsupported_dataset(self) -> None:
@@ -105,7 +113,11 @@ class MainEntrypointTests(unittest.TestCase):
                 "--assistant-llm-model", "gpt-5.4-mini",
                 "--subgraph-algorithm", "shortest_path",
                 "--context-strategy", "textualized",
-                "--gnn-architecture", "rgcn",
+                "--gnn-layers", "2",
+                "--node-classifier", "mlp",
+                "--question-embedding-model", "text-embedding-3-small",
+                "--relation-embedding-model", "text-embedding-3-small",
+                "--entity-embedding-model", "text-embedding-3-small",
             ])
 
         payload = self._extract_json_payload(stdout.getvalue())
@@ -113,14 +125,14 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(
             payload["exception_type"],
-            "UnsupportedKnowledgeGraphDatasetException",
+            "UnsupportedDatasetSelectionException",
         )
 
     def test_main_interactively_prompts_missing_configuration_flags(self) -> None:
-        with self._patch_dataset_loading_step(), patch("builtins.input", side_effect=["1", "2", "1", "1", "1"]), patch(
+        with self._patch_dataset_loading_step(), patch("builtins.input", side_effect=["1", "1", "1", "2", "1", "1", "1", "1", "1"]), patch(
             "sys.stdout", new_callable=StringIO
         ) as stdout:
-            exit_code = main.main(["--dataset", "FB15K-237"])
+            exit_code = main.main(["--dataset", "WebQSP"])
 
         payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
@@ -136,7 +148,7 @@ class MainEntrypointTests(unittest.TestCase):
         payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["success"])
-        self.assertEqual(payload["final_result"]["dataset_id"], "FB15K-237")
+        self.assertEqual(payload["final_result"]["dataset_id"], "WebQSP")
         self.assertEqual(payload["final_result"]["triple_count"], 2)
         self.assertEqual(payload["final_result"]["entity_count"], 2)
 
@@ -147,7 +159,7 @@ class MainEntrypointTests(unittest.TestCase):
             )
 
         self.assertTrue(result.success)
-        self.assertEqual(result.final_result.dataset_id, "FB15K-237")
+        self.assertEqual(result.final_result.dataset_id, "WebQSP")
         self.assertEqual(result.final_result.triple_count, 2)
 
     def test_force_default_flag_sets_step_execution_mode_only(self) -> None:

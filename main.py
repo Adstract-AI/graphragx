@@ -14,17 +14,21 @@ from pipeline import (
     LoadKnowledgeGraphDatasetStep,
     Pipeline,
     PipelineExecutionResult,
-    SelectKnowledgeGraphDatasetStep,
+    SelectDatasetStep,
     StepContext,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
     RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
-    RECOMMENDED_GNN_ARCHITECTURE_ID,
+    RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
+    RECOMMENDED_GNN_LAYER_COUNT,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
+    RECOMMENDED_NODE_CLASSIFIER_ID,
+    RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
+    RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
 )
-from pipeline.preparation.helpers.dataset_definitions import FB15K_237_DATASET_ID
+from pipeline.preparation.helpers.dataset_definitions import WEBQSP_DATASET_ID
 
 
 class PipelineRuntimeConfig(BaseModel):
@@ -35,7 +39,11 @@ class PipelineRuntimeConfig(BaseModel):
     assistant_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
-    gnn_architecture: str | None = None
+    gnn_layer_count: int | None = None
+    node_classifier: str | None = None
+    question_embedding_model: str | None = None
+    relation_embedding_model: str | None = None
+    entity_embedding_model: str | None = None
     use_default_config_values: bool = False
     force_all_default: bool = False
 
@@ -46,7 +54,7 @@ class PipelineRuntimeConfig(BaseModel):
 
         return self.model_copy(
             update={
-                "dataset": self.dataset or FB15K_237_DATASET_ID,
+                "dataset": self.dataset or WEBQSP_DATASET_ID,
                 "main_llm_model": self.main_llm_model or RECOMMENDED_MAIN_LLM_MODEL_ID,
                 "assistant_llm_model": self.assistant_llm_model
                 or RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
@@ -54,8 +62,16 @@ class PipelineRuntimeConfig(BaseModel):
                 or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
                 "context_strategy": self.context_strategy
                 or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
-                "gnn_architecture": self.gnn_architecture
-                or RECOMMENDED_GNN_ARCHITECTURE_ID,
+                "gnn_layer_count": self.gnn_layer_count
+                or RECOMMENDED_GNN_LAYER_COUNT,
+                "node_classifier": self.node_classifier
+                or RECOMMENDED_NODE_CLASSIFIER_ID,
+                "question_embedding_model": self.question_embedding_model
+                or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
+                "relation_embedding_model": self.relation_embedding_model
+                or RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
+                "entity_embedding_model": self.entity_embedding_model
+                or RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
             }
         )
 
@@ -65,7 +81,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     resolved_config = config.with_defaulted_user_inputs()
     return Pipeline(
         preparation_steps=[
-            SelectKnowledgeGraphDatasetStep(
+            SelectDatasetStep(
                 requested_dataset=resolved_config.dataset,
             ),
             BuildPipelineConfigurationStep(
@@ -73,7 +89,11 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 assistant_llm_model=resolved_config.assistant_llm_model,
                 subgraph_algorithm=resolved_config.subgraph_algorithm,
                 context_strategy=resolved_config.context_strategy,
-                gnn_architecture=resolved_config.gnn_architecture,
+                gnn_layer_count=resolved_config.gnn_layer_count,
+                node_classifier=resolved_config.node_classifier,
+                question_embedding_model=resolved_config.question_embedding_model,
+                relation_embedding_model=resolved_config.relation_embedding_model,
+                entity_embedding_model=resolved_config.entity_embedding_model,
             ),
             LoadKnowledgeGraphDatasetStep(),
         ],
@@ -116,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset",
         default=None,
-        help="Knowledge graph dataset choice for the current run.",
+        help="Dataset choice for the current run.",
     )
     parser.add_argument(
         "--main-llm-model",
@@ -139,9 +159,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional context construction strategy id for non-interactive configuration.",
     )
     parser.add_argument(
-        "--gnn-architecture",
+        "--gnn-layers",
+        type=int,
         default=None,
-        help="Optional GNN architecture id for non-interactive configuration.",
+        help="Optional number of GNN layers for non-interactive configuration.",
+    )
+    parser.add_argument(
+        "--node-classifier",
+        default=None,
+        help="Optional node classifier id for non-interactive configuration.",
+    )
+    parser.add_argument(
+        "--question-embedding-model",
+        default=None,
+        help="Optional OpenAI embedding model id for question text.",
+    )
+    parser.add_argument(
+        "--relation-embedding-model",
+        default=None,
+        help="Optional OpenAI embedding model id for relation text.",
+    )
+    parser.add_argument(
+        "--entity-embedding-model",
+        default=None,
+        help="Optional OpenAI embedding model id for entity text.",
     )
     parser.add_argument(
         "--default",
@@ -169,7 +210,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         assistant_llm_model=args.assistant_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,
-        gnn_architecture=args.gnn_architecture,
+        gnn_layer_count=args.gnn_layers,
+        node_classifier=args.node_classifier,
+        question_embedding_model=args.question_embedding_model,
+        relation_embedding_model=args.relation_embedding_model,
+        entity_embedding_model=args.entity_embedding_model,
         use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )

@@ -1,19 +1,14 @@
-## Knowledge Graph Dataset Standardization
+## WebQSP Local Graph Construction
 
-The goal of this step is to transform raw knowledge graph data into a structured and consistent format suitable for GNN training and downstream retrieval.
+This step converts each WebQSP example into a local graph object for training or inference. It does not standardize a global KG yet.
 
-Raw knowledge graphs are typically provided as triples of the form (head, relation, tail). These must be converted into a unified graph representation.
+For each example, collect every unique head and tail entity from the `graph` triples, map those entity strings to local integer node IDs, and convert each triple into a directed edge.
 
-This involves:
-- Assigning unique IDs to all entities (nodes)
-- Constructing directed edges while preserving relation types
-- Creating mappings for relation types (and optionally node types)
-- Defining node representations (e.g., entity names, types, or textual descriptors)
-- Optionally adding structural enhancements such as reverse edges
+The output for each example should include:
+- local node ID mapping
+- `edge_index`
+- relation text per edge
+- binary node labels where answer entities are labeled `1`
+- question text and topic entities carried alongside the graph
 
-The output is a graph object consisting of:
-- Nodes (entities)
-- Typed edges (relations)
-- Supporting mappings and metadata
-
-This standardized graph becomes the direct input for GNN training and enables consistent handling of structure across the entire pipeline.
+Node labels are created from `a_entity`: every local node whose entity string is in `a_entity` is positive, and every other local node is negative.

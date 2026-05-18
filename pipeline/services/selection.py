@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TypeVar
 
 from pipeline.services.abstract import AbstractService
+
+SelectionOption = TypeVar("SelectionOption")
 
 
 class SelectionService(AbstractService):
@@ -21,13 +24,13 @@ class SelectionService(AbstractService):
     def resolve_choice(
         self,
         provided_value: str | None,
-        options: dict[str, object],
+        options: dict[str, SelectionOption],
         prompt_title: str,
         prompt_help: str,
         recommended_id: str,
         invalid_exception_type: type[Exception],
-        value_getter: Callable[[object], str],
-        label_getter: Callable[[object], str],
+        value_getter: Callable[[SelectionOption], str],
+        label_getter: Callable[[SelectionOption], str],
     ) -> str:
         """Return a validated constructor value or interactively prompt for one."""
         if provided_value is not None:
@@ -47,12 +50,12 @@ class SelectionService(AbstractService):
 
     def prompt_for_choice(
         self,
-        options: dict[str, object],
+        options: dict[str, SelectionOption],
         prompt_title: str,
         prompt_help: str,
         recommended_id: str,
-        value_getter: Callable[[object], str],
-        label_getter: Callable[[object], str],
+        value_getter: Callable[[SelectionOption], str],
+        label_getter: Callable[[SelectionOption], str],
         invalid_exception_type: type[Exception],
     ) -> str:
         """Prompt interactively until a valid numbered choice is selected."""

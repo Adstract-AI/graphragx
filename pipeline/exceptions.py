@@ -13,8 +13,8 @@ class StepNotImplementedException(PipelineException):
     """Raised when a required step method is not implemented."""
 
 
-class UnsupportedKnowledgeGraphDatasetException(PipelineException):
-    """Raised when a preparation run requests an unsupported KG dataset."""
+class UnsupportedDatasetSelectionException(PipelineException):
+    """Raised when a preparation run requests an unsupported dataset."""
 
 
 class InvalidMainLlmSelectionException(PipelineException):
@@ -33,8 +33,24 @@ class InvalidContextConstructionSelectionException(PipelineException):
     """Raised when an invalid context construction option is provided."""
 
 
-class InvalidGnnArchitectureSelectionException(PipelineException):
-    """Raised when an invalid GNN architecture option is provided."""
+class InvalidGnnLayerCountSelectionException(PipelineException):
+    """Raised when an invalid GNN layer count option is provided."""
+
+
+class InvalidNodeClassifierSelectionException(PipelineException):
+    """Raised when an invalid node classifier option is provided."""
+
+
+class InvalidQuestionEmbeddingModelSelectionException(PipelineException):
+    """Raised when an invalid question embedding model option is provided."""
+
+
+class InvalidRelationEmbeddingModelSelectionException(PipelineException):
+    """Raised when an invalid relation embedding model option is provided."""
+
+
+class InvalidEntityEmbeddingModelSelectionException(PipelineException):
+    """Raised when an invalid entity embedding model option is provided."""
 
 
 class InvalidInteractiveConfigurationInputException(PipelineException):
@@ -54,7 +70,7 @@ class UnsupportedKnowledgeGraphDatasetLoaderException(PipelineException):
 
 
 class KnowledgeGraphDatasetLoadingException(PipelineException):
-    """Raised when loading a knowledge graph dataset fails."""
+    """Raised when dataset loading fails."""
 
 
 class MalformedKnowledgeGraphDatasetException(PipelineException):

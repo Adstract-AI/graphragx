@@ -1,102 +1,98 @@
 # Pipeline Overview
 
-This file connects the step summaries across the two main phases of the project and shows how outputs from one step become inputs to the next.
+This file connects the step summaries across the training and evaluation flow.
 
-For the actual implementation-oriented description of each step, use the linked summary files below.
+## Core Idea
 
-## Preparation Phase
+WebQSP is the central dataset. Each example already contains a question-specific graph, so the pipeline does not train on a separate Freebase KG and does not build a new local subgraph for the benchmark.
 
-### 1. Knowledge Graph Dataset Scope
+The GNN is an answer-entity retriever. The LLM receives shortest reasoning paths for the retrieved candidates and produces the final answer.
 
-This step defines the graph dataset that acts as the structured world of the system. It establishes the base knowledge source used by all later retrieval and reasoning steps.
+## Training Stage
 
-See: [1_knowledge_graph_dataset_scope.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/preparation/1_knowledge_graph_dataset_scope.md)
+### 1. WebQSP Dataset Scope
 
-### 2. Knowledge Graph Dataset Standardization
+Select and load WebQSP examples with `question`, `q_entity`, `a_entity`, and `graph`.
 
-This step converts the raw graph data into a consistent internal representation. The resulting standardized graph becomes the main structural artifact used throughout the pipeline.
+See: [1_knowledge_graph_dataset_scope.md](preparation/1_knowledge_graph_dataset_scope.md)
 
-See: [2_knowledge_graph_dataset_standardization.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/preparation/2_knowledge_graph_dataset_standardization.md)
+### 2. WebQSP Local Graph Construction
 
-### 3. Train GNN and Graph Embeddings
+Convert each example's `graph` triples into a local graph with node IDs, edges, relation texts, and answer-node labels.
 
-This step learns graph-based representations from the standardized graph. Its outputs power the retrieval stage during evaluation.
+See: [2_knowledge_graph_dataset_standardization.md](preparation/2_knowledge_graph_dataset_standardization.md)
 
-See: [3_train_gnn_and_graph_embeddings.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/preparation/3_train_gnn_and_graph_embeddings.md)
+### 3. Train GNN Answer Retriever
 
-## Bridge Between Phases
+Train a node classifier that ranks answer entities inside each WebQSP local graph using entity embeddings, relation embeddings, and question-relation edge weights.
 
-The preparation phase produces the main reusable assets of the system: the standardized graph, the trained GNN, and the learned node embeddings.
+See: [3_train_gnn_and_graph_embeddings.md](preparation/3_train_gnn_and_graph_embeddings.md)
 
-The evaluation phase consumes those assets to process questions, retrieve relevant graph context, generate answers, and measure system performance.
+## Evaluation Stage
 
-## Evaluation Phase
+### 1. WebQSP Test Dataset Scope
 
-### 1. Question-Answer Dataset Scope
+Load WebQSP test examples; `a_entity` is used only for evaluation metrics.
 
-This step defines the QA dataset used to probe the graph with questions. It provides the evaluation side of the pipeline.
+See: [1_question_answer_dataset_scope.md](evaluation/1_question_answer_dataset_scope.md)
 
-See: [1_question_answer_dataset_scope.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/evaluation/1_question_answer_dataset_scope.md)
+### 2. WebQSP Test Example Preparation
 
-### 2. Question-Answer Dataset Standardization
+Build the same local graph representation used during training.
 
-This step normalizes the QA dataset into a form that can be passed through the inference pipeline consistently. It aligns the question-side data with the graph-side representation.
+See: [2_question_answer_dataset_standardization.md](evaluation/2_question_answer_dataset_standardization.md)
 
-See: [2_question_answer_dataset_standardization.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/evaluation/2_question_answer_dataset_standardization.md)
+### 3. Question and Relation Signal Preparation
 
-### 3. Query Transformation
+Embed the question, embed relations, and compute question-relation edge weights.
 
-This step converts natural language questions into graph-aligned query signals. It is the first direct bridge from language input into graph retrieval.
+See: [3_query_transformation.md](evaluation/3_query_transformation.md)
 
-See: [3_query_transformation.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/evaluation/3_query_transformation.md)
+### 4. GNN Candidate Answer Retrieval
 
-### 4. GNN Retrieval
+Use the trained GNN to rank candidate answer nodes and select top-k candidates.
 
-This step uses the learned graph representations to retrieve relevant candidate nodes. It narrows the large graph down to the most promising region for the current question.
+See: [4_gnn_retrieval.md](evaluation/4_gnn_retrieval.md)
 
-See: [4_gnn_retrieval.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/evaluation/4_gnn_retrieval.md)
+### 5. Reasoning Path Extraction
 
-### 5. Subgraph Construction
+Find shortest paths from `q_entity` to each candidate using the synthetic global KG, with local graph fallback.
 
-This step turns the retrieved candidates into a compact question-specific subgraph. That subgraph becomes the structured reasoning context for the rest of the flow.
+See: [5_subgraph_construction.md](evaluation/5_subgraph_construction.md)
 
-See: [5_subgraph_construction.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/evaluation/5_subgraph_construction.md)
+### 6. Reasoning Path Verbalization
 
-### 6. Context Building / Textualization
+Turn extracted paths into compact text evidence for the LLM.
 
-This step translates the subgraph into a language form that the LLM can reason over. It connects structured graph evidence with language-based inference.
-
-See: [6_textualization.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/evaluation/6_textualization.md)
+See: [6_textualization.md](evaluation/6_textualization.md)
 
 ### 7. LLM Query
 
-This step combines the original question with the textualized context and asks the LLM for an answer. It is the main answer-generation step of the pipeline.
+Ask the LLM to answer using only the original question and the verbalized reasoning paths.
 
-See: [7_llm_query.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/evaluation/7_llm_query.md)
+See: [7_llm_query.md](evaluation/7_llm_query.md)
 
-### 8. Answer and Explanation Output
+### 8. Answer and Reasoning Output
 
-This step formats the final response and optionally provides supporting explanation. It makes the output easier to inspect and analyze.
+Return the final answer with the reasoning paths used as evidence.
 
-See: [8_answer_and_explanation.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/evaluation/8_answer_and_explanation.md)
+See: [8_answer_and_explanation.md](evaluation/8_answer_and_explanation.md)
 
 ### 9. Evaluation
 
-This step measures retrieval quality, answer quality, grounding, explanation quality, and efficiency. It closes the loop by assessing how well the full pipeline performs.
+Measure GNN retrieval, path extraction, final answer quality, and grounding.
 
-See: [9_evaluation.md](/Users/itonkdong/Work/Fax/NLP/project/graphragx/steps_summary/evaluation/9_evaluation.md)
+See: [9_evaluation.md](evaluation/9_evaluation.md)
 
 ## End-to-End Flow
 
-`KG definition`
-→ `KG standardization`
-→ `GNN training and embeddings`
-→ `QA definition`
-→ `QA standardization`
-→ `query transformation`
-→ `retrieval`
-→ `subgraph construction`
-→ `textualization`
-→ `LLM answering`
-→ `answer/explanation output`
-→ `evaluation`
+`WebQSP train examples`
+-> `local graph construction`
+-> `GNN answer-retriever training`
+-> `WebQSP test example`
+-> `question/relation signals`
+-> `GNN candidate retrieval`
+-> `shortest reasoning paths`
+-> `path verbalization`
+-> `LLM final answer`
+-> `evaluation`

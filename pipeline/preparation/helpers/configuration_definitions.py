@@ -37,14 +37,35 @@ class ContextConstructionDefinition(BaseModel):
     description: str = Field(..., description="Short description of the context strategy.")
 
 
-class GnnArchitectureDefinition(BaseModel):
-    """Typed definition of an available GNN architecture option."""
+class GnnLayerCountDefinition(BaseModel):
+    """Typed definition of an available GNN layer count option."""
 
     model_config = ConfigDict(frozen=True)
 
-    architecture_id: str = Field(..., description="Stable GNN architecture identifier.")
-    display_name: str = Field(..., description="Human-readable GNN architecture name.")
-    description: str = Field(..., description="Short description of the GNN architecture.")
+    layer_count: int = Field(..., description="Number of GNN message-passing layers.")
+    display_name: str = Field(..., description="Human-readable layer count label.")
+    description: str = Field(..., description="Short description of the layer setting.")
+
+
+class NodeClassifierDefinition(BaseModel):
+    """Typed definition of an available node classifier option."""
+
+    model_config = ConfigDict(frozen=True)
+
+    classifier_id: str = Field(..., description="Stable node classifier identifier.")
+    display_name: str = Field(..., description="Human-readable classifier name.")
+    description: str = Field(..., description="Short description of the classifier.")
+
+
+class OpenAiEmbeddingModelDefinition(BaseModel):
+    """Typed definition of an available OpenAI embedding model option."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model_id: str = Field(..., description="Stable OpenAI embedding model identifier.")
+    display_name: str = Field(..., description="Human-readable embedding model name.")
+    dimensions: int = Field(..., description="Default embedding vector dimension.")
+    description: str = Field(..., description="Short description of the embedding model.")
 
 
 SHARED_LLM_MODELS: Final[dict[str, LlmModelDefinition]] = {
@@ -106,11 +127,50 @@ CONTEXT_CONSTRUCTION_STRATEGIES: Final[dict[str, ContextConstructionDefinition]]
     ),
 }
 
-GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
-    "rgcn": GnnArchitectureDefinition(
-        architecture_id="rgcn",
-        display_name="R-GCN",
-        description="Relational Graph Convolutional Network for multi-relational knowledge graphs.",
+GNN_LAYER_COUNT_OPTIONS: Final[dict[str, GnnLayerCountDefinition]] = {
+    "2": GnnLayerCountDefinition(
+        layer_count=2,
+        display_name="2 GNN layers",
+        description="A compact message-passing depth for the first retriever baseline.",
+    ),
+    "3": GnnLayerCountDefinition(
+        layer_count=3,
+        display_name="3 GNN layers",
+        description="A deeper message-passing depth for slightly broader local context.",
+    ),
+}
+
+NODE_CLASSIFIERS: Final[dict[str, NodeClassifierDefinition]] = {
+    "mlp": NodeClassifierDefinition(
+        classifier_id="mlp",
+        display_name="MLP node classifier",
+        description="A two-layer classifier over final node hidden states.",
+    ),
+    "linear": NodeClassifierDefinition(
+        classifier_id="linear",
+        display_name="Linear node classifier",
+        description="A single linear classifier over final node hidden states.",
+    ),
+}
+
+OPENAI_EMBEDDING_MODELS: Final[dict[str, OpenAiEmbeddingModelDefinition]] = {
+    "text-embedding-3-small": OpenAiEmbeddingModelDefinition(
+        model_id="text-embedding-3-small",
+        display_name="text-embedding-3-small",
+        dimensions=1536,
+        description="Small OpenAI embedding model for cost-efficient text embeddings.",
+    ),
+    "text-embedding-3-large": OpenAiEmbeddingModelDefinition(
+        model_id="text-embedding-3-large",
+        display_name="text-embedding-3-large",
+        dimensions=3072,
+        description="Most capable OpenAI embedding model for text embeddings.",
+    ),
+    "text-embedding-ada-002": OpenAiEmbeddingModelDefinition(
+        model_id="text-embedding-ada-002",
+        display_name="text-embedding-ada-002",
+        dimensions=1536,
+        description="Older OpenAI embedding model kept as a compatibility option.",
     ),
 }
 
@@ -118,4 +178,8 @@ RECOMMENDED_MAIN_LLM_MODEL_ID: Final[str] = "gpt-5.4"
 RECOMMENDED_ASSISTANT_LLM_MODEL_ID: Final[str] = "gpt-5.4-mini"
 RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID: Final[str] = "shortest_path"
 RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID: Final[str] = "textualized"
-RECOMMENDED_GNN_ARCHITECTURE_ID: Final[str] = "rgcn"
+RECOMMENDED_GNN_LAYER_COUNT: Final[int] = 2
+RECOMMENDED_NODE_CLASSIFIER_ID: Final[str] = "mlp"
+RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"
+RECOMMENDED_RELATION_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"
+RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"

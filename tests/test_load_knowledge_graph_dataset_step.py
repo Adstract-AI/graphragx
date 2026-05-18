@@ -1,17 +1,13 @@
-"""Tests for preparation-time knowledge graph dataset loading."""
+"""Tests for preparation-time dataset loading."""
 
-import sys
 import unittest
 from unittest.mock import patch
 
 import main
 from pipeline import (
     BuiltPipelineConfiguration,
-    KnowledgeGraphDatasetLoadingException,
     LoadKnowledgeGraphDatasetStep,
     MalformedKnowledgeGraphDatasetException,
-    MissingTorchDependencyException,
-    MissingTorchGeometricDependencyException,
     Pipeline,
     StepContext,
     UnsupportedKnowledgeGraphDatasetLoaderException,
@@ -61,7 +57,7 @@ class FakeLoaderService(AbstractDatasetLoaderService):
 class LoadKnowledgeGraphDatasetStepTests(unittest.TestCase):
     @staticmethod
     def make_configuration_context(
-        dataset_id: str = "FB15K-237",
+        dataset_id: str = "WebQSP",
     ) -> StepContext[BuiltPipelineConfiguration]:
         return StepContext(
             result=BuiltPipelineConfiguration(
@@ -70,7 +66,11 @@ class LoadKnowledgeGraphDatasetStepTests(unittest.TestCase):
                 assistant_llm_model="gpt-5.4-mini",
                 subgraph_construction_algorithm="shortest_path",
                 context_construction_strategy="textualized",
-                gnn_architecture="rgcn",
+                gnn_layer_count=2,
+                node_classifier="mlp",
+                question_embedding_model="text-embedding-3-small",
+                relation_embedding_model="text-embedding-3-small",
+                entity_embedding_model="text-embedding-3-small",
             )
         )
 
@@ -79,8 +79,8 @@ class LoadKnowledgeGraphDatasetStepTests(unittest.TestCase):
 
         result = step.execute(self.make_configuration_context())
 
-        self.assertEqual(result.dataset_id, "FB15K-237")
-        self.assertEqual(result.dataset_family, "knowledge_graph")
+        self.assertEqual(result.dataset_id, "WebQSP")
+        self.assertEqual(result.dataset_family, "question_answering")
         self.assertEqual(result.entity_count, 3)
         self.assertEqual(result.relation_count, 2)
         self.assertEqual(result.triple_count, 3)
@@ -95,7 +95,7 @@ class LoadKnowledgeGraphDatasetStepTests(unittest.TestCase):
 
         result = step.execute(self.make_configuration_context())
 
-        self.assertEqual(result.dataset_id, "FB15K-237")
+        self.assertEqual(result.dataset_id, "WebQSP")
 
     def test_unsupported_dataset_raises(self) -> None:
         step = LoadKnowledgeGraphDatasetStep(loader_service=FakeLoaderService())
@@ -136,79 +136,32 @@ class LoadKnowledgeGraphDatasetStepTests(unittest.TestCase):
         with patch("main.LoadKnowledgeGraphDatasetStep", return_value=LoadKnowledgeGraphDatasetStep(loader_service=fake_loader)):
             result = main.run_pipeline(
                 config=main.PipelineRuntimeConfig(
-                    dataset="FB15K-237",
+                    dataset="WebQSP",
                     main_llm_model="gpt-5.4",
                     assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
                     context_strategy="textualized",
-                    gnn_architecture="rgcn",
+                    gnn_layer_count=2,
+                    node_classifier="mlp",
+                    question_embedding_model="text-embedding-3-small",
+                    relation_embedding_model="text-embedding-3-small",
+                    entity_embedding_model="text-embedding-3-small",
                 ),
             )
 
         self.assertTrue(result.success)
         self.assertEqual(result.steps_executed, 3)
-        self.assertEqual(result.final_result.dataset_id, "FB15K-237")
+        self.assertEqual(result.final_result.dataset_id, "WebQSP")
 
 
 class TorchGeometricLoaderServiceTests(unittest.TestCase):
-    def test_missing_torch_raises_dedicated_exception(self) -> None:
-        from pipeline.services.dataset_loader import TorchGeometricKnowledgeGraphLoaderService
-
-        service = TorchGeometricKnowledgeGraphLoaderService()
-        try:
-            original_torch_module = sys.modules.pop("torch", None)
-            with self.assertRaises(
-                (MissingTorchDependencyException, MissingTorchGeometricDependencyException)
-            ):
-                service.load_dataset("FB15K-237")
-        finally:
-            if original_torch_module is not None:
-                sys.modules["torch"] = original_torch_module
-
-    def test_missing_torch_geometric_raises_dedicated_exception(self) -> None:
+    def test_torch_geometric_loader_reports_unsupported_webqsp_loading(self) -> None:
         from pipeline.services.dataset_loader import TorchGeometricKnowledgeGraphLoaderService
 
         service = TorchGeometricKnowledgeGraphLoaderService()
 
-        import builtins
-        original_import = builtins.__import__
-
-        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "torch":
-                return object()
-            if name == "torch_geometric.datasets":
-                raise ModuleNotFoundError("No module named 'torch_geometric'")
-            return original_import(name, globals, locals, fromlist, level)
-
-        with patch("builtins.__import__", side_effect=fake_import):
-            with self.assertRaises(MissingTorchGeometricDependencyException):
-                service.load_dataset("FB15K-237")
-
-    def test_loader_failure_raises_dataset_loading_exception(self) -> None:
-        from pipeline.services.dataset_loader import TorchGeometricKnowledgeGraphLoaderService
-
-        class BrokenDatasetClass:
-            def __init__(self, root: str):
-                raise RuntimeError("broken")
-
-        class FakeDatasetModule:
-            FB15k_237 = BrokenDatasetClass
-
-        service = TorchGeometricKnowledgeGraphLoaderService()
-
-        import builtins
-        original_import = builtins.__import__
-
-        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "torch":
-                return object()
-            if name == "torch_geometric.datasets":
-                return FakeDatasetModule()
-            return original_import(name, globals, locals, fromlist, level)
-
-        with patch("builtins.__import__", side_effect=fake_import):
-            with self.assertRaises(KnowledgeGraphDatasetLoadingException):
-                service.load_dataset("FB15K-237")
+        with self.assertRaises(UnsupportedKnowledgeGraphDatasetLoaderException):
+            service.load_dataset("WebQSP")
 
 
 if __name__ == "__main__":

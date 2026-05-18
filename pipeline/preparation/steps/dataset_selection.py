@@ -1,4 +1,4 @@
-"""Knowledge graph dataset selection for the preparation pipeline."""
+"""Dataset selection for the preparation pipeline."""
 
 from __future__ import annotations
 
@@ -7,17 +7,17 @@ from collections.abc import Callable
 from pydantic import Field
 
 from pipeline.abstract import AbstractStep, StepContext, StepResult
-from pipeline.exceptions import UnsupportedKnowledgeGraphDatasetException
+from pipeline.exceptions import UnsupportedDatasetSelectionException
 from pipeline.models import InitialStepResult
 from pipeline.preparation.helpers.dataset_definitions import (
-    FB15K_237_DATASET_ID,
-    KNOWLEDGE_GRAPH_DATASETS,
+    PIPELINE_DATASETS,
+    WEBQSP_DATASET_ID,
 )
 from pipeline.services.selection import SelectionService
 
 
-class SelectedKnowledgeGraphDataset(StepResult):
-    """Metadata-only result describing the selected KG dataset."""
+class SelectedDataset(StepResult):
+    """Metadata-only result describing the selected dataset."""
 
     dataset_id: str = Field(..., description="Stable identifier of the selected dataset.")
     display_name: str = Field(..., description="Human-readable dataset name.")
@@ -27,10 +27,10 @@ class SelectedKnowledgeGraphDataset(StepResult):
     supported: bool = Field(..., description="Whether the dataset is currently supported.")
 
 
-class SelectKnowledgeGraphDatasetStep(
-    AbstractStep[SelectedKnowledgeGraphDataset, InitialStepResult]
+class SelectDatasetStep(
+    AbstractStep[SelectedDataset, InitialStepResult]
 ):
-    """Select the knowledge graph dataset for the preparation pipeline."""
+    """Select the dataset for the preparation pipeline."""
 
     def __init__(
         self,
@@ -45,24 +45,24 @@ class SelectKnowledgeGraphDatasetStep(
     def execute_default(
         self,
         context: StepContext[InitialStepResult],
-    ) -> SelectedKnowledgeGraphDataset:
+    ) -> SelectedDataset:
         requested_dataset = self.selection_service.resolve_choice(
             provided_value=self.requested_dataset,
-            options=KNOWLEDGE_GRAPH_DATASETS,
-            prompt_title="Knowledge Graph Dataset",
-            prompt_help="Select the dataset used as the knowledge graph world for the pipeline.",
-            recommended_id=FB15K_237_DATASET_ID,
-            invalid_exception_type=UnsupportedKnowledgeGraphDatasetException,
+            options=PIPELINE_DATASETS,
+            prompt_title="Dataset",
+            prompt_help="Select the dataset used for local-graph QA training and evaluation.",
+            recommended_id=WEBQSP_DATASET_ID,
+            invalid_exception_type=UnsupportedDatasetSelectionException,
             value_getter=lambda item: item.dataset_id,
             label_getter=lambda item: item.display_name,
         )
-        dataset_definition = KNOWLEDGE_GRAPH_DATASETS.get(requested_dataset)
-        if dataset_definition is None or dataset_definition.dataset_id != FB15K_237_DATASET_ID:
-            raise UnsupportedKnowledgeGraphDatasetException(
-                f"Unsupported knowledge graph dataset: {requested_dataset}"
+        dataset_definition = PIPELINE_DATASETS.get(requested_dataset)
+        if dataset_definition is None or dataset_definition.dataset_id != WEBQSP_DATASET_ID:
+            raise UnsupportedDatasetSelectionException(
+                f"Unsupported dataset: {requested_dataset}"
             )
 
-        return SelectedKnowledgeGraphDataset(
+        return SelectedDataset(
             dataset_id=dataset_definition.dataset_id,
             display_name=dataset_definition.display_name,
             dataset_family=dataset_definition.dataset_family,
