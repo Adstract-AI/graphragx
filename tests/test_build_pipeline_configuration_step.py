@@ -37,6 +37,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             subgraph_algorithm="shortest_path",
             context_strategy="textualized",
             gnn_layer_count=2,
+            gnn_hidden_dimension=256,
             node_classifier="mlp",
             question_embedding_model="text-embedding-3-small",
             relation_embedding_model="text-embedding-3-small",
@@ -68,6 +69,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             main_llm_model="gpt-5.4",
             subgraph_algorithm="shortest_path",
             gnn_layer_count=2,
+            gnn_hidden_dimension=256,
             node_classifier="mlp",
             question_embedding_model="text-embedding-3-small",
             relation_embedding_model="text-embedding-3-small",
@@ -86,12 +88,13 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(len(prompts), 2)
 
     def test_fully_interactive_path_works(self) -> None:
-        answers = iter(["1", "1", "1", "2", "1", "2", "1", "1", "1"])
+        answers = iter(["1", "2", "1", "1", "2", "1", "2", "1", "1", "1"])
 
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
         result = step.execute(self.make_dataset_context())
 
         self.assertEqual(result.gnn_layer_count, 2)
+        self.assertEqual(result.gnn_hidden_dimension, 256)
         self.assertEqual(result.node_classifier, "mlp")
         self.assertEqual(result.main_llm_model, "gpt-5.4")
         self.assertEqual(result.assistant_llm_model, "gpt-5.4-mini")
@@ -108,6 +111,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             subgraph_algorithm="shortest_path",
             context_strategy="textualized",
             gnn_layer_count=2,
+            gnn_hidden_dimension=256,
             node_classifier="mlp",
             question_embedding_model="text-embedding-3-small",
             relation_embedding_model="text-embedding-3-small",
@@ -124,6 +128,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             subgraph_algorithm="shortest_path",
             context_strategy="textualized",
             gnn_layer_count=2,
+            gnn_hidden_dimension=256,
             node_classifier="mlp",
             question_embedding_model="text-embedding-3-small",
             relation_embedding_model="text-embedding-3-small",
@@ -140,6 +145,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             subgraph_algorithm="invalid",
             context_strategy="textualized",
             gnn_layer_count=2,
+            gnn_hidden_dimension=256,
             node_classifier="mlp",
             question_embedding_model="text-embedding-3-small",
             relation_embedding_model="text-embedding-3-small",
@@ -156,6 +162,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             subgraph_algorithm="shortest_path",
             context_strategy="invalid",
             gnn_layer_count=2,
+            gnn_hidden_dimension=256,
             node_classifier="mlp",
             question_embedding_model="text-embedding-3-small",
             relation_embedding_model="text-embedding-3-small",
@@ -172,6 +179,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             subgraph_algorithm="shortest_path",
             context_strategy="textualized",
             gnn_layer_count=9,
+            gnn_hidden_dimension=256,
             node_classifier="mlp",
             question_embedding_model="text-embedding-3-small",
             relation_embedding_model="text-embedding-3-small",
@@ -188,6 +196,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             subgraph_algorithm="shortest_path",
             context_strategy="textualized",
             gnn_layer_count=2,
+            gnn_hidden_dimension=256,
             node_classifier="invalid",
             question_embedding_model="text-embedding-3-small",
             relation_embedding_model="text-embedding-3-small",
@@ -204,6 +213,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             subgraph_algorithm="shortest_path",
             context_strategy="textualized",
             gnn_layer_count=2,
+            gnn_hidden_dimension=256,
             node_classifier="mlp",
             question_embedding_model="text-embedding-3-small",
             relation_embedding_model="text-embedding-3-small",
@@ -214,7 +224,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             step.execute(self.make_dataset_context())
 
     def test_interactive_invalid_numeric_input_reprompts(self) -> None:
-        answers = iter(["abc", "1", "1", "1", "2", "1", "1", "1", "1", "1"])
+        answers = iter(["abc", "1", "2", "1", "1", "2", "1", "1", "1", "1", "1"])
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
 
         result = step.execute(self.make_dataset_context())
@@ -222,7 +232,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.gnn_layer_count, 2)
 
     def test_interactive_out_of_range_input_reprompts(self) -> None:
-        answers = iter(["99", "1", "1", "1", "2", "1", "1", "1", "1", "1"])
+        answers = iter(["99", "1", "2", "1", "1", "2", "1", "1", "1", "1", "1"])
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
 
         result = step.execute(self.make_dataset_context())
@@ -238,6 +248,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
                     subgraph_algorithm="shortest_path",
                     context_strategy="textualized",
                     gnn_layer_count=2,
+                    gnn_hidden_dimension=256,
                     node_classifier="mlp",
                     question_embedding_model="text-embedding-3-small",
                     relation_embedding_model="text-embedding-3-small",

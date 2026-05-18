@@ -11,6 +11,8 @@ from pipeline.preparation.helpers.dataset_definitions import (
 from pipeline.preparation.helpers.configuration_definitions import (
     CONTEXT_CONSTRUCTION_STRATEGIES,
     ContextConstructionDefinition,
+    GNN_HIDDEN_DIMENSION_OPTIONS,
+    GnnHiddenDimensionDefinition,
     GNN_LAYER_COUNT_OPTIONS,
     GnnLayerCountDefinition,
     LlmModelDefinition,
@@ -21,6 +23,7 @@ from pipeline.preparation.helpers.configuration_definitions import (
     RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
+    RECOMMENDED_GNN_HIDDEN_DIMENSION,
     RECOMMENDED_GNN_LAYER_COUNT,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
     RECOMMENDED_NODE_CLASSIFIER_ID,
@@ -44,9 +47,17 @@ from pipeline.preparation.steps.dataset_loading import (
     LoadDatasetStep,
     LoadedDataset,
 )
+from pipeline.preparation.steps.gnn_model_building import (
+    BuildGnnAnswerRetrieverContext,
+    BuildGnnAnswerRetrieverStep,
+    BuiltGnnAnswerRetriever,
+)
 
 __all__ = [
+    "BuildGnnAnswerRetrieverContext",
+    "BuildGnnAnswerRetrieverStep",
     "BuildPipelineConfigurationStep",
+    "BuiltGnnAnswerRetriever",
     "BuiltPipelineConfiguration",
     "CONTEXT_CONSTRUCTION_STRATEGIES",
     "ContextConstructionDefinition",
@@ -54,6 +65,8 @@ __all__ = [
     "DATASET_LOADERS",
     "DatasetDefinition",
     "DatasetLoaderDefinition",
+    "GNN_HIDDEN_DIMENSION_OPTIONS",
+    "GnnHiddenDimensionDefinition",
     "GNN_LAYER_COUNT_OPTIONS",
     "GnnLayerCountDefinition",
     "LoadedDataset",
@@ -68,6 +81,7 @@ __all__ = [
     "RECOMMENDED_ASSISTANT_LLM_MODEL_ID",
     "RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID",
     "RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID",
+    "RECOMMENDED_GNN_HIDDEN_DIMENSION",
     "RECOMMENDED_GNN_LAYER_COUNT",
     "RECOMMENDED_MAIN_LLM_MODEL_ID",
     "RECOMMENDED_NODE_CLASSIFIER_ID",

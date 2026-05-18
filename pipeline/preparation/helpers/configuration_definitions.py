@@ -47,6 +47,22 @@ class GnnLayerCountDefinition(BaseModel):
     description: str = Field(..., description="Short description of the layer setting.")
 
 
+class GnnHiddenDimensionDefinition(BaseModel):
+    """Typed definition of an available GNN hidden dimension option."""
+
+    model_config = ConfigDict(frozen=True)
+
+    hidden_dimension: int = Field(
+        ...,
+        description="Width of projected node states inside the GNN.",
+    )
+    display_name: str = Field(..., description="Human-readable hidden dimension label.")
+    description: str = Field(
+        ...,
+        description="Short description of the hidden dimension setting.",
+    )
+
+
 class NodeClassifierDefinition(BaseModel):
     """Typed definition of an available node classifier option."""
 
@@ -140,6 +156,24 @@ GNN_LAYER_COUNT_OPTIONS: Final[dict[str, GnnLayerCountDefinition]] = {
     ),
 }
 
+GNN_HIDDEN_DIMENSION_OPTIONS: Final[dict[str, GnnHiddenDimensionDefinition]] = {
+    "128": GnnHiddenDimensionDefinition(
+        hidden_dimension=128,
+        display_name="128 hidden dimensions",
+        description="A lightweight hidden size for faster early experiments.",
+    ),
+    "256": GnnHiddenDimensionDefinition(
+        hidden_dimension=256,
+        display_name="256 hidden dimensions",
+        description="A balanced hidden size for the first retriever baseline.",
+    ),
+    "512": GnnHiddenDimensionDefinition(
+        hidden_dimension=512,
+        display_name="512 hidden dimensions",
+        description="A wider hidden size with more capacity and higher compute cost.",
+    ),
+}
+
 NODE_CLASSIFIERS: Final[dict[str, NodeClassifierDefinition]] = {
     "mlp": NodeClassifierDefinition(
         classifier_id="mlp",
@@ -179,6 +213,7 @@ RECOMMENDED_ASSISTANT_LLM_MODEL_ID: Final[str] = "gpt-5.4-mini"
 RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID: Final[str] = "shortest_path"
 RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID: Final[str] = "textualized"
 RECOMMENDED_GNN_LAYER_COUNT: Final[int] = 2
+RECOMMENDED_GNN_HIDDEN_DIMENSION: Final[int] = 256
 RECOMMENDED_NODE_CLASSIFIER_ID: Final[str] = "mlp"
 RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"
 RECOMMENDED_RELATION_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"

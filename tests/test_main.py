@@ -6,7 +6,12 @@ from io import StringIO
 from unittest.mock import patch
 
 import main
-from pipeline import LoadDatasetStep
+from pipeline import (
+    BuildGnnAnswerRetrieverStep,
+    BuiltGnnAnswerRetriever,
+    LoadDatasetStep,
+)
+from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.services import AbstractDatasetLoaderService
 
 
@@ -25,6 +30,23 @@ class FakeLoaderService(AbstractDatasetLoaderService):
             "validation": FakeSplit(2),
             "test": FakeSplit(1),
         }
+
+
+class FakeAnswerRetrieverModel(AnswerRetrieverModel):
+    pass
+
+
+class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
+    def execute_default(self, context):
+        return BuiltGnnAnswerRetriever(
+            dataset_id=context.result.dataset_id,
+            entity_embedding_model="text-embedding-3-small",
+            entity_embedding_dimension=1536,
+            hidden_dimension=256,
+            gnn_layer_count=2,
+            node_classifier="mlp",
+            model=FakeAnswerRetrieverModel(),
+        )
 
 
 class MainEntrypointTests(unittest.TestCase):
@@ -48,8 +70,15 @@ class MainEntrypointTests(unittest.TestCase):
             ),
         )
 
+    @staticmethod
+    def _patch_gnn_builder_step():
+        return patch(
+            "main.BuildGnnAnswerRetrieverStep",
+            return_value=FakeGnnAnswerRetrieverStep(),
+        )
+
     def test_run_pipeline_returns_success_for_webqsp(self) -> None:
-        with self._patch_dataset_loading_step():
+        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step():
             result = main.run_pipeline(
                 config=main.PipelineRuntimeConfig(
                     dataset="WebQSP",
@@ -58,6 +87,7 @@ class MainEntrypointTests(unittest.TestCase):
                     subgraph_algorithm="shortest_path",
                     context_strategy="textualized",
                     gnn_layer_count=2,
+                    gnn_hidden_dimension=256,
                     node_classifier="mlp",
                     question_embedding_model="text-embedding-3-small",
                     relation_embedding_model="text-embedding-3-small",
@@ -67,43 +97,77 @@ class MainEntrypointTests(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(result.final_result.dataset_id, "WebQSP")
-        self.assertEqual(result.final_result.split_sizes["train"], 3)
+        self.assertEqual(result.final_result.hidden_dimension, 256)
 
     def test_main_prints_success_payload_for_full_run(self) -> None:
-        with self._patch_dataset_loading_step(), patch("sys.stdout", new_callable=StringIO) as stdout:
-            exit_code = main.main([
-                "--dataset", "WebQSP",
-                "--main-llm-model", "gpt-5.4",
-                "--assistant-llm-model", "gpt-5.4-mini",
-                "--subgraph-algorithm", "shortest_path",
-                "--context-strategy", "textualized",
-                "--gnn-layers", "2",
-                "--node-classifier", "mlp",
-                "--question-embedding-model", "text-embedding-3-small",
-                "--relation-embedding-model", "text-embedding-3-small",
-                "--entity-embedding-model", "text-embedding-3-small",
-            ])
+        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ) as stdout:
+            exit_code = main.main(
+                [
+                    "--dataset",
+                    "WebQSP",
+                    "--main-llm-model",
+                    "gpt-5.4",
+                    "--assistant-llm-model",
+                    "gpt-5.4-mini",
+                    "--subgraph-algorithm",
+                    "shortest_path",
+                    "--context-strategy",
+                    "textualized",
+                    "--gnn-layers",
+                    "2",
+                    "--gnn-hidden-dim",
+                    "256",
+                    "--node-classifier",
+                    "mlp",
+                    "--question-embedding-model",
+                    "text-embedding-3-small",
+                    "--relation-embedding-model",
+                    "text-embedding-3-small",
+                    "--entity-embedding-model",
+                    "text-embedding-3-small",
+                ]
+            )
 
         payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["success"])
         self.assertEqual(payload["final_result"]["dataset_id"], "WebQSP")
-        self.assertEqual(payload["final_result"]["split_sizes"]["train"], 3)
+        self.assertEqual(payload["final_result"]["hidden_dimension"], 256)
 
     def test_main_returns_error_for_unsupported_dataset(self) -> None:
-        with self._patch_dataset_loading_step(), patch("sys.stdout", new_callable=StringIO) as stdout:
-            exit_code = main.main([
-                "--dataset", "WN18RR",
-                "--main-llm-model", "gpt-5.4",
-                "--assistant-llm-model", "gpt-5.4-mini",
-                "--subgraph-algorithm", "shortest_path",
-                "--context-strategy", "textualized",
-                "--gnn-layers", "2",
-                "--node-classifier", "mlp",
-                "--question-embedding-model", "text-embedding-3-small",
-                "--relation-embedding-model", "text-embedding-3-small",
-                "--entity-embedding-model", "text-embedding-3-small",
-            ])
+        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ) as stdout:
+            exit_code = main.main(
+                [
+                    "--dataset",
+                    "WN18RR",
+                    "--main-llm-model",
+                    "gpt-5.4",
+                    "--assistant-llm-model",
+                    "gpt-5.4-mini",
+                    "--subgraph-algorithm",
+                    "shortest_path",
+                    "--context-strategy",
+                    "textualized",
+                    "--gnn-layers",
+                    "2",
+                    "--gnn-hidden-dim",
+                    "256",
+                    "--node-classifier",
+                    "mlp",
+                    "--question-embedding-model",
+                    "text-embedding-3-small",
+                    "--relation-embedding-model",
+                    "text-embedding-3-small",
+                    "--entity-embedding-model",
+                    "text-embedding-3-small",
+                ]
+            )
 
         payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 1)
@@ -114,19 +178,27 @@ class MainEntrypointTests(unittest.TestCase):
         )
 
     def test_main_interactively_prompts_missing_configuration_flags(self) -> None:
-        with self._patch_dataset_loading_step(), patch("builtins.input", side_effect=["1", "1", "1", "2", "1", "1", "1", "1", "1"]), patch(
-            "sys.stdout", new_callable=StringIO
+        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+            "builtins.input",
+            side_effect=["1", "2", "1", "1", "2", "1", "1", "1", "1", "1"],
+        ), patch(
+            "sys.stdout",
+            new_callable=StringIO,
         ) as stdout:
             exit_code = main.main(["--dataset", "WebQSP"])
 
         payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["success"])
-        self.assertEqual(payload["final_result"]["split_sizes"]["train"], 3)
+        self.assertEqual(payload["final_result"]["hidden_dimension"], 256)
 
     def test_main_default_flag_runs_without_prompting(self) -> None:
-        with self._patch_dataset_loading_step(), patch("builtins.input", side_effect=AssertionError("input should not be called")), patch(
-            "sys.stdout", new_callable=StringIO
+        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+            "builtins.input",
+            side_effect=AssertionError("input should not be called"),
+        ), patch(
+            "sys.stdout",
+            new_callable=StringIO,
         ) as stdout:
             exit_code = main.main(["--default"])
 
@@ -134,17 +206,20 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["success"])
         self.assertEqual(payload["final_result"]["dataset_id"], "WebQSP")
-        self.assertEqual(payload["final_result"]["split_sizes"]["train"], 3)
+        self.assertEqual(payload["final_result"]["hidden_dimension"], 256)
 
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
-        with self._patch_dataset_loading_step(), patch("builtins.input", side_effect=AssertionError("input should not be called")):
+        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+            "builtins.input",
+            side_effect=AssertionError("input should not be called"),
+        ):
             result = main.run_pipeline(
                 config=main.PipelineRuntimeConfig(use_default_config_values=True),
             )
 
         self.assertTrue(result.success)
         self.assertEqual(result.final_result.dataset_id, "WebQSP")
-        self.assertEqual(result.final_result.split_sizes["train"], 3)
+        self.assertEqual(result.final_result.hidden_dimension, 256)
 
     def test_force_default_flag_sets_step_execution_mode_only(self) -> None:
         pipeline = main.build_pipeline(

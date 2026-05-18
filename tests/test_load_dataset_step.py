@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import main
 from pipeline import (
+    BuildGnnAnswerRetrieverStep,
+    BuiltGnnAnswerRetriever,
     BuiltPipelineConfiguration,
     DatasetLoadingException,
     LoadDatasetStep,
@@ -16,6 +18,7 @@ from pipeline import (
     StepContext,
     UnsupportedDatasetLoaderException,
 )
+from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.services import AbstractDatasetLoaderService
 
 
@@ -47,6 +50,24 @@ class FakeLoaderService(AbstractDatasetLoaderService):
         return self.dataset
 
 
+class FakeAnswerRetrieverModel(AnswerRetrieverModel):
+    pass
+
+
+class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
+    def execute_default(self, context):
+        return BuiltGnnAnswerRetriever(
+            dataset_id=context.result.dataset_id,
+            entity_embedding_model="text-embedding-3-small",
+            entity_embedding_dimension=1536,
+            hidden_dimension=256,
+            gnn_layer_count=2,
+            gnn_hidden_dimension=256,
+            node_classifier="mlp",
+            model=FakeAnswerRetrieverModel(),
+        )
+
+
 class LoadDatasetStepTests(unittest.TestCase):
     @staticmethod
     def make_configuration_context(
@@ -60,6 +81,7 @@ class LoadDatasetStepTests(unittest.TestCase):
                 subgraph_construction_algorithm="shortest_path",
                 context_construction_strategy="textualized",
                 gnn_layer_count=2,
+                gnn_hidden_dimension=256,
                 node_classifier="mlp",
                 question_embedding_model="text-embedding-3-small",
                 relation_embedding_model="text-embedding-3-small",
@@ -115,6 +137,9 @@ class LoadDatasetStepTests(unittest.TestCase):
         with patch(
             "main.LoadDatasetStep",
             return_value=LoadDatasetStep(loader_service=fake_loader),
+        ), patch(
+            "main.BuildGnnAnswerRetrieverStep",
+            return_value=FakeGnnAnswerRetrieverStep(),
         ):
             result = main.run_pipeline(
                 config=main.PipelineRuntimeConfig(
@@ -124,6 +149,7 @@ class LoadDatasetStepTests(unittest.TestCase):
                     subgraph_algorithm="shortest_path",
                     context_strategy="textualized",
                     gnn_layer_count=2,
+                    gnn_hidden_dimension=256,
                     node_classifier="mlp",
                     question_embedding_model="text-embedding-3-small",
                     relation_embedding_model="text-embedding-3-small",
@@ -132,7 +158,7 @@ class LoadDatasetStepTests(unittest.TestCase):
             )
 
         self.assertTrue(result.success)
-        self.assertEqual(result.steps_executed, 3)
+        self.assertEqual(result.steps_executed, 4)
         self.assertEqual(result.final_result.dataset_id, "WebQSP")
 
 

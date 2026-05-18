@@ -37,6 +37,10 @@ class InvalidGnnLayerCountSelectionException(PipelineException):
     """Raised when an invalid GNN layer count option is provided."""
 
 
+class InvalidGnnHiddenDimensionSelectionException(PipelineException):
+    """Raised when an invalid GNN hidden dimension option is provided."""
+
+
 class InvalidNodeClassifierSelectionException(PipelineException):
     """Raised when an invalid node classifier option is provided."""
 
@@ -59,6 +63,10 @@ class InvalidInteractiveConfigurationInputException(PipelineException):
 
 class MissingHuggingFaceDatasetsDependencyException(PipelineException):
     """Raised when Hugging Face datasets is required but not installed."""
+
+
+class MissingTorchDependencyException(PipelineException):
+    """Raised when PyTorch is required but not installed."""
 
 
 class UnsupportedDatasetLoaderException(PipelineException):

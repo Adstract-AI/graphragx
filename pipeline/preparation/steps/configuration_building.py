@@ -9,6 +9,7 @@ from pipeline.exceptions import (
     InvalidAssistantLlmSelectionException,
     InvalidContextConstructionSelectionException,
     InvalidEntityEmbeddingModelSelectionException,
+    InvalidGnnHiddenDimensionSelectionException,
     InvalidGnnLayerCountSelectionException,
     InvalidInteractiveConfigurationInputException,
     InvalidMainLlmSelectionException,
@@ -20,12 +21,14 @@ from pipeline.exceptions import (
 from pipeline.services.selection import SelectionService
 from pipeline.preparation.helpers.configuration_definitions import (
     CONTEXT_CONSTRUCTION_STRATEGIES,
+    GNN_HIDDEN_DIMENSION_OPTIONS,
     GNN_LAYER_COUNT_OPTIONS,
     NODE_CLASSIFIERS,
     OPENAI_EMBEDDING_MODELS,
     RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
+    RECOMMENDED_GNN_HIDDEN_DIMENSION,
     RECOMMENDED_GNN_LAYER_COUNT,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
     RECOMMENDED_NODE_CLASSIFIER_ID,
@@ -46,6 +49,7 @@ class PipelineConfigurationInput(BaseModel):
     subgraph_construction_algorithm: str | None = Field(default=None)
     context_construction_strategy: str | None = Field(default=None)
     gnn_layer_count: int | None = Field(default=None)
+    gnn_hidden_dimension: int | None = Field(default=None)
     node_classifier: str | None = Field(default=None)
     question_embedding_model: str | None = Field(default=None)
     relation_embedding_model: str | None = Field(default=None)
@@ -65,6 +69,10 @@ class BuiltPipelineConfiguration(StepResult):
         ..., description="Selected context construction strategy id."
     )
     gnn_layer_count: int = Field(..., description="Selected number of GNN layers.")
+    gnn_hidden_dimension: int = Field(
+        ...,
+        description="Selected hidden dimension for projected GNN node states.",
+    )
     node_classifier: str = Field(..., description="Selected node classifier id.")
     question_embedding_model: str = Field(
         ..., description="OpenAI embedding model for question text."
@@ -89,6 +97,7 @@ class BuildPipelineConfigurationStep(
         subgraph_algorithm: str | None = None,
         context_strategy: str | None = None,
         gnn_layer_count: int | None = None,
+        gnn_hidden_dimension: int | None = None,
         node_classifier: str | None = None,
         question_embedding_model: str | None = None,
         relation_embedding_model: str | None = None,
@@ -103,6 +112,7 @@ class BuildPipelineConfigurationStep(
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
             gnn_layer_count=gnn_layer_count,
+            gnn_hidden_dimension=gnn_hidden_dimension,
             node_classifier=node_classifier,
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
@@ -132,6 +142,20 @@ class BuildPipelineConfigurationStep(
             recommended_id=str(RECOMMENDED_GNN_LAYER_COUNT),
             invalid_exception_type=InvalidGnnLayerCountSelectionException,
             value_getter=lambda item: str(item.layer_count),
+            label_getter=lambda item: item.display_name,
+        )
+        selected_gnn_hidden_dimension = self.selection_service.resolve_choice(
+            provided_value=(
+                str(self.configuration_input.gnn_hidden_dimension)
+                if self.configuration_input.gnn_hidden_dimension is not None
+                else None
+            ),
+            options=GNN_HIDDEN_DIMENSION_OPTIONS,
+            prompt_title="GNN Hidden Dimension",
+            prompt_help="Select the width of projected node states inside the GNN.",
+            recommended_id=str(RECOMMENDED_GNN_HIDDEN_DIMENSION),
+            invalid_exception_type=InvalidGnnHiddenDimensionSelectionException,
+            value_getter=lambda item: str(item.hidden_dimension),
             label_getter=lambda item: item.display_name,
         )
         node_classifier = self.selection_service.resolve_choice(
@@ -222,6 +246,7 @@ class BuildPipelineConfigurationStep(
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
             gnn_layer_count=int(selected_gnn_layer_count),
+            gnn_hidden_dimension=int(selected_gnn_hidden_dimension),
             node_classifier=node_classifier,
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from pipeline.abstract import StepResult
 from pipeline.exceptions import PipelineException
+
+T_StoredResult = TypeVar("T_StoredResult", bound=StepResult)
 
 
 class PipelineExecutionResult(BaseModel):
@@ -96,11 +98,15 @@ class PipelineResultBank(BaseModel):
         """Store the latest result for its concrete result type."""
         self.stored_results[self._get_result_key(type(result))] = result
 
-    def get(self, result_type: type[StepResult]) -> StepResult | None:
+    def get(self, result_type: type[T_StoredResult]) -> T_StoredResult | None:
         """Return the latest stored result for the given type."""
-        return self.stored_results.get(self._get_result_key(result_type))
+        result = self.stored_results.get(self._get_result_key(result_type))
+        if result is None:
+            return None
 
-    def get_required(self, result_type: type[StepResult]) -> StepResult:
+        return result
+
+    def get_required(self, result_type: type[T_StoredResult]) -> T_StoredResult:
         """Return a stored result or raise when the result type is missing."""
         result = self.get(result_type)
         if result is None:

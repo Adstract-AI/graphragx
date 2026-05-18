@@ -9,6 +9,7 @@ from typing import Any, Sequence
 from pydantic import BaseModel
 
 from pipeline import (
+    BuildGnnAnswerRetrieverStep,
     BuildPipelineConfigurationStep,
     InitialStepResult,
     LoadDatasetStep,
@@ -21,6 +22,7 @@ from pipeline.preparation.helpers.configuration_definitions import (
     RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
+    RECOMMENDED_GNN_HIDDEN_DIMENSION,
     RECOMMENDED_GNN_LAYER_COUNT,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
     RECOMMENDED_NODE_CLASSIFIER_ID,
@@ -40,6 +42,7 @@ class PipelineRuntimeConfig(BaseModel):
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
     gnn_layer_count: int | None = None
+    gnn_hidden_dimension: int | None = None
     node_classifier: str | None = None
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
@@ -64,6 +67,8 @@ class PipelineRuntimeConfig(BaseModel):
                 or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
                 "gnn_layer_count": self.gnn_layer_count
                 or RECOMMENDED_GNN_LAYER_COUNT,
+                "gnn_hidden_dimension": self.gnn_hidden_dimension
+                or RECOMMENDED_GNN_HIDDEN_DIMENSION,
                 "node_classifier": self.node_classifier
                 or RECOMMENDED_NODE_CLASSIFIER_ID,
                 "question_embedding_model": self.question_embedding_model
@@ -90,12 +95,14 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 subgraph_algorithm=resolved_config.subgraph_algorithm,
                 context_strategy=resolved_config.context_strategy,
                 gnn_layer_count=resolved_config.gnn_layer_count,
+                gnn_hidden_dimension=resolved_config.gnn_hidden_dimension,
                 node_classifier=resolved_config.node_classifier,
                 question_embedding_model=resolved_config.question_embedding_model,
                 relation_embedding_model=resolved_config.relation_embedding_model,
                 entity_embedding_model=resolved_config.entity_embedding_model,
             ),
             LoadDatasetStep(),
+            BuildGnnAnswerRetrieverStep(),
         ],
         evaluation_steps=[],
         force_all_default=resolved_config.force_all_default,
@@ -165,6 +172,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional number of GNN layers for non-interactive configuration.",
     )
     parser.add_argument(
+        "--gnn-hidden-dim",
+        type=int,
+        default=None,
+        help="Optional GNN hidden dimension for non-interactive configuration.",
+    )
+    parser.add_argument(
         "--node-classifier",
         default=None,
         help="Optional node classifier id for non-interactive configuration.",
@@ -211,6 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,
         gnn_layer_count=args.gnn_layers,
+        gnn_hidden_dimension=args.gnn_hidden_dim,
         node_classifier=args.node_classifier,
         question_embedding_model=args.question_embedding_model,
         relation_embedding_model=args.relation_embedding_model,

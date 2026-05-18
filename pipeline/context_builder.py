@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Optional
 
-from pipeline.abstract import StepContext, StepResult
+from pipeline.abstract import AbstractStep, StepContext, StepResult
+from pipeline.exceptions import PipelineException
 from pipeline.models import PipelineResultBank
+from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
+from pipeline.preparation.steps.gnn_model_building import (
+    BuildGnnAnswerRetrieverContext,
+    BuildGnnAnswerRetrieverStep,
+)
 
 
 class StepContextBuilder:
@@ -13,21 +20,50 @@ class StepContextBuilder:
 
     def __init__(self) -> None:
         self.result_bank = PipelineResultBank()
+        self.context_factories: dict[
+            type[AbstractStep],
+            Callable[[StepResult | None, bool, PipelineException], StepContext],
+        ] = {
+            BuildGnnAnswerRetrieverStep: self._create_gnn_answer_retriever_context,
+        }
 
     def create_context(
-            self,
-            result: Optional[StepResult],
-            outcome: bool = True,
-            exception=None,
+        self,
+        result: Optional[StepResult],
+        outcome: bool = True,
+        exception=None,
+        next_step: AbstractStep | None = None,
     ) -> StepContext:
-        """Wrap a previous result into a context for the next step."""
+        """Wrap a previous result into the context required by the next step."""
         if result is not None:
             self.store_result(result)
+
+        if next_step is not None:
+            context_factory = self.context_factories.get(type(next_step))
+            if context_factory is not None:
+                return context_factory(result, outcome, exception)
 
         return StepContext(
             result=result,
             outcome=outcome,
-            exception=exception)
+            exception=exception,
+        )
+
+    def _create_gnn_answer_retriever_context(
+        self,
+        result: StepResult | None,
+        outcome: bool,
+        exception: PipelineException,
+    ) -> BuildGnnAnswerRetrieverContext:
+        """Create the specialized context required by the GNN builder step."""
+        return BuildGnnAnswerRetrieverContext(
+            result=result,
+            outcome=outcome,
+            exception=exception,
+            pipeline_configuration=self.get_required_result(
+                BuiltPipelineConfiguration
+            ),
+        )
 
     def store_result(self, result: StepResult) -> None:
         """Store a result in the shared in-memory bank."""
