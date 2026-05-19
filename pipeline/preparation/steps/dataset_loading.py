@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ConfigDict, Field
 
+from logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import (
     InvalidInteractiveConfigurationInputException,
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
     from datasets import DatasetDict as HuggingFaceDatasetDict
 else:
     HuggingFaceDatasetDict = Any
+
+logger = get_logger(__name__)
 
 
 class LoadedDataset(StepResult):
@@ -68,6 +71,7 @@ class LoadDatasetStep(AbstractStep[LoadedDataset, BuiltPipelineConfiguration]):
                 f"Unsupported dataset loader configuration for dataset: {configuration.dataset_id}"
             )
 
+        logger.info(f"Loading dataset: {configuration.dataset_id}")
         dataset = self.loader_service.load_dataset(configuration.dataset_id)
         loader_definition = self.loader_service.get_loader_definition(
             configuration.dataset_id
@@ -78,11 +82,16 @@ class LoadDatasetStep(AbstractStep[LoadedDataset, BuiltPipelineConfiguration]):
                 f"Loaded dataset {configuration.dataset_id} does not contain any splits."
             )
 
+        split_sizes = {split_name: len(dataset[split_name]) for split_name in split_names}
+        logger.info(
+            f"Loaded dataset {configuration.dataset_id}: "
+            f"splits={split_names} split_sizes={split_sizes}"
+        )
         return LoadedDataset(
             dataset_id=configuration.dataset_id,
             dataset_family=dataset_definition.dataset_family,
             hugging_face_dataset_name=loader_definition.hugging_face_dataset_name,
             split_names=split_names,
-            split_sizes={split_name: len(dataset[split_name]) for split_name in split_names},
+            split_sizes=split_sizes,
             hugging_face_dataset=dataset,
         )

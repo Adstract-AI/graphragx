@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from pydantic import ConfigDict, Field
 
+from logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.helpers.configuration_definitions import OPENAI_EMBEDDING_MODELS
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
+
+logger = get_logger(__name__)
 
 
 class BuiltGnnAnswerRetriever(StepResult):
@@ -75,6 +78,13 @@ class BuildGnnAnswerRetrieverStep(
             configuration.entity_embedding_model
         ]
 
+        logger.info(
+            f"Building GNN answer retriever: dataset={prepared_dataset.dataset_id} "
+            f"entity_embedding_dimension={entity_embedding_definition.dimensions} "
+            f"hidden_dimension={configuration.gnn_hidden_dimension} "
+            f"gnn_layers={configuration.gnn_layer_count} "
+            f"node_classifier={configuration.node_classifier}"
+        )
         model = GnnAnswerRetriever(
             entity_embedding_dimension=entity_embedding_definition.dimensions,
             hidden_dimension=configuration.gnn_hidden_dimension,
@@ -82,6 +92,7 @@ class BuildGnnAnswerRetrieverStep(
             node_classifier=configuration.node_classifier,
         )
 
+        logger.info(f"Built GNN answer retriever architecture")
         return BuiltGnnAnswerRetriever(
             dataset_id=prepared_dataset.dataset_id,
             entity_embedding_model=configuration.entity_embedding_model,

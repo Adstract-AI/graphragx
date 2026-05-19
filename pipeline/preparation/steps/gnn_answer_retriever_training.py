@@ -6,6 +6,14 @@ from pathlib import Path
 
 from pydantic import ConfigDict, Field
 
+from constants import (
+    DEFAULT_TRAINING_DEVICE,
+    DEFAULT_TRAINING_EPOCHS,
+    DEFAULT_TRAINING_LEARNING_RATE,
+    DEFAULT_TRAINING_LOG_EVERY,
+    DEFAULT_TRAINING_WEIGHT_DECAY,
+)
+from logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
@@ -16,6 +24,8 @@ from pipeline.services.gnn_answer_retriever_training import (
     GnnAnswerRetrieverTrainingConfig,
     GnnAnswerRetrieverTrainingService,
 )
+
+logger = get_logger(__name__)
 
 
 class TrainedGnnAnswerRetriever(StepResult):
@@ -39,12 +49,19 @@ class TrainedGnnAnswerRetriever(StepResult):
     )
     training_log_every: int = Field(..., description="Training progress log interval.")
     training_device: str = Field(..., description="Requested training device.")
+    training_run_name: str | None = Field(
+        default=None,
+        description="Optional user-provided training run label.",
+    )
     selected_device: str = Field(..., description="Resolved PyTorch training device.")
     final_loss: float = Field(..., description="Final average epoch loss.")
     trained_instances: int = Field(..., description="Number of instances trained on.")
     model: AnswerRetrieverModel = Field(..., description="Trained retriever model.")
     model_artifact_path: Path = Field(..., description="Saved model weights path.")
     model_config_path: Path = Field(..., description="Saved model config path.")
+    model_run_directory: Path = Field(..., description="Versioned training run directory.")
+    model_run_name: str = Field(..., description="Resolved training run folder name.")
+    model_run_number: int = Field(..., description="Incremental training run number.")
     embedding_cache_directory: Path = Field(
         ...,
         description="Directory containing cached OpenAI embeddings.",
@@ -71,12 +88,13 @@ class TrainGnnAnswerRetrieverStep(
 
     def __init__(
         self,
-        training_epochs: int = 3,
-        training_learning_rate: float = 1e-3,
-        training_weight_decay: float = 0.0,
+        training_epochs: int = DEFAULT_TRAINING_EPOCHS,
+        training_learning_rate: float = DEFAULT_TRAINING_LEARNING_RATE,
+        training_weight_decay: float = DEFAULT_TRAINING_WEIGHT_DECAY,
         training_max_instances: int | None = None,
-        training_log_every: int = 25,
-        training_device: str = "auto",
+        training_log_every: int = DEFAULT_TRAINING_LOG_EVERY,
+        training_device: str = DEFAULT_TRAINING_DEVICE,
+        training_run_name: str | None = None,
         training_service: GnnAnswerRetrieverTrainingService | None = None,
         force_default: bool = False,
     ):
@@ -88,6 +106,7 @@ class TrainGnnAnswerRetrieverStep(
             max_instances=training_max_instances,
             log_every=training_log_every,
             device=training_device,
+            run_name=training_run_name,
         )
         self.training_service = training_service or GnnAnswerRetrieverTrainingService()
 
@@ -101,11 +120,22 @@ class TrainGnnAnswerRetrieverStep(
                 "GNN answer-retriever training requires a built retriever."
             )
 
+        logger.info(
+            f"Starting TrainGnnAnswerRetrieverStep: dataset={built_retriever.dataset_id} "
+            f"epochs={self.training_config.epochs} "
+            f"max_instances={self.training_config.max_instances} "
+            f"run_name={self.training_config.run_name}"
+        )
         outcome = self.training_service.train(
             built_retriever=built_retriever,
             prepared_dataset=context.prepared_dataset,
             configuration=context.pipeline_configuration,
             training_config=self.training_config,
+        )
+        logger.info(
+            f"Finished TrainGnnAnswerRetrieverStep: "
+            f"run={outcome.model_run_name} final_loss={outcome.final_loss:.6f} "
+            f"trained_instances={outcome.trained_instances}"
         )
         return TrainedGnnAnswerRetriever(
             dataset_id=built_retriever.dataset_id,
@@ -118,11 +148,15 @@ class TrainGnnAnswerRetrieverStep(
             training_max_instances=self.training_config.max_instances,
             training_log_every=self.training_config.log_every,
             training_device=self.training_config.device,
+            training_run_name=self.training_config.run_name,
             selected_device=outcome.selected_device,
             final_loss=outcome.final_loss,
             trained_instances=outcome.trained_instances,
             model=built_retriever.model,
             model_artifact_path=outcome.model_artifact_path,
             model_config_path=outcome.model_config_path,
+            model_run_directory=outcome.model_run_directory,
+            model_run_name=outcome.model_run_name,
+            model_run_number=outcome.model_run_number,
             embedding_cache_directory=outcome.embedding_cache_directory,
         )

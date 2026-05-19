@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import json
-import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from constants import (
+    DEFAULT_TRAINING_DEVICE,
+    DEFAULT_TRAINING_EPOCHS,
+    DEFAULT_TRAINING_LEARNING_RATE,
+    DEFAULT_TRAINING_LOG_EVERY,
+    DEFAULT_TRAINING_WEIGHT_DECAY,
+    GNN_ANSWER_RETRIEVER_CONFIG_FILENAME,
+    GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
+)
+from logging_config import get_logger
 from pipeline.exceptions import GnnAnswerRetrieverTrainingException
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
@@ -24,18 +35,19 @@ from pipeline.services.embedding_cache import (
 if TYPE_CHECKING:
     from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class GnnAnswerRetrieverTrainingConfig(BaseModel):
     """Runtime training settings for the answer retriever."""
 
-    epochs: int = Field(default=3)
-    learning_rate: float = Field(default=1e-3)
-    weight_decay: float = Field(default=0.0)
+    epochs: int = Field(default=DEFAULT_TRAINING_EPOCHS)
+    learning_rate: float = Field(default=DEFAULT_TRAINING_LEARNING_RATE)
+    weight_decay: float = Field(default=DEFAULT_TRAINING_WEIGHT_DECAY)
     max_instances: int | None = Field(default=None)
-    log_every: int = Field(default=25)
-    device: str = Field(default="auto")
+    log_every: int = Field(default=DEFAULT_TRAINING_LOG_EVERY)
+    device: str = Field(default=DEFAULT_TRAINING_DEVICE)
+    run_name: str | None = Field(default=None)
 
 
 class GnnAnswerRetrieverTrainingOutcome(BaseModel):
@@ -47,6 +59,9 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
     trained_instances: int = Field(..., description="Number of training instances used.")
     model_artifact_path: Path = Field(..., description="Saved model weights path.")
     model_config_path: Path = Field(..., description="Saved model config path.")
+    model_run_directory: Path = Field(..., description="Versioned training run directory.")
+    model_run_name: str = Field(..., description="Resolved training run folder name.")
+    model_run_number: int = Field(..., description="Incremental training run number.")
     embedding_cache_directory: Path = Field(..., description="Embedding cache root.")
     selected_device: str = Field(..., description="Resolved PyTorch training device.")
 
@@ -54,8 +69,8 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
 class GnnAnswerRetrieverTrainingService(AbstractService):
     """Train and persist the GNN answer retriever."""
 
-    model_weights_filename = "gnn_answer_retriever.pt"
-    model_config_filename = "gnn_answer_retriever_config.json"
+    model_weights_filename = GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME
+    model_config_filename = GNN_ANSWER_RETRIEVER_CONFIG_FILENAME
 
     def __init__(
         self,
@@ -87,7 +102,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             )
 
         device = self._resolve_device(torch, training_config.device)
-        logger.info("Starting GNN answer retriever training on device=%s", device)
+        logger.info(f"Starting GNN answer retriever training on device={device}")
 
         cache_root = prepared_dataset.cache_directory.parent
         node_cache = self.embedding_cache_service.load_node_cache(
@@ -103,12 +118,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         question_cache = self.embedding_cache_service.load_question_cache(
             cache_root=cache_root,
             model_id=configuration.question_embedding_model,
+            vocabulary=prepared_dataset.vocabulary_store.questions,
         )
         logger.info(
-            "Loaded embedding caches: nodes=%s relations=%s questions=%s",
-            len(node_cache.embeddings),
-            len(relation_cache.embeddings),
-            len(question_cache.embeddings),
+            f"Loaded embedding caches: nodes={len(node_cache.embeddings)} "
+            f"relations={len(relation_cache.embeddings)} "
+            f"questions={len(question_cache.embeddings)}"
         )
 
         self._populate_embedding_caches(
@@ -121,10 +136,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         self.embedding_cache_service.save_cache(relation_cache)
         self.embedding_cache_service.save_cache(question_cache)
         logger.info(
-            "Saved embedding caches: nodes=%s relations=%s questions=%s",
-            len(node_cache.embeddings),
-            len(relation_cache.embeddings),
-            len(question_cache.embeddings),
+            f"Saved embedding caches: nodes={len(node_cache.embeddings)} "
+            f"relations={len(relation_cache.embeddings)} "
+            f"questions={len(question_cache.embeddings)}"
         )
 
         model = built_retriever.model
@@ -139,10 +153,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         final_loss = 0.0
         for epoch in range(1, training_config.epochs + 1):
             logger.info(
-                "Training epoch %s/%s over %s WebQSP instances",
-                epoch,
-                training_config.epochs,
-                len(train_instances),
+                f"Training epoch {epoch}/{training_config.epochs} "
+                f"over {len(train_instances)} WebQSP instances"
             )
             epoch_loss = 0.0
             for instance_index, instance in enumerate(train_instances, start=1):
@@ -186,38 +198,42 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     and instance_index % training_config.log_every == 0
                 ):
                     logger.info(
-                        "Epoch %s/%s progress: %s/%s instances, latest_loss=%.6f",
-                        epoch,
-                        training_config.epochs,
-                        instance_index,
-                        len(train_instances),
-                        float(loss.detach().cpu().item()),
+                        f"Epoch {epoch}/{training_config.epochs} progress: "
+                        f"{instance_index}/{len(train_instances)} instances, "
+                        f"latest_loss={float(loss.detach().cpu().item()):.6f}"
                     )
 
             final_loss = epoch_loss / len(train_instances)
             logger.info(
-                "Finished epoch %s/%s with average_loss=%.6f",
-                epoch,
-                training_config.epochs,
-                final_loss,
+                f"Finished epoch {epoch}/{training_config.epochs} "
+                f"with average_loss={final_loss:.6f}"
             )
 
         model_artifact_path = self._save_model_artifacts(
             model=model,
             built_retriever=built_retriever,
+            configuration=configuration,
             training_config=training_config,
             final_loss=final_loss,
             trained_instances=len(train_instances),
-            model_root=cache_root / "models",
+            model_run_directory=self._create_model_run_directory(
+                model_root=cache_root / "models",
+                run_name=training_config.run_name,
+            ),
             torch=torch,
         )
-        logger.info("Saved trained GNN answer retriever to %s", model_artifact_path)
+        logger.info(f"Saved trained GNN answer retriever to {model_artifact_path}")
+        model_run_directory = model_artifact_path.parent
+        model_run_number = self._extract_run_number(model_run_directory.name)
 
         return GnnAnswerRetrieverTrainingOutcome(
             final_loss=final_loss,
             trained_instances=len(train_instances),
             model_artifact_path=model_artifact_path,
             model_config_path=model_artifact_path.with_name(self.model_config_filename),
+            model_run_directory=model_run_directory,
+            model_run_name=model_run_directory.name,
+            model_run_number=model_run_number,
             embedding_cache_directory=cache_root / "embeddings",
             selected_device=device,
         )
@@ -348,21 +364,24 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         self,
         model,
         built_retriever: BuiltGnnAnswerRetriever,
+        configuration: BuiltPipelineConfiguration,
         training_config: GnnAnswerRetrieverTrainingConfig,
         final_loss: float,
         trained_instances: int,
-        model_root: Path,
+        model_run_directory: Path,
         torch,
     ) -> Path:
-        model_root.mkdir(parents=True, exist_ok=True)
-        model_artifact_path = model_root / self.model_weights_filename
-        model_config_path = model_root / self.model_config_filename
+        model_run_directory.mkdir(parents=True, exist_ok=False)
+        model_artifact_path = model_run_directory / self.model_weights_filename
+        model_config_path = model_run_directory / self.model_config_filename
         torch.save(model.state_dict(), model_artifact_path)
         model_config_path.write_text(
             json.dumps(
                 {
                     "dataset_id": built_retriever.dataset_id,
                     "entity_embedding_model": built_retriever.entity_embedding_model,
+                    "question_embedding_model": configuration.question_embedding_model,
+                    "relation_embedding_model": configuration.relation_embedding_model,
                     "entity_embedding_dimension": built_retriever.entity_embedding_dimension,
                     "hidden_dimension": built_retriever.hidden_dimension,
                     "gnn_layer_count": built_retriever.gnn_layer_count,
@@ -377,3 +396,43 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             encoding="utf-8",
         )
         return model_artifact_path
+
+    def _create_model_run_directory(
+        self,
+        model_root: Path,
+        run_name: str | None,
+    ) -> Path:
+        model_root.mkdir(parents=True, exist_ok=True)
+        run_number = self._next_run_number(model_root)
+        run_label = self._resolve_run_label(run_name)
+        return model_root / f"{run_number}_{run_label}"
+
+    @classmethod
+    def _next_run_number(cls, model_root: Path) -> int:
+        existing_run_numbers = [
+            cls._extract_run_number(path.name)
+            for path in model_root.iterdir()
+            if path.is_dir() and cls._extract_run_number(path.name) > 0
+        ]
+        return max(existing_run_numbers, default=0) + 1
+
+    @staticmethod
+    def _extract_run_number(run_directory_name: str) -> int:
+        run_number_match = re.match(r"^(\d+)_", run_directory_name)
+        if run_number_match is None:
+            return 0
+
+        return int(run_number_match.group(1))
+
+    @classmethod
+    def _resolve_run_label(cls, run_name: str | None) -> str:
+        if run_name is None or not run_name.strip():
+            return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+        return cls._sanitize_run_name(run_name)
+
+    @staticmethod
+    def _sanitize_run_name(run_name: str) -> str:
+        sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", run_name.strip())
+        sanitized = sanitized.strip("._-")
+        return sanitized or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

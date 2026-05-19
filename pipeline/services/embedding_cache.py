@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from constants import (
+    DEFAULT_EMBEDDING_BATCH_SIZE,
+    WEBQSP_NODE_EMBEDDINGS_FILENAME,
+    WEBQSP_QUESTION_EMBEDDINGS_FILENAME,
+    WEBQSP_RELATION_EMBEDDINGS_FILENAME,
+)
+from logging_config import get_logger
 from pipeline.services.abstract import AbstractService
 from pipeline.services.openai_text_embedding import LangChainOpenAiTextEmbeddingService
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class TextEmbeddingCache(BaseModel):
@@ -34,11 +40,10 @@ class TextEmbeddingCache(BaseModel):
 class WebQSPEmbeddingCacheService(AbstractService):
     """Load, populate, and save WebQSP embedding caches."""
 
-    nodes_filename = "nodes.pt"
-    relations_filename = "relations.pt"
-    questions_filename = "questions.pt"
-    questions_vocabulary_filename = "questions.json"
-    default_batch_size = 1024
+    nodes_filename = WEBQSP_NODE_EMBEDDINGS_FILENAME
+    relations_filename = WEBQSP_RELATION_EMBEDDINGS_FILENAME
+    questions_filename = WEBQSP_QUESTION_EMBEDDINGS_FILENAME
+    default_batch_size = DEFAULT_EMBEDDING_BATCH_SIZE
 
     def __init__(
         self,
@@ -87,18 +92,16 @@ class WebQSPEmbeddingCacheService(AbstractService):
         self,
         cache_root: Path,
         model_id: str,
+        vocabulary: dict[str, int],
     ) -> TextEmbeddingCache:
         """Load the training-question embedding cache for a model."""
-        model_cache_directory = self._model_cache_directory(cache_root, model_id)
-        vocabulary_path = model_cache_directory / self.questions_vocabulary_filename
-        vocabulary = self._load_vocabulary(vocabulary_path)
         return self._load_cache(
             cache_root=cache_root,
             model_id=model_id,
             cache_kind="questions",
             embedding_filename=self.questions_filename,
             vocabulary=vocabulary,
-            vocabulary_path=vocabulary_path,
+            vocabulary_path=None,
         )
 
     def ensure_embeddings(
@@ -111,24 +114,18 @@ class WebQSPEmbeddingCacheService(AbstractService):
         missing_texts = self._missing_texts(cache, texts)
         if not missing_texts:
             logger.info(
-                "Embedding cache hit for %s/%s: requested=%s cached=%s missing=0",
-                cache.cache_kind,
-                cache.model_id,
-                len(list(dict.fromkeys(texts))),
-                len(cache.embeddings),
+                f"Embedding cache hit for {cache.cache_kind}/{cache.model_id}: "
+                f"requested={len(list(dict.fromkeys(texts)))} "
+                f"cached={len(cache.embeddings)} missing=0"
             )
             return
 
         total_batches = (len(missing_texts) + self.batch_size - 1) // self.batch_size
         logger.info(
-            "Embedding cache fill for %s/%s: requested=%s cached=%s missing=%s batch_size=%s preview=%s",
-            cache.cache_kind,
-            cache.model_id,
-            len(list(dict.fromkeys(texts))),
-            len(cache.embeddings),
-            len(missing_texts),
-            self.batch_size,
-            self._preview_texts(missing_texts),
+            f"Embedding cache fill for {cache.cache_kind}/{cache.model_id}: "
+            f"requested={len(list(dict.fromkeys(texts)))} "
+            f"cached={len(cache.embeddings)} missing={len(missing_texts)} "
+            f"batch_size={self.batch_size} preview={self._preview_texts(missing_texts)}"
         )
         for batch_index, start_index in enumerate(
             range(0, len(missing_texts), self.batch_size),
@@ -140,14 +137,11 @@ class WebQSPEmbeddingCacheService(AbstractService):
                 for text in batch_texts
             ]
             logger.info(
-                "Embedding %s/%s batch %s/%s: original_text_count=%s endpoint_text_count=%s preview=%s",
-                cache.cache_kind,
-                cache.model_id,
-                batch_index,
-                total_batches,
-                len(batch_texts),
-                len(embedding_inputs),
-                self._preview_texts(batch_texts),
+                f"Embedding {cache.cache_kind}/{cache.model_id} batch "
+                f"{batch_index}/{total_batches}: "
+                f"original_text_count={len(batch_texts)} "
+                f"endpoint_text_count={len(embedding_inputs)} "
+                f"preview={self._preview_texts(batch_texts)}"
             )
             embedded_inputs = self.embedding_service.embed_texts(
                 texts=embedding_inputs,
@@ -163,13 +157,9 @@ class WebQSPEmbeddingCacheService(AbstractService):
 
             self.save_cache(cache)
             logger.info(
-                "Saved %s/%s embedding cache after batch %s/%s: cached=%s path=%s",
-                cache.cache_kind,
-                cache.model_id,
-                batch_index,
-                total_batches,
-                len(cache.embeddings),
-                cache.embedding_path,
+                f"Saved {cache.cache_kind}/{cache.model_id} embedding cache after "
+                f"batch {batch_index}/{total_batches}: "
+                f"cached={len(cache.embeddings)} path={cache.embedding_path}"
             )
 
     def embedding_for_text(
@@ -236,35 +226,14 @@ class WebQSPEmbeddingCacheService(AbstractService):
             loaded_embeddings = torch.load(path, weights_only=False)
         except Exception as error:
             logger.warning(
-                "Ignoring unreadable embedding cache at %s. It will be rebuilt. Error: %s",
-                path,
-                error,
+                f"Ignoring unreadable embedding cache at {path}. "
+                f"It will be rebuilt. Error: {error}"
             )
             return {}
 
         return {
             int(text_id): list(vector)
             for text_id, vector in loaded_embeddings.items()
-        }
-
-    @staticmethod
-    def _load_vocabulary(path: Path) -> dict[str, int]:
-        if not path.exists():
-            return {}
-
-        try:
-            raw_vocabulary = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as error:
-            logger.warning(
-                "Ignoring unreadable embedding vocabulary at %s. It will be rebuilt. Error: %s",
-                path,
-                error,
-            )
-            return {}
-
-        return {
-            text: int(text_id)
-            for text, text_id in raw_vocabulary.items()
         }
 
     @staticmethod

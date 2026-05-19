@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
-import logging
-
+from constants import OPENAI_API_KEY_ENV_NAME
+from env_variables import OPENAI_API_KEY
+from logging_config import get_logger
 from pipeline.exceptions import OpenAiEmbeddingConfigurationException
 from pipeline.services.abstract import AbstractService
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LangChainOpenAiTextEmbeddingService(AbstractService):
@@ -19,28 +19,21 @@ class LangChainOpenAiTextEmbeddingService(AbstractService):
         if not texts:
             return {}
 
-        from dotenv import load_dotenv
-
-        load_dotenv()
-        if not os.getenv("OPENAI_API_KEY"):
+        if not OPENAI_API_KEY:
             raise OpenAiEmbeddingConfigurationException(
-                "OPENAI_API_KEY must be set in .env before creating OpenAI embeddings."
+                f"{OPENAI_API_KEY_ENV_NAME} must be set in .env before creating OpenAI embeddings."
             )
 
         from langchain_openai import OpenAIEmbeddings
 
         logger.info(
-            "Calling OpenAI embedding endpoint: model=%s text_count=%s preview=%s",
-            model_id,
-            len(texts),
-            self._preview_texts(texts),
+            f"Calling OpenAI embedding endpoint: model={model_id} "
+            f"text_count={len(texts)} preview={self._preview_texts(texts)}"
         )
         embedding_client = OpenAIEmbeddings(model=model_id)
         vectors = embedding_client.embed_documents(texts)
         logger.info(
-            "Received OpenAI embeddings: model=%s vector_count=%s",
-            model_id,
-            len(vectors),
+            f"Received OpenAI embeddings: model={model_id} vector_count={len(vectors)}"
         )
         return dict(zip(texts, vectors, strict=True))
 

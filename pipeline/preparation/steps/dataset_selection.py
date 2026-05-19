@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from pydantic import Field
 
+from logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import UnsupportedDatasetSelectionException
 from pipeline.models import InitialStepResult
@@ -14,6 +15,8 @@ from pipeline.preparation.helpers.dataset_definitions import (
     WEBQSP_DATASET_ID,
 )
 from pipeline.services.selection import SelectionService
+
+logger = get_logger(__name__)
 
 
 class SelectedDataset(StepResult):
@@ -46,6 +49,7 @@ class SelectDatasetStep(
         self,
         context: StepContext[InitialStepResult],
     ) -> SelectedDataset:
+        logger.info(f"Selecting pipeline dataset")
         requested_dataset = self.selection_service.resolve_choice(
             provided_value=self.requested_dataset,
             options=PIPELINE_DATASETS,
@@ -62,6 +66,7 @@ class SelectDatasetStep(
                 f"Unsupported dataset: {requested_dataset}"
             )
 
+        logger.info(f"Selected dataset: {dataset_definition.dataset_id}")
         return SelectedDataset(
             dataset_id=dataset_definition.dataset_id,
             display_name=dataset_definition.display_name,

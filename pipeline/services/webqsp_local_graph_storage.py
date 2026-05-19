@@ -13,6 +13,7 @@ from pipeline.preparation.helpers.dataset_definitions import (
     DATASET_LOADERS,
     WEBQSP_DATASET_ID,
 )
+from constants import WEBQSP_QUESTION_VOCABULARY_FILENAME
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
     WebQSPProcessedInstance,
@@ -29,6 +30,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
     test_instances_filename = "test_instances.pt"
     nodes_filename = "nodes.json"
     relations_filename = "relations.json"
+    questions_filename = WEBQSP_QUESTION_VOCABULARY_FILENAME
 
     def get_cache_directory(self, dataset_id: str) -> Path:
         """Return the processed cache directory for a supported dataset."""
@@ -51,6 +53,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
         test_instances_path = cache_directory / self.test_instances_filename
         nodes_path = cache_directory / self.nodes_filename
         relations_path = cache_directory / self.relations_filename
+        questions_path = cache_directory / self.questions_filename
 
         required_paths = [
             metadata_path,
@@ -58,6 +61,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
             test_instances_path,
             nodes_path,
             relations_path,
+            questions_path,
         ]
         if any(not path.exists() for path in required_paths):
             return None
@@ -76,6 +80,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
             vocabulary_store = WebQSPVocabularyStore(
                 nodes=json.loads(nodes_path.read_text(encoding="utf-8")),
                 relations=json.loads(relations_path.read_text(encoding="utf-8")),
+                questions=json.loads(questions_path.read_text(encoding="utf-8")),
             )
 
             if metadata["train_size"] != len(train_instances):
@@ -119,6 +124,10 @@ class WebQSPLocalGraphStorageService(AbstractService):
                 json.dumps(dataset.vocabulary_store.relations, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
+            (cache_directory / self.questions_filename).write_text(
+                json.dumps(dataset.vocabulary_store.questions, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
             (cache_directory / self.metadata_filename).write_text(
                 json.dumps(self._build_metadata(dataset), indent=2, sort_keys=True),
                 encoding="utf-8",
@@ -152,6 +161,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
             "test_size": dataset.test_size,
             "node_count": len(dataset.vocabulary_store.nodes),
             "relation_count": len(dataset.vocabulary_store.relations),
+            "question_count": len(dataset.vocabulary_store.questions),
         }
 
     def _load_instances(self, path: Path) -> list[WebQSPProcessedInstance]:

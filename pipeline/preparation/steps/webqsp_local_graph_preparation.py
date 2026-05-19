@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext
 from pipeline.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
@@ -13,7 +14,8 @@ from pipeline.services.webqsp_local_graph_storage import (
     WebQSPLocalGraphStorageService,
 )
 
-WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION = "2"
+WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION = "3"
+logger = get_logger(__name__)
 
 
 class BuildWebQSPLocalGraphsStep(
@@ -41,13 +43,22 @@ class BuildWebQSPLocalGraphsStep(
                 "WebQSP local graph preparation requires a loaded dataset."
             )
 
+        logger.info(
+            f"Preparing WebQSP graph instances for dataset={loaded_dataset.dataset_id} "
+            f"processing_version={WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION}"
+        )
         cached_dataset = self.storage_service.load_if_available(
             dataset_id=loaded_dataset.dataset_id,
             processing_version=WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION,
         )
         if cached_dataset is not None:
+            logger.info(
+                f"Loaded prepared WebQSP graph dataset from cache: "
+                f"train_size={cached_dataset.train_size} test_size={cached_dataset.test_size}"
+            )
             return cached_dataset
 
+        logger.info(f"Prepared WebQSP graph cache miss; processing loaded dataset")
         prepared_dataset = self.processor_service.process_loaded_dataset(
             loaded_dataset=loaded_dataset,
             processing_version=WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION,
@@ -56,4 +67,8 @@ class BuildWebQSPLocalGraphsStep(
             ),
         )
         self.storage_service.save(prepared_dataset)
+        logger.info(
+            f"Saved prepared WebQSP graph dataset: "
+            f"train_size={prepared_dataset.train_size} test_size={prepared_dataset.test_size}"
+        )
         return prepared_dataset

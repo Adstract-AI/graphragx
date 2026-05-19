@@ -77,6 +77,7 @@ class WebQSPLocalGraphProcessorService(AbstractService):
         self._validate_row(row)
 
         question = str(row["question"])
+        self._get_or_add_vocabulary_item(question, vocabulary_store.questions)
         q_entity = self._normalize_string_list(row["q_entity"], "q_entity")
         a_entity = self._normalize_string_list(row["a_entity"], "a_entity")
         triples = self._normalize_triples(row["graph"])

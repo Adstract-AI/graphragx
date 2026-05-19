@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import Field, BaseModel
 
+from logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import (
     InvalidAssistantLlmSelectionException,
@@ -39,6 +40,8 @@ from pipeline.preparation.helpers.configuration_definitions import (
     SUBGRAPH_CONSTRUCTION_ALGORITHMS,
 )
 from pipeline.preparation.steps.dataset_selection import SelectedDataset
+
+logger = get_logger(__name__)
 
 
 class PipelineConfigurationInput(BaseModel):
@@ -130,6 +133,7 @@ class BuildPipelineConfigurationStep(
                 "Configuration building requires a selected dataset in the incoming context."
             )
 
+        logger.info(f"Building pipeline configuration for dataset={selected_dataset.dataset_id}")
         selected_gnn_layer_count = self.selection_service.resolve_choice(
             provided_value=(
                 str(self.configuration_input.gnn_layer_count)
@@ -239,6 +243,14 @@ class BuildPipelineConfigurationStep(
             label_getter=lambda item: item.display_name,
         )
 
+        logger.info(
+            f"Built pipeline configuration: gnn_layers={selected_gnn_layer_count} "
+            f"gnn_hidden_dimension={selected_gnn_hidden_dimension} "
+            f"node_classifier={node_classifier} "
+            f"question_embedding_model={question_embedding_model} "
+            f"relation_embedding_model={relation_embedding_model} "
+            f"entity_embedding_model={entity_embedding_model}"
+        )
         return BuiltPipelineConfiguration(
             dataset_id=selected_dataset.dataset_id,
             main_llm_model=main_llm_model,

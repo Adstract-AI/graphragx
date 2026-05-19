@@ -7,6 +7,8 @@ from pipeline.abstract import (
 )
 from pipeline.context_builder import StepContextBuilder
 from pipeline.exceptions import (
+    GnnAnswerRetrieverEvaluationException,
+    GnnAnswerRetrieverModelRunException,
     InvalidAssistantLlmSelectionException,
     InvalidContextConstructionSelectionException,
     InvalidEntityEmbeddingModelSelectionException,
@@ -31,6 +33,15 @@ from pipeline.exceptions import (
     UnsupportedDatasetLoaderException,
     UnsupportedDatasetProcessorException,
     UnsupportedDatasetSelectionException,
+)
+from pipeline.evaluation import (
+    AnswerCandidateScore,
+    EvaluateGnnAnswerRetrieverContext,
+    EvaluateGnnAnswerRetrieverStep,
+    EvaluatedAnswerRetrievalInstance,
+    GnnAnswerRetrieverEvaluationConfig,
+    GnnAnswerRetrieverEvaluationResult,
+    GoldAnswerScore,
 )
 from pipeline.models import InitialStepResult, PipelineExecutionResult
 from pipeline.models import PipelineResultBank
@@ -99,6 +110,7 @@ from pipeline.services import (
 __all__ = [
     "AbstractStep",
     "AbstractService",
+    "AnswerCandidateScore",
     "BuildGnnAnswerRetrieverContext",
     "BuildGnnAnswerRetrieverStep",
     "BuildPipelineConfigurationStep",
@@ -116,6 +128,14 @@ __all__ = [
     "GNN_LAYER_COUNT_OPTIONS",
     "GnnLayerCountDefinition",
     "GnnAnswerRetrieverTrainingException",
+    "GnnAnswerRetrieverEvaluationConfig",
+    "GnnAnswerRetrieverEvaluationException",
+    "GnnAnswerRetrieverEvaluationResult",
+    "GnnAnswerRetrieverModelRunException",
+    "EvaluateGnnAnswerRetrieverContext",
+    "EvaluateGnnAnswerRetrieverStep",
+    "EvaluatedAnswerRetrievalInstance",
+    "GoldAnswerScore",
     "InitialStepResult",
     "InvalidAssistantLlmSelectionException",
     "InvalidContextConstructionSelectionException",

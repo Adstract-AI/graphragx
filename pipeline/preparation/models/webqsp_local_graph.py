@@ -31,10 +31,11 @@ class WebQSPProcessedInstance(BaseModel):
 
 
 class WebQSPVocabularyStore(BaseModel):
-    """Reusable node and relation vocabularies collected from WebQSP graphs."""
+    """Reusable text vocabularies collected from WebQSP graphs."""
 
     nodes: dict[str, int] = Field(default_factory=dict)
     relations: dict[str, int] = Field(default_factory=dict)
+    questions: dict[str, int] = Field(default_factory=dict)
 
 
 class PreparedWebQSPGraphDataset(StepResult):
