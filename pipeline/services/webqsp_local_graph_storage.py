@@ -1,4 +1,4 @@
-"""Storage service for cached WebQSP local graph artifacts."""
+"""Storage service for cached WebQSP processed graph artifacts."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 from pipeline.exceptions import (
-    MissingTorchDependencyException,
     ProcessedDatasetStorageException,
     UnsupportedDatasetProcessorException,
 )
@@ -15,19 +14,19 @@ from pipeline.preparation.helpers.dataset_definitions import (
     WEBQSP_DATASET_ID,
 )
 from pipeline.preparation.models.webqsp_local_graph import (
-    PreparedWebQSPLocalGraphDataset,
-    WebQSPLocalGraphExample,
+    PreparedWebQSPGraphDataset,
+    WebQSPProcessedInstance,
     WebQSPVocabularyStore,
 )
 from pipeline.services.abstract import AbstractService
 
 
 class WebQSPLocalGraphStorageService(AbstractService):
-    """Persist and load processed WebQSP local graph artifacts."""
+    """Persist and load processed WebQSP graph artifacts."""
 
     metadata_filename = "metadata.json"
-    train_examples_filename = "train_examples.pt"
-    test_examples_filename = "test_examples.pt"
+    train_instances_filename = "train_instances.pt"
+    test_instances_filename = "test_instances.pt"
     nodes_filename = "nodes.json"
     relations_filename = "relations.json"
 
@@ -44,19 +43,19 @@ class WebQSPLocalGraphStorageService(AbstractService):
         self,
         dataset_id: str,
         processing_version: str,
-    ) -> PreparedWebQSPLocalGraphDataset | None:
+    ) -> PreparedWebQSPGraphDataset | None:
         """Load cached processed artifacts when cache metadata is valid."""
         cache_directory = self.get_cache_directory(dataset_id)
         metadata_path = cache_directory / self.metadata_filename
-        train_examples_path = cache_directory / self.train_examples_filename
-        test_examples_path = cache_directory / self.test_examples_filename
+        train_instances_path = cache_directory / self.train_instances_filename
+        test_instances_path = cache_directory / self.test_instances_filename
         nodes_path = cache_directory / self.nodes_filename
         relations_path = cache_directory / self.relations_filename
 
         required_paths = [
             metadata_path,
-            train_examples_path,
-            test_examples_path,
+            train_instances_path,
+            test_instances_path,
             nodes_path,
             relations_path,
         ]
@@ -72,47 +71,45 @@ class WebQSPLocalGraphStorageService(AbstractService):
             ):
                 return None
 
-            train_examples = self._load_examples(train_examples_path)
-            test_examples = self._load_examples(test_examples_path)
+            train_instances = self._load_instances(train_instances_path)
+            test_instances = self._load_instances(test_instances_path)
             vocabulary_store = WebQSPVocabularyStore(
                 nodes=json.loads(nodes_path.read_text(encoding="utf-8")),
                 relations=json.loads(relations_path.read_text(encoding="utf-8")),
             )
 
-            if metadata["train_size"] != len(train_examples):
+            if metadata["train_size"] != len(train_instances):
                 return None
 
-            if metadata["test_size"] != len(test_examples):
+            if metadata["test_size"] != len(test_instances):
                 return None
 
-            return PreparedWebQSPLocalGraphDataset(
+            return PreparedWebQSPGraphDataset(
                 dataset_id=dataset_id,
                 processing_version=processing_version,
-                train_examples=train_examples,
-                test_examples=test_examples,
+                train_instances=train_instances,
+                test_instances=test_instances,
                 vocabulary_store=vocabulary_store,
                 cache_directory=cache_directory,
             )
-        except MissingTorchDependencyException:
-            raise
         except Exception as error:
             raise ProcessedDatasetStorageException(
                 f"Failed to load processed WebQSP dataset cache: {error}"
             ) from error
 
-    def save(self, dataset: PreparedWebQSPLocalGraphDataset) -> None:
-        """Save processed examples, vocabularies, and metadata."""
+    def save(self, dataset: PreparedWebQSPGraphDataset) -> None:
+        """Save processed instances, vocabularies, and metadata."""
         cache_directory = dataset.cache_directory
         cache_directory.mkdir(parents=True, exist_ok=True)
 
         try:
-            self._save_examples(
-                path=cache_directory / self.train_examples_filename,
-                examples=dataset.train_examples,
+            self._save_instances(
+                path=cache_directory / self.train_instances_filename,
+                instances=dataset.train_instances,
             )
-            self._save_examples(
-                path=cache_directory / self.test_examples_filename,
-                examples=dataset.test_examples,
+            self._save_instances(
+                path=cache_directory / self.test_instances_filename,
+                instances=dataset.test_instances,
             )
             (cache_directory / self.nodes_filename).write_text(
                 json.dumps(dataset.vocabulary_store.nodes, indent=2, sort_keys=True),
@@ -126,8 +123,6 @@ class WebQSPLocalGraphStorageService(AbstractService):
                 json.dumps(self._build_metadata(dataset), indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-        except MissingTorchDependencyException:
-            raise
         except Exception as error:
             raise ProcessedDatasetStorageException(
                 f"Failed to save processed WebQSP dataset cache: {error}"
@@ -148,7 +143,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
         )
 
     @staticmethod
-    def _build_metadata(dataset: PreparedWebQSPLocalGraphDataset) -> dict[str, str | int]:
+    def _build_metadata(dataset: PreparedWebQSPGraphDataset) -> dict[str, str | int]:
         """Build persisted metadata for a processed dataset."""
         return {
             "dataset_id": dataset.dataset_id,
@@ -159,31 +154,21 @@ class WebQSPLocalGraphStorageService(AbstractService):
             "relation_count": len(dataset.vocabulary_store.relations),
         }
 
-    def _load_examples(self, path: Path) -> list[WebQSPLocalGraphExample]:
-        """Load processed graph examples from a torch cache file."""
-        torch_module = self._load_torch()
-        try:
-            return torch_module.load(path, weights_only=False)
-        except TypeError:
-            return torch_module.load(path)
+    def _load_instances(self, path: Path) -> list[WebQSPProcessedInstance]:
+        """Load processed graph instances from a torch cache file."""
+        import torch
 
-    def _save_examples(
+        try:
+            return torch.load(path, weights_only=False)
+        except TypeError:
+            return torch.load(path)
+
+    def _save_instances(
         self,
         path: Path,
-        examples: list[WebQSPLocalGraphExample],
+        instances: list[WebQSPProcessedInstance],
     ) -> None:
-        """Save processed graph examples into a torch cache file."""
-        torch_module = self._load_torch()
-        torch_module.save(examples, path)
+        """Save processed graph instances into a torch cache file."""
+        import torch
 
-    @staticmethod
-    def _load_torch():
-        """Import PyTorch for processed tensor cache I/O."""
-        try:
-            import torch
-        except ModuleNotFoundError as error:
-            raise MissingTorchDependencyException(
-                "PyTorch is required to load or save processed WebQSP graph tensors."
-            ) from error
-
-        return torch
+        torch.save(instances, path)

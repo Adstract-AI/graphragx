@@ -1,4 +1,4 @@
-"""Prepared WebQSP local graph models."""
+"""Prepared WebQSP graph dataset models."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ else:
     TorchTensor = Any
 
 
-class WebQSPLocalGraphExample(BaseModel):
-    """Prepared local graph representation for one WebQSP example."""
+class WebQSPProcessedInstance(BaseModel):
+    """Prepared graph representation for one WebQSP dataset instance."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -37,24 +37,24 @@ class WebQSPVocabularyStore(BaseModel):
     relations: dict[str, int] = Field(default_factory=dict)
 
 
-class PreparedWebQSPLocalGraphDataset(StepResult):
+class PreparedWebQSPGraphDataset(StepResult):
     """Prepared WebQSP graph dataset artifact."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     processing_version: str = Field(..., description="Processing version.")
-    train_examples: list[WebQSPLocalGraphExample] = Field(default_factory=list)
-    test_examples: list[WebQSPLocalGraphExample] = Field(default_factory=list)
+    train_instances: list[WebQSPProcessedInstance] = Field(default_factory=list)
+    test_instances: list[WebQSPProcessedInstance] = Field(default_factory=list)
     vocabulary_store: WebQSPVocabularyStore = Field(...)
     cache_directory: Path = Field(..., description="Processed dataset cache directory.")
 
     @property
     def train_size(self) -> int:
-        """Return the number of prepared training examples."""
-        return len(self.train_examples)
+        """Return the number of prepared training instances."""
+        return len(self.train_instances)
 
     @property
     def test_size(self) -> int:
-        """Return the number of prepared test examples."""
-        return len(self.test_examples)
+        """Return the number of prepared test instances."""
+        return len(self.test_instances)

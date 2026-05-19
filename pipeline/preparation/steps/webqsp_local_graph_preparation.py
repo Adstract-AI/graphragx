@@ -1,14 +1,10 @@
-"""WebQSP local graph preparation step."""
+"""WebQSP processed graph dataset preparation step."""
 
 from __future__ import annotations
 
 from pipeline.abstract import AbstractStep, StepContext
 from pipeline.exceptions import InvalidInteractiveConfigurationInputException
-from pipeline.preparation.models.webqsp_local_graph import (
-    PreparedWebQSPLocalGraphDataset,
-    WebQSPLocalGraphExample,
-    WebQSPVocabularyStore,
-)
+from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.dataset_loading import LoadedDataset
 from pipeline.services.webqsp_local_graph_processing import (
     WebQSPLocalGraphProcessorService,
@@ -17,13 +13,13 @@ from pipeline.services.webqsp_local_graph_storage import (
     WebQSPLocalGraphStorageService,
 )
 
-WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION = "1"
+WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION = "2"
 
 
 class BuildWebQSPLocalGraphsStep(
-    AbstractStep[PreparedWebQSPLocalGraphDataset, LoadedDataset]
+    AbstractStep[PreparedWebQSPGraphDataset, LoadedDataset]
 ):
-    """Build or load cached WebQSP local graph examples."""
+    """Build or load cached WebQSP processed graph instances."""
 
     def __init__(
         self,
@@ -38,7 +34,7 @@ class BuildWebQSPLocalGraphsStep(
     def execute_default(
         self,
         context: StepContext[LoadedDataset],
-    ) -> PreparedWebQSPLocalGraphDataset:
+    ) -> PreparedWebQSPGraphDataset:
         loaded_dataset = context.result
         if loaded_dataset is None:
             raise InvalidInteractiveConfigurationInputException(

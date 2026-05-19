@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from typing import Any, Sequence
 
 from pydantic import BaseModel
@@ -18,6 +19,7 @@ from pipeline import (
     PipelineExecutionResult,
     SelectDatasetStep,
     StepContext,
+    TrainGnnAnswerRetrieverStep,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
     RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
@@ -48,6 +50,12 @@ class PipelineRuntimeConfig(BaseModel):
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
     entity_embedding_model: str | None = None
+    training_epochs: int = 3
+    training_learning_rate: float = 1e-3
+    training_weight_decay: float = 0.0
+    training_max_instances: int | None = None
+    training_log_every: int = 25
+    training_device: str = "auto"
     use_default_config_values: bool = False
     force_all_default: bool = False
 
@@ -105,6 +113,14 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             LoadDatasetStep(),
             BuildWebQSPLocalGraphsStep(),
             BuildGnnAnswerRetrieverStep(),
+            TrainGnnAnswerRetrieverStep(
+                training_epochs=resolved_config.training_epochs,
+                training_learning_rate=resolved_config.training_learning_rate,
+                training_weight_decay=resolved_config.training_weight_decay,
+                training_max_instances=resolved_config.training_max_instances,
+                training_log_every=resolved_config.training_log_every,
+                training_device=resolved_config.training_device,
+            ),
         ],
         evaluation_steps=[],
         force_all_default=resolved_config.force_all_default,
@@ -200,6 +216,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional OpenAI embedding model id for entity text.",
     )
     parser.add_argument(
+        "--training-epochs",
+        type=int,
+        default=3,
+        help="Number of GNN answer-retriever training epochs.",
+    )
+    parser.add_argument(
+        "--training-learning-rate",
+        type=float,
+        default=1e-3,
+        help="Learning rate for GNN answer-retriever training.",
+    )
+    parser.add_argument(
+        "--training-weight-decay",
+        type=float,
+        default=0.0,
+        help="Weight decay for GNN answer-retriever training.",
+    )
+    parser.add_argument(
+        "--training-max-instances",
+        type=int,
+        default=None,
+        help="Optional maximum number of WebQSP training instances to use.",
+    )
+    parser.add_argument(
+        "--training-log-every",
+        type=int,
+        default=25,
+        help="Log training progress after this many instances.",
+    )
+    parser.add_argument(
+        "--training-device",
+        default="auto",
+        choices=["auto", "cpu", "cuda", "mps"],
+        help="PyTorch device used for GNN answer-retriever training.",
+    )
+    parser.add_argument(
         "--default",
         dest="use_default_config_values",
         action="store_true",
@@ -217,6 +269,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point for graphragX."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     parser = build_parser()
     args = parser.parse_args(argv)
     runtime_config = PipelineRuntimeConfig(
@@ -231,6 +287,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         question_embedding_model=args.question_embedding_model,
         relation_embedding_model=args.relation_embedding_model,
         entity_embedding_model=args.entity_embedding_model,
+        training_epochs=args.training_epochs,
+        training_learning_rate=args.training_learning_rate,
+        training_weight_decay=args.training_weight_decay,
+        training_max_instances=args.training_max_instances,
+        training_log_every=args.training_log_every,
+        training_device=args.training_device,
         use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )

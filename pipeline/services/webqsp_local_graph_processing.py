@@ -1,4 +1,4 @@
-"""Services for converting WebQSP examples into local graph tensors."""
+"""Services for converting WebQSP rows into processed graph tensors."""
 
 from __future__ import annotations
 
@@ -8,33 +8,29 @@ from typing import TYPE_CHECKING, Any
 
 from pipeline.exceptions import (
     MalformedWebQSPExampleException,
-    MissingTorchDependencyException,
     UnsupportedDatasetProcessorException,
 )
 from pipeline.preparation.helpers.dataset_definitions import WEBQSP_DATASET_ID
 from pipeline.preparation.models.webqsp_local_graph import (
-    PreparedWebQSPLocalGraphDataset,
-    WebQSPLocalGraphExample,
+    PreparedWebQSPGraphDataset,
+    WebQSPProcessedInstance,
     WebQSPVocabularyStore,
 )
 from pipeline.services.abstract import AbstractService
 
 if TYPE_CHECKING:
-    from torch import Tensor as TorchTensor
     from pipeline.preparation.steps.dataset_loading import LoadedDataset
-else:
-    TorchTensor = Any
 
 
 class WebQSPLocalGraphProcessorService(AbstractService):
-    """Convert loaded WebQSP rows into trainable local graph examples."""
+    """Convert loaded WebQSP rows into trainable processed instances."""
 
     def process_loaded_dataset(
         self,
         loaded_dataset: LoadedDataset,
         processing_version: str,
         cache_directory: Path,
-    ) -> PreparedWebQSPLocalGraphDataset:
+    ) -> PreparedWebQSPGraphDataset:
         """Process WebQSP train, validation, and test splits."""
         if loaded_dataset.dataset_id != WEBQSP_DATASET_ID:
             raise UnsupportedDatasetProcessorException(
@@ -42,21 +38,21 @@ class WebQSPLocalGraphProcessorService(AbstractService):
             )
 
         vocabulary_store = WebQSPVocabularyStore()
-        train_examples = self._process_split(
+        train_instances = self._process_split(
             rows=loaded_dataset.hugging_face_dataset["train"],
             vocabulary_store=vocabulary_store,
         )
         test_rows = self._combined_test_rows(loaded_dataset.hugging_face_dataset)
-        test_examples = self._process_split(
+        test_instances = self._process_split(
             rows=test_rows,
             vocabulary_store=vocabulary_store,
         )
 
-        return PreparedWebQSPLocalGraphDataset(
+        return PreparedWebQSPGraphDataset(
             dataset_id=loaded_dataset.dataset_id,
             processing_version=processing_version,
-            train_examples=train_examples,
-            test_examples=test_examples,
+            train_instances=train_instances,
+            test_instances=test_instances,
             vocabulary_store=vocabulary_store,
             cache_directory=cache_directory,
         )
@@ -65,7 +61,7 @@ class WebQSPLocalGraphProcessorService(AbstractService):
         self,
         rows: Iterable[Mapping[str, Any]],
         vocabulary_store: WebQSPVocabularyStore,
-    ) -> list[WebQSPLocalGraphExample]:
+    ) -> list[WebQSPProcessedInstance]:
         """Process every row from one logical split."""
         return [
             self.process_row(row=row, vocabulary_store=vocabulary_store)
@@ -76,8 +72,8 @@ class WebQSPLocalGraphProcessorService(AbstractService):
         self,
         row: Mapping[str, Any],
         vocabulary_store: WebQSPVocabularyStore,
-    ) -> WebQSPLocalGraphExample:
-        """Convert one WebQSP row into a local graph example."""
+    ) -> WebQSPProcessedInstance:
+        """Convert one WebQSP row into a processed graph instance."""
         self._validate_row(row)
 
         question = str(row["question"])
@@ -102,18 +98,19 @@ class WebQSPLocalGraphProcessorService(AbstractService):
             edge_targets.append(tail_id)
             edge_relations.append(relation)
 
-        torch_module = self._load_torch()
-        edge_index = torch_module.tensor(
+        import torch
+
+        edge_index = torch.tensor(
             [edge_sources, edge_targets],
-            dtype=torch_module.long,
+            dtype=torch.long,
         )
         answer_entities = set(a_entity)
-        node_labels = torch_module.tensor(
+        node_labels = torch.tensor(
             [1.0 if node in answer_entities else 0.0 for node in nodes],
-            dtype=torch_module.float,
+            dtype=torch.float,
         )
 
-        return WebQSPLocalGraphExample(
+        return WebQSPProcessedInstance(
             question=question,
             q_entity=q_entity,
             a_entity=a_entity,
@@ -194,15 +191,3 @@ class WebQSPLocalGraphProcessorService(AbstractService):
             vocabulary[item] = len(vocabulary)
 
         return vocabulary[item]
-
-    @staticmethod
-    def _load_torch():
-        """Import PyTorch for tensor construction."""
-        try:
-            import torch
-        except ModuleNotFoundError as error:
-            raise MissingTorchDependencyException(
-                "PyTorch is required to prepare WebQSP local graph tensors."
-            ) from error
-
-        return torch

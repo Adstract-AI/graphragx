@@ -16,8 +16,10 @@ from pipeline import (
     MalformedDatasetException,
     MissingHuggingFaceDatasetsDependencyException,
     Pipeline,
-    PreparedWebQSPLocalGraphDataset,
+    PreparedWebQSPGraphDataset,
     StepContext,
+    TrainGnnAnswerRetrieverStep,
+    TrainedGnnAnswerRetriever,
     UnsupportedDatasetLoaderException,
     WebQSPVocabularyStore,
 )
@@ -73,13 +75,36 @@ class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
 
 class FakeWebQSPLocalGraphsStep(BuildWebQSPLocalGraphsStep):
     def execute_default(self, context):
-        return PreparedWebQSPLocalGraphDataset(
+        return PreparedWebQSPGraphDataset(
             dataset_id=context.result.dataset_id,
             processing_version="test",
-            train_examples=[],
-            test_examples=[],
+            train_instances=[],
+            test_instances=[],
             vocabulary_store=WebQSPVocabularyStore(),
             cache_directory="/tmp/graphragx-test",
+        )
+
+
+class FakeTrainGnnAnswerRetrieverStep(TrainGnnAnswerRetrieverStep):
+    def execute_default(self, context):
+        return TrainedGnnAnswerRetriever(
+            dataset_id=context.result.dataset_id,
+            hidden_dimension=context.result.hidden_dimension,
+            gnn_layer_count=context.result.gnn_layer_count,
+            node_classifier=context.result.node_classifier,
+            training_epochs=1,
+            training_learning_rate=1e-3,
+            training_weight_decay=0.0,
+            training_max_instances=None,
+            training_log_every=25,
+            training_device="cpu",
+            selected_device="cpu",
+            final_loss=0.0,
+            trained_instances=0,
+            model=context.result.model,
+            model_artifact_path="/tmp/graphragx-test/gnn_answer_retriever.pt",
+            model_config_path="/tmp/graphragx-test/gnn_answer_retriever_config.json",
+            embedding_cache_directory="/tmp/graphragx-test/embeddings",
         )
 
 
@@ -158,6 +183,9 @@ class LoadDatasetStepTests(unittest.TestCase):
         ), patch(
             "main.BuildGnnAnswerRetrieverStep",
             return_value=FakeGnnAnswerRetrieverStep(),
+        ), patch(
+            "main.TrainGnnAnswerRetrieverStep",
+            return_value=FakeTrainGnnAnswerRetrieverStep(),
         ):
             result = main.run_pipeline(
                 config=main.PipelineRuntimeConfig(
@@ -176,7 +204,7 @@ class LoadDatasetStepTests(unittest.TestCase):
             )
 
         self.assertTrue(result.success)
-        self.assertEqual(result.steps_executed, 5)
+        self.assertEqual(result.steps_executed, 6)
         self.assertEqual(result.final_result.dataset_id, "WebQSP")
 
 

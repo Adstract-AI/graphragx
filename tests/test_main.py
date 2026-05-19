@@ -11,7 +11,9 @@ from pipeline import (
     BuildWebQSPLocalGraphsStep,
     BuiltGnnAnswerRetriever,
     LoadDatasetStep,
-    PreparedWebQSPLocalGraphDataset,
+    PreparedWebQSPGraphDataset,
+    TrainGnnAnswerRetrieverStep,
+    TrainedGnnAnswerRetriever,
     WebQSPVocabularyStore,
 )
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
@@ -54,13 +56,36 @@ class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
 
 class FakeWebQSPLocalGraphsStep(BuildWebQSPLocalGraphsStep):
     def execute_default(self, context):
-        return PreparedWebQSPLocalGraphDataset(
+        return PreparedWebQSPGraphDataset(
             dataset_id=context.result.dataset_id,
             processing_version="test",
-            train_examples=[],
-            test_examples=[],
+            train_instances=[],
+            test_instances=[],
             vocabulary_store=WebQSPVocabularyStore(),
             cache_directory="/tmp/graphragx-test",
+        )
+
+
+class FakeTrainGnnAnswerRetrieverStep(TrainGnnAnswerRetrieverStep):
+    def execute_default(self, context):
+        return TrainedGnnAnswerRetriever(
+            dataset_id=context.result.dataset_id,
+            hidden_dimension=context.result.hidden_dimension,
+            gnn_layer_count=context.result.gnn_layer_count,
+            node_classifier=context.result.node_classifier,
+            training_epochs=1,
+            training_learning_rate=1e-3,
+            training_weight_decay=0.0,
+            training_max_instances=None,
+            training_log_every=25,
+            training_device="cpu",
+            selected_device="cpu",
+            final_loss=0.0,
+            trained_instances=0,
+            model=context.result.model,
+            model_artifact_path="/tmp/graphragx-test/gnn_answer_retriever.pt",
+            model_config_path="/tmp/graphragx-test/gnn_answer_retriever_config.json",
+            embedding_cache_directory="/tmp/graphragx-test/embeddings",
         )
 
 
@@ -99,8 +124,15 @@ class MainEntrypointTests(unittest.TestCase):
             return_value=FakeWebQSPLocalGraphsStep(),
         )
 
+    @staticmethod
+    def _patch_training_step():
+        return patch(
+            "main.TrainGnnAnswerRetrieverStep",
+            return_value=FakeTrainGnnAnswerRetrieverStep(),
+        )
+
     def test_run_pipeline_returns_success_for_webqsp(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step():
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step():
             result = main.run_pipeline(
                 config=main.PipelineRuntimeConfig(
                     dataset="WebQSP",
@@ -122,7 +154,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(result.final_result.hidden_dimension, 256)
 
     def test_main_prints_success_payload_for_full_run(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), patch(
             "sys.stdout",
             new_callable=StringIO,
         ) as stdout:
@@ -160,7 +192,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(payload["final_result"]["hidden_dimension"], 256)
 
     def test_main_returns_error_for_unsupported_dataset(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), patch(
             "sys.stdout",
             new_callable=StringIO,
         ) as stdout:
@@ -200,7 +232,7 @@ class MainEntrypointTests(unittest.TestCase):
         )
 
     def test_main_interactively_prompts_missing_configuration_flags(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), patch(
             "builtins.input",
             side_effect=["1", "2", "1", "1", "2", "1", "1", "1", "1", "1"],
         ), patch(
@@ -215,7 +247,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(payload["final_result"]["hidden_dimension"], 256)
 
     def test_main_default_flag_runs_without_prompting(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), patch(
             "builtins.input",
             side_effect=AssertionError("input should not be called"),
         ), patch(
@@ -231,7 +263,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(payload["final_result"]["hidden_dimension"], 256)
 
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), patch(
             "builtins.input",
             side_effect=AssertionError("input should not be called"),
         ):

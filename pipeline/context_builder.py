@@ -13,6 +13,11 @@ from pipeline.preparation.steps.gnn_model_building import (
     BuildGnnAnswerRetrieverContext,
     BuildGnnAnswerRetrieverStep,
 )
+from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
+from pipeline.preparation.steps.gnn_answer_retriever_training import (
+    TrainGnnAnswerRetrieverContext,
+    TrainGnnAnswerRetrieverStep,
+)
 
 
 class StepContextBuilder:
@@ -25,6 +30,7 @@ class StepContextBuilder:
             Callable[[StepResult | None, bool, PipelineException], StepContext],
         ] = {
             BuildGnnAnswerRetrieverStep: self._create_gnn_answer_retriever_context,
+            TrainGnnAnswerRetrieverStep: self._create_train_gnn_answer_retriever_context,
         }
 
     def create_context(
@@ -60,6 +66,23 @@ class StepContextBuilder:
             result=result,
             outcome=outcome,
             exception=exception,
+            pipeline_configuration=self.get_required_result(
+                BuiltPipelineConfiguration
+            ),
+        )
+
+    def _create_train_gnn_answer_retriever_context(
+        self,
+        result: StepResult | None,
+        outcome: bool,
+        exception: PipelineException,
+    ) -> TrainGnnAnswerRetrieverContext:
+        """Create the specialized context required by the GNN training step."""
+        return TrainGnnAnswerRetrieverContext(
+            result=result,
+            outcome=outcome,
+            exception=exception,
+            prepared_dataset=self.get_required_result(PreparedWebQSPGraphDataset),
             pipeline_configuration=self.get_required_result(
                 BuiltPipelineConfiguration
             ),

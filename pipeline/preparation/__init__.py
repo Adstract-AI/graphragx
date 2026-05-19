@@ -47,16 +47,23 @@ from pipeline.preparation.steps.dataset_loading import (
     LoadDatasetStep,
     LoadedDataset,
 )
+from pipeline.preparation.models.webqsp_local_graph import (
+    PreparedWebQSPGraphDataset,
+    WebQSPProcessedInstance,
+    WebQSPVocabularyStore,
+)
 from pipeline.preparation.steps.gnn_model_building import (
     BuildGnnAnswerRetrieverContext,
     BuildGnnAnswerRetrieverStep,
     BuiltGnnAnswerRetriever,
 )
+from pipeline.preparation.steps.gnn_answer_retriever_training import (
+    TrainGnnAnswerRetrieverContext,
+    TrainGnnAnswerRetrieverStep,
+    TrainedGnnAnswerRetriever,
+)
 from pipeline.preparation.steps.webqsp_local_graph_preparation import (
     BuildWebQSPLocalGraphsStep,
-    PreparedWebQSPLocalGraphDataset,
-    WebQSPLocalGraphExample,
-    WebQSPVocabularyStore,
 )
 
 __all__ = [
@@ -85,7 +92,7 @@ __all__ = [
     "OpenAiEmbeddingModelDefinition",
     "PIPELINE_DATASETS",
     "PipelineConfigurationInput",
-    "PreparedWebQSPLocalGraphDataset",
+    "PreparedWebQSPGraphDataset",
     "RECOMMENDED_ASSISTANT_LLM_MODEL_ID",
     "RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID",
     "RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID",
@@ -101,7 +108,10 @@ __all__ = [
     "SHARED_LLM_MODELS",
     "SubgraphConstructionDefinition",
     "SUBGRAPH_CONSTRUCTION_ALGORITHMS",
+    "TrainedGnnAnswerRetriever",
+    "TrainGnnAnswerRetrieverContext",
+    "TrainGnnAnswerRetrieverStep",
     "WEBQSP_DATASET_ID",
-    "WebQSPLocalGraphExample",
+    "WebQSPProcessedInstance",
     "WebQSPVocabularyStore",
 ]

@@ -65,10 +65,6 @@ class MissingHuggingFaceDatasetsDependencyException(PipelineException):
     """Raised when Hugging Face datasets is required but not installed."""
 
 
-class MissingTorchDependencyException(PipelineException):
-    """Raised when PyTorch is required but not installed."""
-
-
 class UnsupportedDatasetLoaderException(PipelineException):
     """Raised when no supported dataset loader configuration exists."""
 
@@ -91,3 +87,11 @@ class MalformedWebQSPExampleException(PipelineException):
 
 class ProcessedDatasetStorageException(PipelineException):
     """Raised when processed dataset cache storage fails."""
+
+
+class OpenAiEmbeddingConfigurationException(PipelineException):
+    """Raised when OpenAI embedding configuration is incomplete."""
+
+
+class GnnAnswerRetrieverTrainingException(PipelineException):
+    """Raised when GNN answer-retriever training fails."""

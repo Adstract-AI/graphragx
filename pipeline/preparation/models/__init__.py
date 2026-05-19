@@ -2,14 +2,14 @@
 
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.models.webqsp_local_graph import (
-    PreparedWebQSPLocalGraphDataset,
-    WebQSPLocalGraphExample,
+    PreparedWebQSPGraphDataset,
+    WebQSPProcessedInstance,
     WebQSPVocabularyStore,
 )
 
 __all__ = [
     "AnswerRetrieverModel",
-    "PreparedWebQSPLocalGraphDataset",
-    "WebQSPLocalGraphExample",
+    "PreparedWebQSPGraphDataset",
+    "WebQSPProcessedInstance",
     "WebQSPVocabularyStore",
 ]
