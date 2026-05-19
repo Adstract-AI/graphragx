@@ -1,5 +1,7 @@
 """Preparation steps and related models for graphragX."""
 
+from typing import Any
+
 from pipeline.preparation.helpers.dataset_definitions import (
     DATASET_CACHE_ROOT,
     DATASET_LOADERS,
@@ -31,19 +33,29 @@ from pipeline.preparation.helpers.configuration_definitions import (
     SubgraphConstructionDefinition,
     SUBGRAPH_CONSTRUCTION_ALGORITHMS,
 )
-from pipeline.preparation.steps.configuration_building import (
-    BuildPipelineConfigurationStep,
-    BuiltPipelineConfiguration,
-    PipelineConfigurationInput,
-)
-from pipeline.preparation.steps.dataset_selection import (
-    SelectedDataset,
-    SelectDatasetStep,
-)
-from pipeline.preparation.steps.dataset_loading import (
-    LoadDatasetStep,
-    LoadedDataset,
-)
+
+_LAZY_EXPORT_MODULES: dict[str, str] = {
+    "BuildPipelineConfigurationStep": "pipeline.preparation.steps.configuration_building",
+    "BuiltPipelineConfiguration": "pipeline.preparation.steps.configuration_building",
+    "PipelineConfigurationInput": "pipeline.preparation.steps.configuration_building",
+    "SelectedDataset": "pipeline.preparation.steps.dataset_selection",
+    "SelectDatasetStep": "pipeline.preparation.steps.dataset_selection",
+    "LoadDatasetStep": "pipeline.preparation.steps.dataset_loading",
+    "LoadedDataset": "pipeline.preparation.steps.dataset_loading",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy-load preparation steps to avoid service/package import cycles."""
+    module_name = _LAZY_EXPORT_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    from importlib import import_module
+
+    value = getattr(import_module(module_name), name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "BuildPipelineConfigurationStep",
