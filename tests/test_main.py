@@ -8,8 +8,11 @@ from unittest.mock import patch
 import main
 from pipeline import (
     BuildGnnAnswerRetrieverStep,
+    BuildWebQSPLocalGraphsStep,
     BuiltGnnAnswerRetriever,
     LoadDatasetStep,
+    PreparedWebQSPLocalGraphDataset,
+    WebQSPVocabularyStore,
 )
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.services import AbstractDatasetLoaderService
@@ -49,6 +52,18 @@ class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
         )
 
 
+class FakeWebQSPLocalGraphsStep(BuildWebQSPLocalGraphsStep):
+    def execute_default(self, context):
+        return PreparedWebQSPLocalGraphDataset(
+            dataset_id=context.result.dataset_id,
+            processing_version="test",
+            train_examples=[],
+            test_examples=[],
+            vocabulary_store=WebQSPVocabularyStore(),
+            cache_directory="/tmp/graphragx-test",
+        )
+
+
 class MainEntrypointTests(unittest.TestCase):
     @staticmethod
     def _extract_json_payload(raw_output: str) -> dict:
@@ -77,8 +92,15 @@ class MainEntrypointTests(unittest.TestCase):
             return_value=FakeGnnAnswerRetrieverStep(),
         )
 
+    @staticmethod
+    def _patch_webqsp_local_graph_step():
+        return patch(
+            "main.BuildWebQSPLocalGraphsStep",
+            return_value=FakeWebQSPLocalGraphsStep(),
+        )
+
     def test_run_pipeline_returns_success_for_webqsp(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step():
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step():
             result = main.run_pipeline(
                 config=main.PipelineRuntimeConfig(
                     dataset="WebQSP",
@@ -100,7 +122,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(result.final_result.hidden_dimension, 256)
 
     def test_main_prints_success_payload_for_full_run(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
             "sys.stdout",
             new_callable=StringIO,
         ) as stdout:
@@ -138,7 +160,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(payload["final_result"]["hidden_dimension"], 256)
 
     def test_main_returns_error_for_unsupported_dataset(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
             "sys.stdout",
             new_callable=StringIO,
         ) as stdout:
@@ -178,7 +200,7 @@ class MainEntrypointTests(unittest.TestCase):
         )
 
     def test_main_interactively_prompts_missing_configuration_flags(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
             "builtins.input",
             side_effect=["1", "2", "1", "1", "2", "1", "1", "1", "1", "1"],
         ), patch(
@@ -193,7 +215,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(payload["final_result"]["hidden_dimension"], 256)
 
     def test_main_default_flag_runs_without_prompting(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
             "builtins.input",
             side_effect=AssertionError("input should not be called"),
         ), patch(
@@ -209,7 +231,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(payload["final_result"]["hidden_dimension"], 256)
 
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
-        with self._patch_dataset_loading_step(), self._patch_gnn_builder_step(), patch(
+        with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), patch(
             "builtins.input",
             side_effect=AssertionError("input should not be called"),
         ):

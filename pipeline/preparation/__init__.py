@@ -52,11 +52,18 @@ from pipeline.preparation.steps.gnn_model_building import (
     BuildGnnAnswerRetrieverStep,
     BuiltGnnAnswerRetriever,
 )
+from pipeline.preparation.steps.webqsp_local_graph_preparation import (
+    BuildWebQSPLocalGraphsStep,
+    PreparedWebQSPLocalGraphDataset,
+    WebQSPLocalGraphExample,
+    WebQSPVocabularyStore,
+)
 
 __all__ = [
     "BuildGnnAnswerRetrieverContext",
     "BuildGnnAnswerRetrieverStep",
     "BuildPipelineConfigurationStep",
+    "BuildWebQSPLocalGraphsStep",
     "BuiltGnnAnswerRetriever",
     "BuiltPipelineConfiguration",
     "CONTEXT_CONSTRUCTION_STRATEGIES",
@@ -78,6 +85,7 @@ __all__ = [
     "OpenAiEmbeddingModelDefinition",
     "PIPELINE_DATASETS",
     "PipelineConfigurationInput",
+    "PreparedWebQSPLocalGraphDataset",
     "RECOMMENDED_ASSISTANT_LLM_MODEL_ID",
     "RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID",
     "RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID",
@@ -94,4 +102,6 @@ __all__ = [
     "SubgraphConstructionDefinition",
     "SUBGRAPH_CONSTRUCTION_ALGORITHMS",
     "WEBQSP_DATASET_ID",
+    "WebQSPLocalGraphExample",
+    "WebQSPVocabularyStore",
 ]

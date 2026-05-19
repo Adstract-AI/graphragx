@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from pipeline import (
     BuildGnnAnswerRetrieverStep,
     BuildPipelineConfigurationStep,
+    BuildWebQSPLocalGraphsStep,
     InitialStepResult,
     LoadDatasetStep,
     Pipeline,
@@ -102,6 +103,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 entity_embedding_model=resolved_config.entity_embedding_model,
             ),
             LoadDatasetStep(),
+            BuildWebQSPLocalGraphsStep(),
             BuildGnnAnswerRetrieverStep(),
         ],
         evaluation_steps=[],

@@ -6,10 +6,16 @@ from pipeline.services.dataset_loader import (
     HuggingFaceWebQSPDatasetLoaderService,
 )
 from pipeline.services.selection import SelectionService
+from pipeline.services.webqsp_local_graph_processing import (
+    WebQSPLocalGraphProcessorService,
+)
+from pipeline.services.webqsp_local_graph_storage import WebQSPLocalGraphStorageService
 
 __all__ = [
     "AbstractService",
     "AbstractDatasetLoaderService",
     "HuggingFaceWebQSPDatasetLoaderService",
     "SelectionService",
+    "WebQSPLocalGraphProcessorService",
+    "WebQSPLocalGraphStorageService",
 ]

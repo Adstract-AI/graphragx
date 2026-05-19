@@ -7,6 +7,7 @@ from unittest.mock import patch
 import main
 from pipeline import (
     BuildGnnAnswerRetrieverStep,
+    BuildWebQSPLocalGraphsStep,
     BuiltGnnAnswerRetriever,
     BuiltPipelineConfiguration,
     DatasetLoadingException,
@@ -15,8 +16,10 @@ from pipeline import (
     MalformedDatasetException,
     MissingHuggingFaceDatasetsDependencyException,
     Pipeline,
+    PreparedWebQSPLocalGraphDataset,
     StepContext,
     UnsupportedDatasetLoaderException,
+    WebQSPVocabularyStore,
 )
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.services import AbstractDatasetLoaderService
@@ -65,6 +68,18 @@ class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
             gnn_hidden_dimension=256,
             node_classifier="mlp",
             model=FakeAnswerRetrieverModel(),
+        )
+
+
+class FakeWebQSPLocalGraphsStep(BuildWebQSPLocalGraphsStep):
+    def execute_default(self, context):
+        return PreparedWebQSPLocalGraphDataset(
+            dataset_id=context.result.dataset_id,
+            processing_version="test",
+            train_examples=[],
+            test_examples=[],
+            vocabulary_store=WebQSPVocabularyStore(),
+            cache_directory="/tmp/graphragx-test",
         )
 
 
@@ -138,6 +153,9 @@ class LoadDatasetStepTests(unittest.TestCase):
             "main.LoadDatasetStep",
             return_value=LoadDatasetStep(loader_service=fake_loader),
         ), patch(
+            "main.BuildWebQSPLocalGraphsStep",
+            return_value=FakeWebQSPLocalGraphsStep(),
+        ), patch(
             "main.BuildGnnAnswerRetrieverStep",
             return_value=FakeGnnAnswerRetrieverStep(),
         ):
@@ -158,7 +176,7 @@ class LoadDatasetStepTests(unittest.TestCase):
             )
 
         self.assertTrue(result.success)
-        self.assertEqual(result.steps_executed, 4)
+        self.assertEqual(result.steps_executed, 5)
         self.assertEqual(result.final_result.dataset_id, "WebQSP")
 
 

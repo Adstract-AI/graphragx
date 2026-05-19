@@ -11,8 +11,8 @@ from pipeline.exceptions import (
 )
 from pipeline.preparation.helpers.configuration_definitions import OPENAI_EMBEDDING_MODELS
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
+from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPLocalGraphDataset
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
-from pipeline.preparation.steps.dataset_loading import LoadedDataset
 
 
 class BuiltGnnAnswerRetriever(StepResult):
@@ -41,7 +41,7 @@ class BuiltGnnAnswerRetriever(StepResult):
     )
 
 
-class BuildGnnAnswerRetrieverContext(StepContext[LoadedDataset]):
+class BuildGnnAnswerRetrieverContext(StepContext[PreparedWebQSPLocalGraphDataset]):
     """Specialized context for constructing the GNN answer retriever."""
 
     pipeline_configuration: BuiltPipelineConfiguration = Field(
@@ -51,7 +51,7 @@ class BuildGnnAnswerRetrieverContext(StepContext[LoadedDataset]):
 
 
 class BuildGnnAnswerRetrieverStep(
-    AbstractStep[BuiltGnnAnswerRetriever, LoadedDataset]
+    AbstractStep[BuiltGnnAnswerRetriever, PreparedWebQSPLocalGraphDataset]
 ):
     """Build the PyTorch GNN retriever and node classifier."""
 
@@ -65,10 +65,10 @@ class BuildGnnAnswerRetrieverStep(
         self,
         context: BuildGnnAnswerRetrieverContext,
     ) -> BuiltGnnAnswerRetriever:
-        loaded_dataset = context.result
-        if loaded_dataset is None:
+        prepared_dataset = context.result
+        if prepared_dataset is None:
             raise InvalidInteractiveConfigurationInputException(
-                "GNN answer-retriever building requires a loaded dataset in the incoming context."
+                "GNN answer-retriever building requires a prepared WebQSP dataset."
             )
 
         configuration = context.pipeline_configuration
@@ -85,7 +85,7 @@ class BuildGnnAnswerRetrieverStep(
         )
 
         return BuiltGnnAnswerRetriever(
-            dataset_id=loaded_dataset.dataset_id,
+            dataset_id=prepared_dataset.dataset_id,
             entity_embedding_model=configuration.entity_embedding_model,
             entity_embedding_dimension=entity_embedding_definition.dimensions,
             hidden_dimension=configuration.gnn_hidden_dimension,

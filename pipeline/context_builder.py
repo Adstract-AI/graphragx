@@ -39,9 +39,9 @@ class StepContextBuilder:
             self.store_result(result)
 
         if next_step is not None:
-            context_factory = self.context_factories.get(type(next_step))
-            if context_factory is not None:
-                return context_factory(result, outcome, exception)
+            for step_type, context_factory in self.context_factories.items():
+                if isinstance(next_step, step_type):
+                    return context_factory(result, outcome, exception)
 
         return StepContext(
             result=result,

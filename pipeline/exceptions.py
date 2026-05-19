@@ -79,3 +79,15 @@ class DatasetLoadingException(PipelineException):
 
 class MalformedDatasetException(PipelineException):
     """Raised when a loaded dataset does not expose the expected structure."""
+
+
+class UnsupportedDatasetProcessorException(PipelineException):
+    """Raised when no supported dataset processor exists for a dataset."""
+
+
+class MalformedWebQSPExampleException(PipelineException):
+    """Raised when a WebQSP example does not expose the expected structure."""
+
+
+class ProcessedDatasetStorageException(PipelineException):
+    """Raised when processed dataset cache storage fails."""
