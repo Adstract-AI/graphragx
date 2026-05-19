@@ -6,16 +6,26 @@ from unittest.mock import patch
 
 import main
 from pipeline import (
+    BuildGnnAnswerRetrieverStep,
+    BuildWebQSPLocalGraphsStep,
+    BuiltGnnAnswerRetriever,
     BuiltPipelineConfiguration,
     DatasetLoadingException,
+    EvaluateGnnAnswerRetrieverStep,
+    GnnAnswerRetrieverEvaluationResult,
     LoadDatasetStep,
     LoadedDataset,
     MalformedDatasetException,
     MissingHuggingFaceDatasetsDependencyException,
     Pipeline,
+    PreparedWebQSPGraphDataset,
     StepContext,
+    TrainGnnAnswerRetrieverStep,
+    TrainedGnnAnswerRetriever,
     UnsupportedDatasetLoaderException,
+    WebQSPVocabularyStore,
 )
+from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.services import AbstractDatasetLoaderService
 
 
@@ -47,6 +57,86 @@ class FakeLoaderService(AbstractDatasetLoaderService):
         return self.dataset
 
 
+class FakeAnswerRetrieverModel(AnswerRetrieverModel):
+    pass
+
+
+class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
+    def execute_default(self, context):
+        return BuiltGnnAnswerRetriever(
+            dataset_id=context.result.dataset_id,
+            entity_embedding_model="text-embedding-3-small",
+            entity_embedding_dimension=1536,
+            hidden_dimension=256,
+            gnn_layer_count=2,
+            gnn_hidden_dimension=256,
+            node_classifier="mlp",
+            model=FakeAnswerRetrieverModel(),
+        )
+
+
+class FakeWebQSPLocalGraphsStep(BuildWebQSPLocalGraphsStep):
+    def execute_default(self, context):
+        return PreparedWebQSPGraphDataset(
+            dataset_id=context.result.dataset_id,
+            processing_version="test",
+            train_instances=[],
+            test_instances=[],
+            vocabulary_store=WebQSPVocabularyStore(),
+            cache_directory="/tmp/graphragx-test",
+        )
+
+
+class FakeTrainGnnAnswerRetrieverStep(TrainGnnAnswerRetrieverStep):
+    def execute_default(self, context):
+        return TrainedGnnAnswerRetriever(
+            dataset_id=context.result.dataset_id,
+            hidden_dimension=context.result.hidden_dimension,
+            gnn_layer_count=context.result.gnn_layer_count,
+            node_classifier=context.result.node_classifier,
+            training_epochs=1,
+            training_learning_rate=1e-3,
+            training_weight_decay=0.0,
+            training_max_instances=None,
+            training_log_every=25,
+            training_device="cpu",
+            training_run_name=None,
+            selected_device="cpu",
+            final_loss=0.0,
+            trained_instances=0,
+            model=context.result.model,
+            model_artifact_path="/tmp/graphragx-test/gnn_answer_retriever.pt",
+            model_config_path="/tmp/graphragx-test/gnn_answer_retriever_config.json",
+            model_run_directory="/tmp/graphragx-test/1_test",
+            model_run_name="1_test",
+            model_run_number=1,
+            embedding_cache_directory="/tmp/graphragx-test/embeddings",
+        )
+
+
+class FakeEvaluateGnnAnswerRetrieverStep(EvaluateGnnAnswerRetrieverStep):
+    def execute_default(self, context):
+        return GnnAnswerRetrieverEvaluationResult(
+            dataset_id=context.result.dataset_id,
+            model_run_directory=context.result.model_run_directory,
+            model_run_name=context.result.model_run_name,
+            model_run_number=context.result.model_run_number,
+            evaluation_run_directory="/tmp/graphragx-test/evaluations/1_test",
+            evaluation_run_name="1_test",
+            evaluation_run_number=1,
+            evaluated_instances=0,
+            hits_at_1=0.0,
+            hits_at_1_count=0,
+            hit_at_k=0.0,
+            hit_at_k_count=0,
+            average_candidate_count=0.0,
+            missing_gold_in_graph_count=0,
+            predictions_path="/tmp/graphragx-test/evaluations/1_test/predictions.jsonl",
+            summary_metrics_path="/tmp/graphragx-test/evaluations/1_test/summary_metrics.json",
+            evaluation_config_path="/tmp/graphragx-test/evaluations/1_test/evaluation_config.json",
+        )
+
+
 class LoadDatasetStepTests(unittest.TestCase):
     @staticmethod
     def make_configuration_context(
@@ -60,6 +150,7 @@ class LoadDatasetStepTests(unittest.TestCase):
                 subgraph_construction_algorithm="shortest_path",
                 context_construction_strategy="textualized",
                 gnn_layer_count=2,
+                gnn_hidden_dimension=256,
                 node_classifier="mlp",
                 question_embedding_model="text-embedding-3-small",
                 relation_embedding_model="text-embedding-3-small",
@@ -115,6 +206,18 @@ class LoadDatasetStepTests(unittest.TestCase):
         with patch(
             "main.LoadDatasetStep",
             return_value=LoadDatasetStep(loader_service=fake_loader),
+        ), patch(
+            "main.BuildWebQSPLocalGraphsStep",
+            return_value=FakeWebQSPLocalGraphsStep(),
+        ), patch(
+            "main.BuildGnnAnswerRetrieverStep",
+            return_value=FakeGnnAnswerRetrieverStep(),
+        ), patch(
+            "main.TrainGnnAnswerRetrieverStep",
+            return_value=FakeTrainGnnAnswerRetrieverStep(),
+        ), patch(
+            "main.EvaluateGnnAnswerRetrieverStep",
+            return_value=FakeEvaluateGnnAnswerRetrieverStep(),
         ):
             result = main.run_pipeline(
                 config=main.PipelineRuntimeConfig(
@@ -124,6 +227,7 @@ class LoadDatasetStepTests(unittest.TestCase):
                     subgraph_algorithm="shortest_path",
                     context_strategy="textualized",
                     gnn_layer_count=2,
+                    gnn_hidden_dimension=256,
                     node_classifier="mlp",
                     question_embedding_model="text-embedding-3-small",
                     relation_embedding_model="text-embedding-3-small",
@@ -132,7 +236,7 @@ class LoadDatasetStepTests(unittest.TestCase):
             )
 
         self.assertTrue(result.success)
-        self.assertEqual(result.steps_executed, 3)
+        self.assertEqual(result.steps_executed, 7)
         self.assertEqual(result.final_result.dataset_id, "WebQSP")
 
 

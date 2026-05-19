@@ -37,6 +37,10 @@ class InvalidGnnLayerCountSelectionException(PipelineException):
     """Raised when an invalid GNN layer count option is provided."""
 
 
+class InvalidGnnHiddenDimensionSelectionException(PipelineException):
+    """Raised when an invalid GNN hidden dimension option is provided."""
+
+
 class InvalidNodeClassifierSelectionException(PipelineException):
     """Raised when an invalid node classifier option is provided."""
 
@@ -71,3 +75,31 @@ class DatasetLoadingException(PipelineException):
 
 class MalformedDatasetException(PipelineException):
     """Raised when a loaded dataset does not expose the expected structure."""
+
+
+class UnsupportedDatasetProcessorException(PipelineException):
+    """Raised when no supported dataset processor exists for a dataset."""
+
+
+class MalformedWebQSPExampleException(PipelineException):
+    """Raised when a WebQSP example does not expose the expected structure."""
+
+
+class ProcessedDatasetStorageException(PipelineException):
+    """Raised when processed dataset cache storage fails."""
+
+
+class OpenAiEmbeddingConfigurationException(PipelineException):
+    """Raised when OpenAI embedding configuration is incomplete."""
+
+
+class GnnAnswerRetrieverTrainingException(PipelineException):
+    """Raised when GNN answer-retriever training fails."""
+
+
+class GnnAnswerRetrieverModelRunException(PipelineException):
+    """Raised when a saved GNN answer-retriever run cannot be resolved or loaded."""
+
+
+class GnnAnswerRetrieverEvaluationException(PipelineException):
+    """Raised when GNN answer-retriever evaluation fails."""

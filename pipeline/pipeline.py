@@ -57,8 +57,10 @@ class Pipeline:
         if not preparation_result.success:
             return preparation_result
 
+        first_evaluation_step = self.evaluation_steps[0] if self.evaluation_steps else None
         evaluation_context = self.context_builder.create_context(
             result=preparation_result.final_result,
+            next_step=first_evaluation_step,
         )
         evaluation_result = self._run_steps(
             self.evaluation_steps,
@@ -101,10 +103,14 @@ class Pipeline:
         total_steps = len(steps)
 
         try:
-            for step in steps:
+            for index, step in enumerate(steps):
                 last_result = step.execute(current_context)
                 steps_executed += 1
-                current_context = self.context_builder.create_context(result=last_result)
+                next_step = steps[index + 1] if index + 1 < total_steps else None
+                current_context = self.context_builder.create_context(
+                    result=last_result,
+                    next_step=next_step,
+                )
 
             execution_time_ms = (time.perf_counter() - start_time) * 1000
             return PipelineExecutionResult.success_result(

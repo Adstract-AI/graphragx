@@ -1,9 +1,11 @@
-"""Evaluation steps for Stage 2 inference."""
+"""Evaluation steps for graphragX."""
 
-from pipeline.evaluation.steps.path_extraction import ExtractShortestPathsStep
-from pipeline.evaluation.steps.mock_candidate_scoring import MockCandidateNodeScoringStep
+from pipeline.evaluation.steps.gnn_answer_retriever_evaluation import (
+    EvaluateGnnAnswerRetrieverContext,
+    EvaluateGnnAnswerRetrieverStep,
+)
 
 __all__ = [
-    "ExtractShortestPathsStep",
-    "MockCandidateNodeScoringStep",
+    "EvaluateGnnAnswerRetrieverContext",
+    "EvaluateGnnAnswerRetrieverStep",
 ]
