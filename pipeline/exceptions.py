@@ -95,3 +95,11 @@ class OpenAiEmbeddingConfigurationException(PipelineException):
 
 class GnnAnswerRetrieverTrainingException(PipelineException):
     """Raised when GNN answer-retriever training fails."""
+
+
+class GnnAnswerRetrieverModelRunException(PipelineException):
+    """Raised when a saved GNN answer-retriever run cannot be resolved or loaded."""
+
+
+class GnnAnswerRetrieverEvaluationException(PipelineException):
+    """Raised when GNN answer-retriever evaluation fails."""

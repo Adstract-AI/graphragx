@@ -57,8 +57,10 @@ class Pipeline:
         if not preparation_result.success:
             return preparation_result
 
+        first_evaluation_step = self.evaluation_steps[0] if self.evaluation_steps else None
         evaluation_context = self.context_builder.create_context(
             result=preparation_result.final_result,
+            next_step=first_evaluation_step,
         )
         evaluation_result = self._run_steps(
             self.evaluation_steps,
