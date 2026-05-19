@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from constants import DEFAULT_ANSWER_THRESHOLD, DEFAULT_CANDIDATE_TOP_K
+from helpers.constants import DEFAULT_ANSWER_THRESHOLD, DEFAULT_CANDIDATE_TOP_K
 from pipeline.abstract import StepResult
 
 

@@ -6,14 +6,14 @@ from pathlib import Path
 
 from pydantic import ConfigDict, Field
 
-from constants import (
+from helpers.constants import (
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
     DEFAULT_TRAINING_LOG_EVERY,
     DEFAULT_TRAINING_WEIGHT_DECAY,
 )
-from logging_config import get_logger
+from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel

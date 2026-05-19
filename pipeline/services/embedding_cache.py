@@ -8,13 +8,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from constants import (
+from helpers.constants import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
     WEBQSP_NODE_EMBEDDINGS_FILENAME,
     WEBQSP_QUESTION_EMBEDDINGS_FILENAME,
     WEBQSP_RELATION_EMBEDDINGS_FILENAME,
 )
-from logging_config import get_logger
+from helpers.logging_config import get_logger
 from pipeline.services.abstract import AbstractService
 from pipeline.services.openai_text_embedding import LangChainOpenAiTextEmbeddingService
 

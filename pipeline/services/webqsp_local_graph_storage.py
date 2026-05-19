@@ -13,7 +13,7 @@ from pipeline.preparation.helpers.dataset_definitions import (
     DATASET_LOADERS,
     WEBQSP_DATASET_ID,
 )
-from constants import WEBQSP_QUESTION_VOCABULARY_FILENAME
+from helpers.constants import WEBQSP_QUESTION_VOCABULARY_FILENAME
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
     WebQSPProcessedInstance,

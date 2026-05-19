@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import ConfigDict, Field
 
-from logging_config import get_logger
+from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.helpers.configuration_definitions import OPENAI_EMBEDDING_MODELS

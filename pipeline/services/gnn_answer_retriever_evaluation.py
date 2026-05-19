@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from logging_config import get_logger
+from helpers.logging_config import get_logger
 from pipeline.evaluation.models import (
     AnswerCandidateScore,
     EvaluatedAnswerRetrievalInstance,

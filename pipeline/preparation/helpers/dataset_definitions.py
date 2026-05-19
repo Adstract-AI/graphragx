@@ -35,7 +35,7 @@ class DatasetLoaderDefinition(BaseModel):
 
 WEBQSP_DATASET_ID: Final[str] = "WebQSP"
 DATASET_CACHE_ROOT: Final[Path] = (
-    Path(__file__).resolve().parents[3] / "data" / "datasets"
+    Path(__file__).resolve().parents[3] / "data"
 )
 
 PIPELINE_DATASETS: Final[dict[str, DatasetDefinition]] = {

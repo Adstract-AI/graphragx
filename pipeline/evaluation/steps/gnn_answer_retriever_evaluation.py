@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pydantic import Field
 
-from constants import DEFAULT_ANSWER_THRESHOLD, DEFAULT_CANDIDATE_TOP_K
-from logging_config import get_logger
+from helpers.constants import DEFAULT_ANSWER_THRESHOLD, DEFAULT_CANDIDATE_TOP_K
+from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.evaluation.models import (
     GnnAnswerRetrieverEvaluationConfig,

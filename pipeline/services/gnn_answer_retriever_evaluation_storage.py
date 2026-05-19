@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from constants import (
+from helpers.constants import (
     GNN_ANSWER_RETRIEVER_EVALUATION_CONFIG_FILENAME,
     GNN_ANSWER_RETRIEVER_EVALUATION_PREDICTIONS_FILENAME,
     GNN_ANSWER_RETRIEVER_EVALUATION_SUMMARY_FILENAME,

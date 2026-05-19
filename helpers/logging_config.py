@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from env_variables import GRAPHRAGX_LOG_COLOR, GRAPHRAGX_LOG_LEVEL
+from helpers.env_variables import GRAPHRAGX_LOG_COLOR, GRAPHRAGX_LOG_LEVEL
 
 
 class GraphragXLogFormatter(logging.Formatter):

@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from pydantic import Field
 
-from logging_config import get_logger
+from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import UnsupportedDatasetSelectionException
 from pipeline.models import InitialStepResult

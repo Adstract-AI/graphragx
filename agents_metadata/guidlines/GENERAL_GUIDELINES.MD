@@ -9,8 +9,8 @@
 - Any change to method/function logic or signature that affects behavior must include a docstring update.
 - Use project-specific custom exceptions where appropriate.
 - Add explicit error handling and failure mapping.
-- Environment-controlled variables must be loaded through `env_variables.py`.
-- Shared constants used across multiple parts of the codebase must be defined in `constants.py`.
+- Environment-controlled variables must be loaded through `helpers/env_variables.py`.
+- Shared constants used across multiple parts of the codebase must be defined in `helpers/constants.py`.
 - Module-local constants may stay inside the owning module when only that module uses them; avoid magic numbers and unnamed hardcoded values in implementation logic.
 - Treat environment variables and constants differently: environment variables are deployment-controlled runtime inputs such as API keys, debug flags, environment names, or similar operational configuration; constants are code-level fixed values used to keep behavior explicit and avoid duplicated literals.
 - Keep code concise; add short explanatory comments where logic is non-obvious or where a small comment materially improves readability.

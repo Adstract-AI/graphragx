@@ -8,7 +8,7 @@ from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel
 
-from constants import (
+from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_TOP_K,
     DEFAULT_TRAINING_DEVICE,
@@ -17,7 +17,7 @@ from constants import (
     DEFAULT_TRAINING_LOG_EVERY,
     DEFAULT_TRAINING_WEIGHT_DECAY,
 )
-from logging_config import setup_logger
+from helpers.logging_config import setup_logger
 from pipeline import (
     BuildGnnAnswerRetrieverStep,
     BuildPipelineConfigurationStep,

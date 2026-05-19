@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from constants import (
+from helpers.constants import (
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
@@ -19,7 +19,7 @@ from constants import (
     GNN_ANSWER_RETRIEVER_CONFIG_FILENAME,
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
 )
-from logging_config import get_logger
+from helpers.logging_config import get_logger
 from pipeline.exceptions import GnnAnswerRetrieverTrainingException
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,

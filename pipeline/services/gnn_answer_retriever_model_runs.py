@@ -8,11 +8,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from constants import (
+from helpers.constants import (
     GNN_ANSWER_RETRIEVER_CONFIG_FILENAME,
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
 )
-from logging_config import get_logger
+from helpers.logging_config import get_logger
 from pipeline.exceptions import GnnAnswerRetrieverModelRunException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration

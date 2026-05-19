@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from logging_config import get_logger
+from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext
 from pipeline.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
