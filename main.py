@@ -30,6 +30,10 @@ from pipeline import (
     StepContext,
     TrainGnnAnswerRetrieverStep,
     EvaluateGnnAnswerRetrieverStep,
+    BuildReasoningSamplesFromGnnEvaluationStep,
+    ExtractShortestPathsBatchStep,
+    GenerateFinalAnswersBatchStep,
+    SaveInferenceRunStep,
     PipelineException,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
@@ -75,6 +79,9 @@ class PipelineRuntimeConfig(BaseModel):
     candidate_top_k: int = DEFAULT_CANDIDATE_TOP_K
     evaluation_run_name: str | None = None
     evaluation_max_instances: int | None = None
+    with_llm_inference: bool = False
+    inference_run_name: str | None = None
+    llm_model: str = "gpt-4.1-mini"
     use_default_config_values: bool = False
     force_all_default: bool = False
 
@@ -153,6 +160,17 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             evaluation_max_instances=resolved_config.evaluation_max_instances,
         ),
     ]
+    if resolved_config.with_llm_inference:
+        evaluation_steps.extend(
+            [
+                BuildReasoningSamplesFromGnnEvaluationStep(),
+                ExtractShortestPathsBatchStep(),
+                GenerateFinalAnswersBatchStep(model_id=resolved_config.llm_model),
+                SaveInferenceRunStep(
+                    inference_run_name=resolved_config.inference_run_name,
+                ),
+            ]
+        )
 
     if resolved_config.run_mode == "train-only":
         preparation_steps = [*setup_steps, *training_steps]
@@ -371,6 +389,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional maximum number of WebQSP test instances to evaluate.",
     )
     parser.add_argument(
+        "--with-llm-inference",
+        action="store_true",
+        help="Continue after GNN candidate retrieval with paths, LLM answers, and saved inference outputs.",
+    )
+    parser.add_argument(
+        "--inference-run-name",
+        default=None,
+        help="Optional label for the versioned LLM inference run folder.",
+    )
+    parser.add_argument(
+        "--llm-model",
+        default="gpt-4.1-mini",
+        help="LLM model id used for post-retrieval answer generation.",
+    )
+    parser.add_argument(
         "--default",
         dest="use_default_config_values",
         action="store_true",
@@ -417,6 +450,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_top_k=args.candidate_top_k,
         evaluation_run_name=args.evaluation_run_name,
         evaluation_max_instances=args.evaluation_max_instances,
+        with_llm_inference=args.with_llm_inference,
+        inference_run_name=args.inference_run_name,
+        llm_model=args.llm_model,
         use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )

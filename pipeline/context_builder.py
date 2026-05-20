@@ -11,6 +11,10 @@ from pipeline.evaluation.steps.gnn_answer_retriever_evaluation import (
     EvaluateGnnAnswerRetrieverContext,
     EvaluateGnnAnswerRetrieverStep,
 )
+from pipeline.evaluation.steps.llm_inference import (
+    BuildReasoningSamplesFromGnnEvaluationContext,
+    BuildReasoningSamplesFromGnnEvaluationStep,
+)
 from pipeline.models import PipelineResultBank
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.steps.gnn_model_building import (
@@ -36,6 +40,9 @@ class StepContextBuilder:
             BuildGnnAnswerRetrieverStep: self._create_gnn_answer_retriever_context,
             TrainGnnAnswerRetrieverStep: self._create_train_gnn_answer_retriever_context,
             EvaluateGnnAnswerRetrieverStep: self._create_evaluate_gnn_answer_retriever_context,
+            BuildReasoningSamplesFromGnnEvaluationStep: (
+                self._create_build_reasoning_samples_from_gnn_context
+            ),
         }
 
     def create_context(
@@ -108,6 +115,20 @@ class StepContextBuilder:
             pipeline_configuration=self.get_required_result(
                 BuiltPipelineConfiguration
             ),
+        )
+
+    def _create_build_reasoning_samples_from_gnn_context(
+        self,
+        result: StepResult | None,
+        outcome: bool,
+        exception: PipelineException,
+    ) -> BuildReasoningSamplesFromGnnEvaluationContext:
+        """Create the context required by the post-retrieval reasoning adapter."""
+        return BuildReasoningSamplesFromGnnEvaluationContext(
+            result=result,
+            outcome=outcome,
+            exception=exception,
+            prepared_dataset=self.get_required_result(PreparedWebQSPGraphDataset),
         )
 
     def store_result(self, result: StepResult) -> None:

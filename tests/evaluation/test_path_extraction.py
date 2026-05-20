@@ -1,20 +1,29 @@
 """Tests for evaluation candidate scoring and shortest path extraction."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from pipeline import (
+    BuildReasoningSamplesFromGnnEvaluationContext,
+    BuildReasoningSamplesFromGnnEvaluationStep,
     CandidateNodeScore,
     EvaluationSample,
+    ExtractShortestPathsBatchStep,
     ExtractShortestPathsStep,
+    GenerateFinalAnswersBatchStep,
     GenerateFinalAnswerStep,
+    GnnAnswerRetrieverEvaluationResult,
     GnnPredictionCandidateScoringStep,
     InvalidEvaluationSampleException,
     MockCandidateNodeScoringStep,
+    PreparedWebQSPGraphDataset,
     Pipeline,
+    SaveInferenceRunStep,
     ShortestPathExtractionService,
     StepContext,
+    WebQSPVocabularyStore,
 )
 from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
 
@@ -406,6 +415,167 @@ class LlmAnswerGenerationStepTests(unittest.TestCase):
         self.assertEqual(fake_service.calls[0][1], extracted_paths.reasoning_paths_text)
         self.assertEqual(fake_service.calls[0][2], "test-model")
         print("[test_generates_final_answer_from_extracted_paths] Passed.")
+
+
+class LlmInferenceBatchStepTests(unittest.TestCase):
+    @staticmethod
+    def _make_processed_instance():
+        import torch
+
+        return WebQSPProcessedInstance(
+            question="what is the name of justin bieber brother",
+            q_entity=["Justin Bieber"],
+            a_entity=["Jaxon Bieber"],
+            nodes=["Justin Bieber", "m.0gxnnwp", "Jaxon Bieber"],
+            node2id={"Justin Bieber": 0, "m.0gxnnwp": 1, "Jaxon Bieber": 2},
+            edge_index=torch.tensor([[0, 1], [1, 2]], dtype=torch.long),
+            edge_relations=[
+                "people.person.sibling_s",
+                "people.sibling_relationship.sibling",
+            ],
+            node_labels=torch.tensor([0.0, 0.0, 1.0]),
+        )
+
+    @staticmethod
+    def _write_prediction_file(directory: Path) -> Path:
+        predictions_path = directory / "predictions.jsonl"
+        predictions_path.write_text(
+            json.dumps(
+                {
+                    "instance_index": 0,
+                    "question": "what is the name of justin bieber brother",
+                    "q_entity": ["Justin Bieber"],
+                    "a_entity": ["Jaxon Bieber"],
+                    "answer_candidates": [
+                        {
+                            "node": "Jaxon Bieber",
+                            "local_node_id": 2,
+                            "global_node_id": 102,
+                            "logit": 5.0,
+                            "probability": 0.99,
+                            "is_gold_answer": True,
+                            "selection_reason": "threshold",
+                        }
+                    ],
+                    "gold_answer_scores": [],
+                    "hit_at_1": True,
+                    "hit_at_k": True,
+                    "missing_gold_in_graph": False,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return predictions_path
+
+    def test_gnn_predictions_become_batch_reasoning_samples(self) -> None:
+        print("\n[test_gnn_predictions_become_batch_reasoning_samples] Starting.")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            predictions_path = self._write_prediction_file(directory)
+            prepared_dataset = PreparedWebQSPGraphDataset(
+                dataset_id="WebQSP",
+                processing_version="test",
+                train_instances=[],
+                test_instances=[self._make_processed_instance()],
+                vocabulary_store=WebQSPVocabularyStore(),
+                cache_directory=directory,
+            )
+            evaluation_result = GnnAnswerRetrieverEvaluationResult(
+                dataset_id="WebQSP",
+                model_run_directory=directory / "models" / "1_test",
+                model_run_name="1_test",
+                model_run_number=1,
+                evaluation_run_directory=directory / "evaluations" / "1_test",
+                evaluation_run_name="1_test",
+                evaluation_run_number=1,
+                evaluated_instances=1,
+                hits_at_1=1.0,
+                hits_at_1_count=1,
+                hit_at_k=1.0,
+                hit_at_k_count=1,
+                average_candidate_count=1.0,
+                missing_gold_in_graph_count=0,
+                predictions_path=predictions_path,
+                summary_metrics_path=directory / "summary_metrics.json",
+                evaluation_config_path=directory / "evaluation_config.json",
+            )
+
+            result = BuildReasoningSamplesFromGnnEvaluationStep().execute(
+                BuildReasoningSamplesFromGnnEvaluationContext(
+                    result=evaluation_result,
+                    prepared_dataset=prepared_dataset,
+                )
+            )
+
+        self.assertEqual(result.dataset_id, "WebQSP")
+        self.assertEqual(len(result.samples), 1)
+        self.assertEqual(result.samples[0].candidate_scores.candidates[0].node_id, "Jaxon Bieber")
+        self.assertEqual(
+            result.samples[0].candidate_scores.sample.graph_triples[0].relation,
+            "people.person.sibling_s",
+        )
+        print("[test_gnn_predictions_become_batch_reasoning_samples] Passed.")
+
+    def test_batch_inference_saves_expected_files(self) -> None:
+        print("\n[test_batch_inference_saves_expected_files] Starting.")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            predictions_path = self._write_prediction_file(directory)
+            prepared_dataset = PreparedWebQSPGraphDataset(
+                dataset_id="WebQSP",
+                processing_version="test",
+                train_instances=[],
+                test_instances=[self._make_processed_instance()],
+                vocabulary_store=WebQSPVocabularyStore(),
+                cache_directory=directory,
+            )
+            evaluation_result = GnnAnswerRetrieverEvaluationResult(
+                dataset_id="WebQSP",
+                model_run_directory=directory / "models" / "1_test",
+                model_run_name="1_test",
+                model_run_number=1,
+                evaluation_run_directory=directory / "evaluations" / "1_test",
+                evaluation_run_name="1_test",
+                evaluation_run_number=1,
+                evaluated_instances=1,
+                hits_at_1=1.0,
+                hits_at_1_count=1,
+                hit_at_k=1.0,
+                hit_at_k_count=1,
+                average_candidate_count=1.0,
+                missing_gold_in_graph_count=0,
+                predictions_path=predictions_path,
+                summary_metrics_path=directory / "summary_metrics.json",
+                evaluation_config_path=directory / "evaluation_config.json",
+            )
+            built_samples = BuildReasoningSamplesFromGnnEvaluationStep().execute(
+                BuildReasoningSamplesFromGnnEvaluationContext(
+                    result=evaluation_result,
+                    prepared_dataset=prepared_dataset,
+                )
+            )
+            paths_batch = ExtractShortestPathsBatchStep().execute(
+                StepContext(result=built_samples)
+            )
+            answers_batch = GenerateFinalAnswersBatchStep(
+                model_id="test-model",
+                answer_generation_service=FakeAnswerGenerationService(),
+            ).execute(StepContext(result=paths_batch))
+
+            saved_run = SaveInferenceRunStep(
+                inference_root=directory / "inference",
+                inference_run_name="test",
+            ).execute(StepContext(result=answers_batch))
+
+            self.assertTrue(saved_run.reasoning_paths_path.exists())
+            self.assertTrue(saved_run.reasoning_subgraphs_path.exists())
+            self.assertTrue(saved_run.prompts_path.exists())
+            self.assertTrue(saved_run.answers_path.exists())
+            self.assertTrue(saved_run.summary_path.exists())
+            self.assertEqual(saved_run.total_instances, 1)
+            self.assertEqual(saved_run.successful_answers, 1)
+            self.assertIn("Jaxon Bieber", saved_run.answers_path.read_text(encoding="utf-8"))
+        print("[test_batch_inference_saves_expected_files] Passed.")
 
 
 if __name__ == "__main__":

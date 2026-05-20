@@ -7,13 +7,17 @@ from unittest.mock import patch
 
 import main
 from pipeline import (
+    BuildReasoningSamplesFromGnnEvaluationStep,
     BuildGnnAnswerRetrieverStep,
     BuildWebQSPLocalGraphsStep,
     BuiltGnnAnswerRetriever,
     EvaluateGnnAnswerRetrieverStep,
+    ExtractShortestPathsBatchStep,
+    GenerateFinalAnswersBatchStep,
     GnnAnswerRetrieverEvaluationResult,
     LoadDatasetStep,
     PreparedWebQSPGraphDataset,
+    SaveInferenceRunStep,
     TrainGnnAnswerRetrieverStep,
     TrainedGnnAnswerRetriever,
     WebQSPVocabularyStore,
@@ -321,6 +325,20 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertIsNone(
             pipeline.preparation_steps[0].requested_dataset,
         )
+
+    def test_llm_inference_flag_appends_post_retrieval_steps_only(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(with_llm_inference=True),
+        )
+
+        self.assertIsInstance(pipeline.evaluation_steps[0], EvaluateGnnAnswerRetrieverStep)
+        self.assertIsInstance(
+            pipeline.evaluation_steps[1],
+            BuildReasoningSamplesFromGnnEvaluationStep,
+        )
+        self.assertIsInstance(pipeline.evaluation_steps[2], ExtractShortestPathsBatchStep)
+        self.assertIsInstance(pipeline.evaluation_steps[3], GenerateFinalAnswersBatchStep)
+        self.assertIsInstance(pipeline.evaluation_steps[4], SaveInferenceRunStep)
 
 
 if __name__ == "__main__":
