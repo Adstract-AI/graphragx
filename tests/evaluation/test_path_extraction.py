@@ -1,17 +1,22 @@
 """Tests for evaluation candidate scoring and shortest path extraction."""
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from pipeline import (
     CandidateNodeScore,
     EvaluationSample,
     ExtractShortestPathsStep,
+    GenerateFinalAnswerStep,
+    GnnPredictionCandidateScoringStep,
     InvalidEvaluationSampleException,
     MockCandidateNodeScoringStep,
     Pipeline,
     ShortestPathExtractionService,
     StepContext,
 )
+from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
 
 
 def make_sample() -> EvaluationSample:
@@ -78,13 +83,80 @@ class MockCandidateNodeScoringStepTests(unittest.TestCase):
 
         self.assertEqual(result.top_k, 3)
         self.assertEqual(result.candidates[0].node_id, "Jaxon Bieber")
-        self.assertEqual(result.candidates[0].source, "mock_gold")
         self.assertEqual(len(result.candidates), 3)
         self.assertEqual(len({candidate.node_id for candidate in result.candidates}), 3)
-        self.assertTrue(
-            all(candidate.source in {"mock_gold", "mock_distractor"} for candidate in result.candidates)
-        )
         print("[test_mock_candidates_include_gold_then_distractors] Passed.")
+
+
+class GnnPredictionCandidateScoringStepTests(unittest.TestCase):
+    def test_predictions_file_becomes_candidate_scores_with_graph(self) -> None:
+        print("\n[test_predictions_file_becomes_candidate_scores_with_graph] Starting.")
+        import torch
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            predictions_path = directory / "predictions.jsonl"
+            instances_path = directory / "test_instances.pt"
+            predictions_path.write_text(
+                """
+{
+  "instance_index": 0,
+  "question": "who is connected",
+  "q_entity": ["Topic"],
+  "a_entity": ["Answer"],
+  "answer_candidates": [
+    {
+      "node": "Answer",
+      "local_node_id": 1,
+      "global_node_id": 10,
+      "logit": 2.0,
+      "probability": 0.88,
+      "is_gold_answer": true,
+      "selection_reason": "threshold"
+    }
+  ],
+  "gold_answer_scores": [],
+  "hit_at_1": true,
+  "hit_at_k": true,
+  "missing_gold_in_graph": false
+}
+""".strip(),
+                encoding="utf-8",
+            )
+            torch.save(
+                [
+                    WebQSPProcessedInstance(
+                        question="who is connected",
+                        q_entity=["Topic"],
+                        a_entity=["Answer"],
+                        nodes=["Topic", "Answer"],
+                        node2id={"Topic": 0, "Answer": 1},
+                        edge_index=torch.tensor([[0], [1]], dtype=torch.long),
+                        edge_relations=["related.to"],
+                        node_labels=torch.tensor([0.0, 1.0]),
+                    )
+                ],
+                instances_path,
+            )
+
+            result = GnnPredictionCandidateScoringStep(
+                predictions_path=predictions_path,
+                processed_instances_path=instances_path,
+            ).execute(StepContext())
+
+        self.assertEqual(result.sample.question, "who is connected")
+        self.assertEqual(result.candidates[0].node_id, "Answer")
+        self.assertEqual(result.candidates[0].score, 0.88)
+        self.assertEqual(result.candidates[0].local_node_id, 1)
+        self.assertEqual(result.candidates[0].global_node_id, 10)
+        self.assertEqual(result.candidates[0].logit, 2.0)
+        self.assertEqual(result.candidates[0].probability, 0.88)
+        self.assertTrue(result.candidates[0].is_gold_answer)
+        self.assertEqual(result.candidates[0].selection_reason, "threshold")
+        self.assertEqual(result.sample.graph_triples[0].source, "Topic")
+        self.assertEqual(result.sample.graph_triples[0].relation, "related.to")
+        self.assertEqual(result.sample.graph_triples[0].target, "Answer")
+        print("[test_predictions_file_becomes_candidate_scores_with_graph] Passed.")
 
 
 class ShortestPathExtractionServiceTests(unittest.TestCase):
@@ -95,7 +167,7 @@ class ShortestPathExtractionServiceTests(unittest.TestCase):
         result = service.extract_paths(
             sample=sample,
             candidates=[
-                CandidateNodeScore(node_id="Jaxon Bieber", score=1.0, source="mock_gold")
+                CandidateNodeScore(node_id="Jaxon Bieber", score=1.0)
             ],
         )
 
@@ -133,8 +205,8 @@ class ShortestPathExtractionServiceTests(unittest.TestCase):
         result = ShortestPathExtractionService().extract_paths(
             sample=sample,
             candidates=[
-                CandidateNodeScore(node_id="Answer A", score=1.0, source="mock_gold"),
-                CandidateNodeScore(node_id="Answer B", score=0.9, source="mock_gold"),
+                CandidateNodeScore(node_id="Answer A", score=1.0),
+                CandidateNodeScore(node_id="Answer B", score=0.9),
             ],
         )
 
@@ -169,7 +241,7 @@ class ShortestPathExtractionServiceTests(unittest.TestCase):
         result = ShortestPathExtractionService().extract_paths(
             sample=sample,
             candidates=[
-                CandidateNodeScore(node_id="Jaxon Bieber", score=1.0, source="mock_gold")
+                CandidateNodeScore(node_id="Jaxon Bieber", score=1.0)
             ],
         )
 
@@ -221,7 +293,7 @@ class ShortestPathExtractionServiceTests(unittest.TestCase):
         result = ShortestPathExtractionService().extract_paths(
             sample=sample,
             candidates=[
-                CandidateNodeScore(node_id="Scooter Braun", score=1.0, source="mock_gold")
+                CandidateNodeScore(node_id="Scooter Braun", score=1.0)
             ],
         )
 
@@ -246,7 +318,7 @@ class ShortestPathExtractionServiceTests(unittest.TestCase):
         )
         result = ShortestPathExtractionService().extract_paths(
             sample=sample,
-            candidates=[CandidateNodeScore(node_id="Answer", score=1.0, source="mock_gold")],
+            candidates=[CandidateNodeScore(node_id="Answer", score=1.0)],
         )
 
         self.assertEqual(len(result.paths[0].triples), 1)
@@ -258,7 +330,7 @@ class ShortestPathExtractionServiceTests(unittest.TestCase):
         result = ShortestPathExtractionService().extract_paths(
             sample=make_sample(),
             candidates=[
-                CandidateNodeScore(node_id="Unreachable", score=0.3, source="mock_distractor")
+                CandidateNodeScore(node_id="Unreachable", score=0.3)
             ],
         )
 
@@ -287,6 +359,53 @@ class PathExtractionPipelineTests(unittest.TestCase):
         self.assertGreaterEqual(result.final_result.found_paths, 1)
         self.assertIn("Reasoning subgraph:", result.final_result.reasoning_paths_text)
         print("[test_mock_scoring_and_path_extraction_run_as_pipeline_steps] Passed.")
+
+
+class FakeAnswerGenerationService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    def generate_answer(
+        self,
+        question: str,
+        reasoning_paths_text: str,
+        model_id: str,
+    ) -> tuple[str, str]:
+        self.calls.append((question, reasoning_paths_text, model_id))
+        prompt = (
+            "Question:\n"
+            f"{question}\n\n"
+            "Reasoning paths:\n"
+            f"{reasoning_paths_text}\n\n"
+            "Answer the question using only the reasoning paths."
+        )
+        return "Jaxon Bieber", prompt
+
+
+class LlmAnswerGenerationStepTests(unittest.TestCase):
+    def test_generates_final_answer_from_extracted_paths(self) -> None:
+        print("\n[test_generates_final_answer_from_extracted_paths] Starting.")
+        extracted_paths = ShortestPathExtractionService().extract_paths(
+            sample=make_sample(),
+            candidates=[CandidateNodeScore(node_id="Jaxon Bieber", score=1.0)],
+        )
+        fake_service = FakeAnswerGenerationService()
+        step = GenerateFinalAnswerStep(
+            model_id="test-model",
+            answer_generation_service=fake_service,
+        )
+
+        result = step.execute(StepContext(result=extracted_paths))
+
+        self.assertEqual(result.answer, "Jaxon Bieber")
+        self.assertEqual(result.model_id, "test-model")
+        self.assertEqual(result.extracted_paths, extracted_paths)
+        self.assertIn("Question:", result.prompt)
+        self.assertIn("Reasoning paths:", result.prompt)
+        self.assertEqual(fake_service.calls[0][0], make_sample().question)
+        self.assertEqual(fake_service.calls[0][1], extracted_paths.reasoning_paths_text)
+        self.assertEqual(fake_service.calls[0][2], "test-model")
+        print("[test_generates_final_answer_from_extracted_paths] Passed.")
 
 
 if __name__ == "__main__":

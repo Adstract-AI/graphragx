@@ -48,7 +48,6 @@ class MockCandidateNodeScoringStep(AbstractStep[CandidateNodeScores, EvaluationS
                 CandidateNodeScore(
                     node_id=answer_entity,
                     score=1.0 - (answer_index * 0.01),
-                    source="mock_gold",
                 )
             )
 
@@ -68,7 +67,6 @@ class MockCandidateNodeScoringStep(AbstractStep[CandidateNodeScores, EvaluationS
                 CandidateNodeScore(
                     node_id=distractor_node,
                     score=max(0.0, 0.5 - (distractor_index * 0.01)),
-                    source="mock_distractor",
                 )
             )
 

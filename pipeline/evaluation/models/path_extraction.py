@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from pipeline.abstract import StepResult
 from pipeline.evaluation.exceptions import InvalidEvaluationSampleException
-
-
-CandidateScoreSource = Literal["mock_gold", "mock_distractor", "gnn"]
 
 
 class GraphTriple(BaseModel):
@@ -107,8 +104,31 @@ class CandidateNodeScore(BaseModel):
     """Score assigned to one candidate answer node."""
 
     node_id: str = Field(..., description="Candidate node identifier or label.")
-    score: float = Field(..., description="Candidate answer score.")
-    source: CandidateScoreSource = Field(..., description="Origin of the candidate score.")
+    score: float = Field(..., description="Generic candidate ranking score.")
+    local_node_id: int | None = Field(
+        default=None,
+        description="Candidate local graph node id for persisted GNN predictions.",
+    )
+    global_node_id: int | None = Field(
+        default=None,
+        description="Candidate global vocabulary node id for persisted GNN predictions.",
+    )
+    logit: float | None = Field(
+        default=None,
+        description="Raw GNN classifier logit for persisted predictions.",
+    )
+    probability: float | None = Field(
+        default=None,
+        description="Sigmoid GNN classifier probability for persisted predictions.",
+    )
+    is_gold_answer: bool | None = Field(
+        default=None,
+        description="Whether the candidate is a gold answer when known.",
+    )
+    selection_reason: str | None = Field(
+        default=None,
+        description="Why the GNN evaluation selected this candidate.",
+    )
 
 
 class CandidateNodeScores(StepResult):

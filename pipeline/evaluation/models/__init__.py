@@ -7,10 +7,10 @@ from pipeline.evaluation.models.gnn_answer_retriever_evaluation import (
     GnnAnswerRetrieverEvaluationResult,
     GoldAnswerScore,
 )
+from pipeline.evaluation.models.llm_answer_generation import GeneratedFinalAnswer
 from pipeline.evaluation.models.path_extraction import (
     CandidateNodeScore,
     CandidateNodeScores,
-    CandidateScoreSource,
     EvaluationSample,
     ExtractedReasoningPaths,
     GraphTriple,
@@ -21,10 +21,10 @@ __all__ = [
     "AnswerCandidateScore",
     "CandidateNodeScore",
     "CandidateNodeScores",
-    "CandidateScoreSource",
     "EvaluationSample",
     "EvaluatedAnswerRetrievalInstance",
     "ExtractedReasoningPaths",
+    "GeneratedFinalAnswer",
     "GnnAnswerRetrieverEvaluationConfig",
     "GnnAnswerRetrieverEvaluationResult",
     "GoldAnswerScore",

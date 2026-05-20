@@ -9,3 +9,7 @@ class InvalidEvaluationSampleException(PipelineException):
 
 class ShortestPathExtractionException(PipelineException):
     """Raised when shortest path extraction cannot run for a valid sample."""
+
+
+class LlmAnswerGenerationException(PipelineException):
+    """Raised when final LLM answer generation fails."""
