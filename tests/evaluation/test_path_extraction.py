@@ -12,6 +12,7 @@ from pipeline import (
     EvaluationSample,
     ExtractShortestPathsBatchStep,
     ExtractShortestPathsStep,
+    GenerateAndSaveFinalAnswersBatchesStep,
     GenerateFinalAnswersBatchStep,
     GenerateFinalAnswerStep,
     GnnAnswerRetrieverEvaluationResult,
@@ -390,6 +391,31 @@ class FakeAnswerGenerationService:
         )
         return "Jaxon Bieber", prompt
 
+    def generate_answer_with_explanation(
+        self,
+        question: str,
+        reasoning_paths_text: str,
+        model_id: str,
+    ) -> dict[str, str]:
+        self.calls.append((question, reasoning_paths_text, model_id))
+        return {
+            "answer": "Jaxon Bieber",
+            "explanation": (
+                "Used Justin Bieber -> people.person.sibling_s -> m.0gxnnwp "
+                "and m.0gxnnwp -> people.sibling_relationship.sibling -> Jaxon Bieber."
+            ),
+            "raw_response": json.dumps(
+                {
+                    "answer": "Jaxon Bieber",
+                    "explanation": (
+                        "Used Justin Bieber -> people.person.sibling_s -> m.0gxnnwp "
+                        "and m.0gxnnwp -> people.sibling_relationship.sibling -> Jaxon Bieber."
+                    ),
+                }
+            ),
+            "prompt": "unused in batch storage",
+        }
+
 
 class LlmAnswerGenerationStepTests(unittest.TestCase):
     def test_generates_final_answer_from_extracted_paths(self) -> None:
@@ -567,15 +593,84 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 inference_run_name="test",
             ).execute(StepContext(result=answers_batch))
 
-            self.assertTrue(saved_run.reasoning_paths_path.exists())
             self.assertTrue(saved_run.reasoning_subgraphs_path.exists())
             self.assertTrue(saved_run.prompts_path.exists())
             self.assertTrue(saved_run.answers_path.exists())
             self.assertTrue(saved_run.summary_path.exists())
             self.assertEqual(saved_run.total_instances, 1)
             self.assertEqual(saved_run.successful_answers, 1)
-            self.assertIn("Jaxon Bieber", saved_run.answers_path.read_text(encoding="utf-8"))
+            self.assertFalse((saved_run.inference_run_directory / "reasoning_paths.jsonl").exists())
+            prompts_text = saved_run.prompts_path.read_text(encoding="utf-8")
+            answers_text = saved_run.answers_path.read_text(encoding="utf-8")
+            self.assertIn("reasoning_paths_text", prompts_text)
+            self.assertNotIn('"prompt"', prompts_text)
+            self.assertIn("Jaxon Bieber", answers_text)
+            self.assertIn("explanation", answers_text)
         print("[test_batch_inference_saves_expected_files] Passed.")
+
+    def test_batched_inference_saves_each_batch(self) -> None:
+        print("\n[test_batched_inference_saves_each_batch] Starting.")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            predictions_path = self._write_prediction_file(directory)
+            prepared_dataset = PreparedWebQSPGraphDataset(
+                dataset_id="WebQSP",
+                processing_version="test",
+                train_instances=[],
+                test_instances=[self._make_processed_instance()],
+                vocabulary_store=WebQSPVocabularyStore(),
+                cache_directory=directory,
+            )
+            evaluation_result = GnnAnswerRetrieverEvaluationResult(
+                dataset_id="WebQSP",
+                model_run_directory=directory / "models" / "1_test",
+                model_run_name="1_test",
+                model_run_number=1,
+                evaluation_run_directory=directory / "evaluations" / "1_test",
+                evaluation_run_name="1_test",
+                evaluation_run_number=1,
+                evaluated_instances=1,
+                hits_at_1=1.0,
+                hits_at_1_count=1,
+                hit_at_k=1.0,
+                hit_at_k_count=1,
+                average_candidate_count=1.0,
+                missing_gold_in_graph_count=0,
+                predictions_path=predictions_path,
+                summary_metrics_path=directory / "summary_metrics.json",
+                evaluation_config_path=directory / "evaluation_config.json",
+            )
+            built_samples = BuildReasoningSamplesFromGnnEvaluationStep().execute(
+                BuildReasoningSamplesFromGnnEvaluationContext(
+                    result=evaluation_result,
+                    prepared_dataset=prepared_dataset,
+                )
+            )
+            paths_batch = ExtractShortestPathsBatchStep().execute(
+                StepContext(result=built_samples)
+            )
+            paths_batch = paths_batch.model_copy(
+                update={"items": [paths_batch.items[0], paths_batch.items[0]]}
+            )
+            fake_service = FakeAnswerGenerationService()
+
+            saved_run = GenerateAndSaveFinalAnswersBatchesStep(
+                model_id="test-model",
+                inference_root=directory / "inference",
+                inference_run_name="test",
+                inference_batch_size=1,
+                answer_generation_service=fake_service,
+            ).execute(StepContext(result=paths_batch))
+
+            answer_lines = saved_run.answers_path.read_text(encoding="utf-8").splitlines()
+            summary = json.loads(saved_run.summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(answer_lines), 2)
+            self.assertEqual(len(fake_service.calls), 2)
+            self.assertEqual(saved_run.total_instances, 2)
+            self.assertEqual(saved_run.successful_answers, 2)
+            self.assertEqual(summary["total_instances"], 2)
+            self.assertEqual(summary["successful_answers"], 2)
+        print("[test_batched_inference_saves_each_batch] Passed.")
 
 
 if __name__ == "__main__":

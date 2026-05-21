@@ -10,16 +10,18 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from helpers.logging_config import get_logger
 from helpers.constants import (
     LLM_INFERENCE_ANSWERS_FILENAME,
     LLM_INFERENCE_PROMPTS_FILENAME,
-    LLM_INFERENCE_REASONING_PATHS_FILENAME,
     LLM_INFERENCE_REASONING_SUBGRAPHS_FILENAME,
     LLM_INFERENCE_SUMMARY_FILENAME,
 )
 from pipeline.evaluation.models import GeneratedFinalAnswersBatch
 from pipeline.exceptions import PipelineException
 from pipeline.services.abstract import AbstractService
+
+logger = get_logger(__name__)
 
 
 class LlmInferenceStoragePayload(BaseModel):
@@ -34,7 +36,18 @@ class LlmInferenceStorageResult(BaseModel):
     inference_run_directory: Path
     inference_run_name: str
     inference_run_number: int
-    reasoning_paths_path: Path
+    reasoning_subgraphs_path: Path
+    prompts_path: Path
+    answers_path: Path
+    summary_path: Path
+
+
+class CreatedLlmInferenceRun(BaseModel):
+    """Open inference run paths used for batched appends."""
+
+    inference_run_directory: Path
+    inference_run_name: str
+    inference_run_number: int
     reasoning_subgraphs_path: Path
     prompts_path: Path
     answers_path: Path
@@ -44,7 +57,6 @@ class LlmInferenceStorageResult(BaseModel):
 class LlmInferenceStorageService(AbstractService):
     """Persist numbered LLM inference runs."""
 
-    reasoning_paths_filename = LLM_INFERENCE_REASONING_PATHS_FILENAME
     reasoning_subgraphs_filename = LLM_INFERENCE_REASONING_SUBGRAPHS_FILENAME
     prompts_filename = LLM_INFERENCE_PROMPTS_FILENAME
     answers_filename = LLM_INFERENCE_ANSWERS_FILENAME
@@ -58,42 +70,103 @@ class LlmInferenceStorageService(AbstractService):
     ) -> LlmInferenceStorageResult:
         """Create a numbered inference run directory and persist all outputs."""
         try:
+            run = self.create_inference_run(
+                inference_root=inference_root,
+                run_name=run_name,
+            )
+            self.append_inference_batch(run=run, answers=payload.answers)
+            self.write_summary(run=run, answers=payload.answers)
+        except OSError as error:
+            raise PipelineException(f"Could not save LLM inference run: {error}") from error
+
+        logger.info(
+            f"Saved LLM inference run: directory={run.inference_run_directory} "
+            f"answers={run.answers_path} prompts={run.prompts_path} "
+            f"subgraphs={run.reasoning_subgraphs_path} summary={run.summary_path}"
+        )
+        return LlmInferenceStorageResult(
+            inference_run_directory=run.inference_run_directory,
+            inference_run_name=run.inference_run_name,
+            inference_run_number=run.inference_run_number,
+            reasoning_subgraphs_path=run.reasoning_subgraphs_path,
+            prompts_path=run.prompts_path,
+            answers_path=run.answers_path,
+            summary_path=run.summary_path,
+        )
+
+    def create_inference_run(
+        self,
+        inference_root: Path,
+        run_name: str | None,
+    ) -> CreatedLlmInferenceRun:
+        """Create a numbered inference run directory and empty JSONL files."""
+        try:
             inference_run_directory = self._create_inference_run_directory(
                 inference_root=inference_root,
                 run_name=run_name,
             )
-            reasoning_paths_path = inference_run_directory / self.reasoning_paths_filename
-            reasoning_subgraphs_path = (
-                inference_run_directory / self.reasoning_subgraphs_filename
+            run = CreatedLlmInferenceRun(
+                inference_run_directory=inference_run_directory,
+                inference_run_name=inference_run_directory.name,
+                inference_run_number=self._extract_run_number(
+                    inference_run_directory.name
+                ),
+                reasoning_subgraphs_path=(
+                    inference_run_directory / self.reasoning_subgraphs_filename
+                ),
+                prompts_path=inference_run_directory / self.prompts_filename,
+                answers_path=inference_run_directory / self.answers_filename,
+                summary_path=inference_run_directory / self.summary_filename,
             )
-            prompts_path = inference_run_directory / self.prompts_filename
-            answers_path = inference_run_directory / self.answers_filename
-            summary_path = inference_run_directory / self.summary_filename
+            for path in [
+                run.reasoning_subgraphs_path,
+                run.prompts_path,
+                run.answers_path,
+            ]:
+                path.write_text("", encoding="utf-8")
+            return run
+        except OSError as error:
+            raise PipelineException(f"Could not create LLM inference run: {error}") from error
 
-            self._write_jsonl(reasoning_paths_path, self._iter_reasoning_paths(payload))
-            self._write_jsonl(
-                reasoning_subgraphs_path,
-                self._iter_reasoning_subgraphs(payload),
+    def append_inference_batch(
+        self,
+        run: CreatedLlmInferenceRun,
+        answers: GeneratedFinalAnswersBatch,
+    ) -> None:
+        """Append one generated-answer batch to the run JSONL files."""
+        try:
+            self._append_jsonl(
+                run.reasoning_subgraphs_path,
+                self._iter_reasoning_subgraphs(LlmInferenceStoragePayload(answers=answers)),
             )
-            self._write_jsonl(prompts_path, self._iter_prompts(payload))
-            self._write_jsonl(answers_path, self._iter_answers(payload))
-            summary_path.write_text(
-                json.dumps(self._build_summary(payload), indent=2, sort_keys=True),
+            self._append_jsonl(
+                run.prompts_path,
+                self._iter_prompts(LlmInferenceStoragePayload(answers=answers)),
+            )
+            self._append_jsonl(
+                run.answers_path,
+                self._iter_answers(LlmInferenceStoragePayload(answers=answers)),
+            )
+        except OSError as error:
+            raise PipelineException(f"Could not append LLM inference batch: {error}") from error
+
+    def write_summary(
+        self,
+        run: CreatedLlmInferenceRun,
+        answers: GeneratedFinalAnswersBatch,
+    ) -> None:
+        """Write or replace the inference summary file."""
+        try:
+            run.summary_path.write_text(
+                json.dumps(
+                    self._build_summary(LlmInferenceStoragePayload(answers=answers)),
+                    indent=2,
+                    sort_keys=True,
+                ),
                 encoding="utf-8",
             )
         except OSError as error:
-            raise PipelineException(f"Could not save LLM inference run: {error}") from error
-
-        return LlmInferenceStorageResult(
-            inference_run_directory=inference_run_directory,
-            inference_run_name=inference_run_directory.name,
-            inference_run_number=self._extract_run_number(inference_run_directory.name),
-            reasoning_paths_path=reasoning_paths_path,
-            reasoning_subgraphs_path=reasoning_subgraphs_path,
-            prompts_path=prompts_path,
-            answers_path=answers_path,
-            summary_path=summary_path,
-        )
+            raise PipelineException(f"Could not write LLM inference summary: {error}") from error
 
     @staticmethod
     def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -103,17 +176,11 @@ class LlmInferenceStorageService(AbstractService):
                 output_file.write("\n")
 
     @staticmethod
-    def _iter_reasoning_paths(
-        payload: LlmInferenceStoragePayload,
-    ) -> list[dict[str, Any]]:
-        return [
-            {
-                "instance_index": item.instance_index,
-                "question": item.question,
-                "reasoning_paths_text": item.reasoning_paths_text,
-            }
-            for item in payload.answers.items
-        ]
+    def _append_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+        with path.open("a", encoding="utf-8") as output_file:
+            for row in rows:
+                output_file.write(json.dumps(row, sort_keys=True, default=str))
+                output_file.write("\n")
 
     @staticmethod
     def _iter_reasoning_subgraphs(
@@ -138,7 +205,7 @@ class LlmInferenceStorageService(AbstractService):
                 "instance_index": item.instance_index,
                 "question": item.question,
                 "model_id": item.model_id,
-                "prompt": item.prompt,
+                "reasoning_paths_text": item.reasoning_paths_text,
                 "error_message": item.error_message,
             }
             for item in payload.answers.items
@@ -155,6 +222,8 @@ class LlmInferenceStorageService(AbstractService):
                 "answer_candidates": item.answer_candidates,
                 "model_id": item.model_id,
                 "answer": item.answer,
+                "explanation": item.explanation,
+                "raw_response": item.raw_response,
                 "error_message": item.error_message,
             }
             for item in payload.answers.items

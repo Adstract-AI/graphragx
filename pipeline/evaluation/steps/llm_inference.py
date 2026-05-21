@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pydantic import Field
 
+from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext
 from pipeline.evaluation.exceptions import (
     LlmAnswerGenerationException,
@@ -33,10 +34,13 @@ from pipeline.evaluation.services import (
     LlmInferenceStorageService,
     ShortestPathExtractionService,
 )
+from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
     WebQSPProcessedInstance,
 )
+
+logger = get_logger(__name__)
 
 
 class BuildReasoningSamplesFromGnnEvaluationContext(
@@ -65,6 +69,11 @@ class BuildReasoningSamplesFromGnnEvaluationStep(
                 "Reasoning sample construction requires a GNN evaluation result."
             )
 
+        logger.info(
+            f"Building reasoning samples from GNN predictions: "
+            f"evaluation_run={evaluation_result.evaluation_run_name} "
+            f"predictions_path={evaluation_result.predictions_path}"
+        )
         predictions = self._load_predictions(evaluation_result.predictions_path)
         samples = [
             self._build_sample_for_prediction(
@@ -75,6 +84,10 @@ class BuildReasoningSamplesFromGnnEvaluationStep(
             )
             for prediction in predictions
         ]
+        logger.info(
+            f"Built reasoning samples: evaluation_run={evaluation_result.evaluation_run_name} "
+            f"samples={len(samples)}"
+        )
         return BuiltReasoningSamples(
             dataset_id=evaluation_result.dataset_id,
             evaluation_run_name=evaluation_result.evaluation_run_name,
@@ -198,7 +211,12 @@ class ExtractShortestPathsBatchStep(
                 "Batch shortest path extraction requires built reasoning samples."
             )
 
-        return ExtractedReasoningPathsBatch(
+        logger.info(
+            f"Extracting shortest reasoning paths: "
+            f"evaluation_run={built_samples.evaluation_run_name} "
+            f"samples={len(built_samples.samples)}"
+        )
+        result = ExtractedReasoningPathsBatch(
             dataset_id=built_samples.dataset_id,
             evaluation_run_name=built_samples.evaluation_run_name,
             items=[
@@ -213,6 +231,15 @@ class ExtractShortestPathsBatchStep(
                 for item in built_samples.samples
             ],
         )
+        found_paths = sum(item.extracted_paths.found_paths for item in result.items)
+        missing_paths = sum(item.extracted_paths.missing_paths for item in result.items)
+        logger.info(
+            f"Finished shortest reasoning paths: "
+            f"evaluation_run={built_samples.evaluation_run_name} "
+            f"samples={len(result.items)} found_paths={found_paths} "
+            f"missing_paths={missing_paths}"
+        )
+        return result
 
 
 class GenerateFinalAnswersBatchStep(
@@ -242,33 +269,51 @@ class GenerateFinalAnswersBatchStep(
                 "Batch answer generation requires extracted reasoning paths."
             )
 
+        logger.info(
+            f"Generating LLM answers: evaluation_run={paths_batch.evaluation_run_name} "
+            f"model={self.model_id} samples={len(paths_batch.items)}"
+        )
         items = [
             self._generate_answer(item)
             for item in paths_batch.items
         ]
-        return GeneratedFinalAnswersBatch(
+        result = GeneratedFinalAnswersBatch(
             dataset_id=paths_batch.dataset_id,
             evaluation_run_name=paths_batch.evaluation_run_name,
             model_id=self.model_id,
             items=items,
         )
+        logger.info(
+            f"Finished LLM answers: evaluation_run={paths_batch.evaluation_run_name} "
+            f"model={self.model_id} successful={result.successful_answers} "
+            f"failed={result.failed_answers}"
+        )
+        return result
 
     def _generate_answer(
         self,
         item: ReasoningPathsForPrediction,
     ) -> GeneratedAnswerForPrediction:
         extracted_paths = item.extracted_paths
-        prompt = ""
         answer = ""
+        explanation = ""
+        raw_response = ""
         error_message = None
         try:
-            answer, prompt = self.answer_generation_service.generate_answer(
+            result = self.answer_generation_service.generate_answer_with_explanation(
                 question=extracted_paths.sample.question,
                 reasoning_paths_text=extracted_paths.reasoning_paths_text,
                 model_id=self.model_id,
             )
+            answer = result["answer"]
+            explanation = result["explanation"]
+            raw_response = result["raw_response"]
         except Exception as error:  # keep batch inference usable for later review
             error_message = str(error)
+            logger.warning(
+                f"LLM answer generation failed: instance_index={item.instance_index} "
+                f"error={error_message}"
+            )
 
         return GeneratedAnswerForPrediction(
             instance_index=item.instance_index,
@@ -281,9 +326,171 @@ class GenerateFinalAnswersBatchStep(
             reasoning_subgraph_triples=extracted_paths.reasoning_subgraph_triples,
             reasoning_paths_text=extracted_paths.reasoning_paths_text,
             model_id=self.model_id,
-            prompt=prompt,
             answer=answer,
+            explanation=explanation,
+            raw_response=raw_response,
             error_message=error_message,
+        )
+
+
+class GenerateAndSaveFinalAnswersBatchesContext(
+    StepContext[ExtractedReasoningPathsBatch]
+):
+    """Context for batched LLM inference with resolved pipeline configuration."""
+
+    pipeline_configuration: BuiltPipelineConfiguration = Field(
+        ...,
+        description="Pipeline configuration containing the selected main LLM model.",
+    )
+
+
+class GenerateAndSaveFinalAnswersBatchesStep(
+    AbstractStep[SavedLlmInferenceRun, ExtractedReasoningPathsBatch]
+):
+    """Generate LLM answers in small batches and persist each batch immediately."""
+
+    def __init__(
+        self,
+        model_id: str | None = None,
+        inference_root: str | Path = "data/webqsp/inference",
+        inference_run_name: str | None = None,
+        inference_batch_size: int = 10,
+        answer_generation_service: LangChainOpenAiAnswerGenerationService | None = None,
+        storage_service: LlmInferenceStorageService | None = None,
+        force_default: bool = False,
+    ):
+        super().__init__(force_default=force_default)
+        self.model_id = model_id
+        self.inference_root = Path(inference_root)
+        self.inference_run_name = inference_run_name
+        self.inference_batch_size = max(1, inference_batch_size)
+        self.answer_generation_service = (
+            answer_generation_service or LangChainOpenAiAnswerGenerationService()
+        )
+        self.storage_service = storage_service or LlmInferenceStorageService()
+
+    def execute_default(
+        self,
+        context: StepContext[ExtractedReasoningPathsBatch],
+    ) -> SavedLlmInferenceRun:
+        paths_batch = context.result
+        if paths_batch is None:
+            raise LlmAnswerGenerationException(
+                "Batched inference requires extracted reasoning paths."
+            )
+        model_id = self._resolve_model_id(context)
+
+        total_items = len(paths_batch.items)
+        logger.info(
+            f"Starting batched LLM inference: "
+            f"evaluation_run={paths_batch.evaluation_run_name} "
+            f"model={model_id} samples={total_items} "
+            f"batch_size={self.inference_batch_size} root={self.inference_root}"
+        )
+        run = self.storage_service.create_inference_run(
+            inference_root=self.inference_root,
+            run_name=self.inference_run_name,
+        )
+
+        all_items: list[GeneratedAnswerForPrediction] = []
+        for batch_number, batch_items in enumerate(
+            self._chunk_items(paths_batch.items, self.inference_batch_size),
+            start=1,
+        ):
+            logger.info(
+                f"Generating LLM inference batch: "
+                f"evaluation_run={paths_batch.evaluation_run_name} "
+                f"batch={batch_number} batch_size={len(batch_items)}"
+            )
+            generated_batch = GeneratedFinalAnswersBatch(
+                dataset_id=paths_batch.dataset_id,
+                evaluation_run_name=paths_batch.evaluation_run_name,
+                model_id=model_id,
+                items=[self._generate_answer(item, model_id) for item in batch_items],
+            )
+            all_items.extend(generated_batch.items)
+            cumulative_batch = GeneratedFinalAnswersBatch(
+                dataset_id=paths_batch.dataset_id,
+                evaluation_run_name=paths_batch.evaluation_run_name,
+                model_id=model_id,
+                items=all_items,
+            )
+            self.storage_service.append_inference_batch(
+                run=run,
+                answers=generated_batch,
+            )
+            self.storage_service.write_summary(run=run, answers=cumulative_batch)
+            logger.info(
+                f"Saved LLM inference batch: "
+                f"evaluation_run={paths_batch.evaluation_run_name} "
+                f"batch={batch_number} total_saved={len(all_items)} "
+                f"successful={cumulative_batch.successful_answers} "
+                f"failed={cumulative_batch.failed_answers}"
+            )
+
+        final_answers = GeneratedFinalAnswersBatch(
+            dataset_id=paths_batch.dataset_id,
+            evaluation_run_name=paths_batch.evaluation_run_name,
+            model_id=model_id,
+            items=all_items,
+        )
+        self.storage_service.write_summary(run=run, answers=final_answers)
+        logger.info(
+            f"Finished batched LLM inference: "
+            f"evaluation_run={paths_batch.evaluation_run_name} "
+            f"run={run.inference_run_name} total={len(all_items)} "
+            f"successful={final_answers.successful_answers} "
+            f"failed={final_answers.failed_answers}"
+        )
+        return SavedLlmInferenceRun(
+            dataset_id=final_answers.dataset_id,
+            evaluation_run_name=final_answers.evaluation_run_name,
+            inference_run_directory=run.inference_run_directory,
+            inference_run_name=run.inference_run_name,
+            inference_run_number=run.inference_run_number,
+            model_id=final_answers.model_id,
+            total_instances=len(final_answers.items),
+            successful_answers=final_answers.successful_answers,
+            failed_answers=final_answers.failed_answers,
+            reasoning_subgraphs_path=run.reasoning_subgraphs_path,
+            prompts_path=run.prompts_path,
+            answers_path=run.answers_path,
+            summary_path=run.summary_path,
+        )
+
+    @staticmethod
+    def _chunk_items(
+        items: list[ReasoningPathsForPrediction],
+        batch_size: int,
+    ) -> list[list[ReasoningPathsForPrediction]]:
+        return [
+            items[start_index : start_index + batch_size]
+            for start_index in range(0, len(items), batch_size)
+        ]
+
+    def _generate_answer(
+        self,
+        item: ReasoningPathsForPrediction,
+        model_id: str,
+    ) -> GeneratedAnswerForPrediction:
+        return GenerateFinalAnswersBatchStep(
+            model_id=model_id,
+            answer_generation_service=self.answer_generation_service,
+        )._generate_answer(item)
+
+    def _resolve_model_id(
+        self,
+        context: StepContext[ExtractedReasoningPathsBatch],
+    ) -> str:
+        if self.model_id is not None:
+            return self.model_id
+
+        pipeline_configuration = getattr(context, "pipeline_configuration", None)
+        if isinstance(pipeline_configuration, BuiltPipelineConfiguration):
+            return pipeline_configuration.main_llm_model
+
+        raise LlmAnswerGenerationException(
+            "LLM inference requires a main LLM model from pipeline configuration."
         )
 
 
@@ -294,7 +501,7 @@ class SaveInferenceRunStep(
 
     def __init__(
         self,
-        inference_root: str | Path = "data/inference",
+        inference_root: str | Path = "data/webqsp/inference",
         inference_run_name: str | None = None,
         storage_service: LlmInferenceStorageService | None = None,
         force_default: bool = False,
@@ -314,6 +521,10 @@ class SaveInferenceRunStep(
                 "Inference storage requires generated final answers."
             )
 
+        logger.info(
+            f"Saving LLM inference run: evaluation_run={answers.evaluation_run_name} "
+            f"model={answers.model_id} root={self.inference_root}"
+        )
         storage_result = self.storage_service.save_inference_run(
             inference_root=self.inference_root,
             run_name=self.inference_run_name,
@@ -331,7 +542,6 @@ class SaveInferenceRunStep(
             total_instances=len(answers.items),
             successful_answers=answers.successful_answers,
             failed_answers=answers.failed_answers,
-            reasoning_paths_path=storage_result.reasoning_paths_path,
             reasoning_subgraphs_path=storage_result.reasoning_subgraphs_path,
             prompts_path=storage_result.prompts_path,
             answers_path=storage_result.answers_path,

@@ -33,8 +33,7 @@ from pipeline import (
     EvaluateGnnAnswerRetrieverStep,
     BuildReasoningSamplesFromGnnEvaluationStep,
     ExtractShortestPathsBatchStep,
-    GenerateFinalAnswersBatchStep,
-    SaveInferenceRunStep,
+    GenerateAndSaveFinalAnswersBatchesStep,
     PipelineException,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
@@ -83,7 +82,7 @@ class PipelineRuntimeConfig(BaseModel):
     evaluation_max_instances: int | None = None
     with_llm_inference: bool = False
     inference_run_name: str | None = None
-    llm_model: str = "gpt-4.1-mini"
+    llm_inference_batch_size: int = 10
     use_default_config_values: bool = False
     force_all_default: bool = False
 
@@ -168,9 +167,10 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             [
                 BuildReasoningSamplesFromGnnEvaluationStep(),
                 ExtractShortestPathsBatchStep(),
-                GenerateFinalAnswersBatchStep(model_id=resolved_config.llm_model),
-                SaveInferenceRunStep(
+                GenerateAndSaveFinalAnswersBatchesStep(
+                    model_id=resolved_config.main_llm_model,
                     inference_run_name=resolved_config.inference_run_name,
+                    inference_batch_size=resolved_config.llm_inference_batch_size,
                 ),
             ]
         )
@@ -410,9 +410,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional label for the versioned LLM inference run folder.",
     )
     parser.add_argument(
-        "--llm-model",
-        default="gpt-4.1-mini",
-        help="LLM model id used for post-retrieval answer generation.",
+        "--llm-inference-batch-size",
+        type=int,
+        default=10,
+        help="Number of samples to generate and save per LLM inference batch.",
     )
     parser.add_argument(
         "--default",
@@ -464,7 +465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         evaluation_max_instances=args.evaluation_max_instances,
         with_llm_inference=args.with_llm_inference,
         inference_run_name=args.inference_run_name,
-        llm_model=args.llm_model,
+        llm_inference_batch_size=args.llm_inference_batch_size,
         use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )

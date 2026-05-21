@@ -14,6 +14,8 @@ from pipeline.evaluation.steps.gnn_answer_retriever_evaluation import (
 from pipeline.evaluation.steps.llm_inference import (
     BuildReasoningSamplesFromGnnEvaluationContext,
     BuildReasoningSamplesFromGnnEvaluationStep,
+    GenerateAndSaveFinalAnswersBatchesContext,
+    GenerateAndSaveFinalAnswersBatchesStep,
 )
 from pipeline.models import PipelineResultBank
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
@@ -42,6 +44,9 @@ class StepContextBuilder:
             EvaluateGnnAnswerRetrieverStep: self._create_evaluate_gnn_answer_retriever_context,
             BuildReasoningSamplesFromGnnEvaluationStep: (
                 self._create_build_reasoning_samples_from_gnn_context
+            ),
+            GenerateAndSaveFinalAnswersBatchesStep: (
+                self._create_generate_and_save_final_answers_batches_context
             ),
         }
 
@@ -129,6 +134,22 @@ class StepContextBuilder:
             outcome=outcome,
             exception=exception,
             prepared_dataset=self.get_required_result(PreparedWebQSPGraphDataset),
+        )
+
+    def _create_generate_and_save_final_answers_batches_context(
+        self,
+        result: StepResult | None,
+        outcome: bool,
+        exception: PipelineException,
+    ) -> GenerateAndSaveFinalAnswersBatchesContext:
+        """Create the context required by batched LLM inference."""
+        return GenerateAndSaveFinalAnswersBatchesContext(
+            result=result,
+            outcome=outcome,
+            exception=exception,
+            pipeline_configuration=self.get_required_result(
+                BuiltPipelineConfiguration
+            ),
         )
 
     def store_result(self, result: StepResult) -> None:
