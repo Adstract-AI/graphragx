@@ -1,14 +1,15 @@
-"""Single source of truth for built-in knowledge graph dataset definitions."""
+"""Single source of truth for built-in dataset definitions."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class KnowledgeGraphDatasetDefinition(BaseModel):
-    """Typed definition of a built-in knowledge graph dataset."""
+class DatasetDefinition(BaseModel):
+    """Typed definition of a built-in pipeline dataset."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -19,18 +20,42 @@ class KnowledgeGraphDatasetDefinition(BaseModel):
     description: str = Field(..., description="Short dataset description.")
     supported: bool = Field(..., description="Whether the dataset is currently supported.")
 
-FB15K_237_DATASET_ID: Final[str] = "FB15K-237"
 
-KNOWLEDGE_GRAPH_DATASETS: Final[dict[str, KnowledgeGraphDatasetDefinition]] = {
-    FB15K_237_DATASET_ID: KnowledgeGraphDatasetDefinition(
-        dataset_id=FB15K_237_DATASET_ID,
-        display_name="FB15K-237",
-        dataset_family="knowledge_graph",
-        task_domain="multi_hop_reasoning",
+class DatasetLoaderDefinition(BaseModel):
+    """Typed loader configuration for a built-in pipeline dataset."""
+
+    model_config = ConfigDict(frozen=True)
+
+    dataset_id: str = Field(..., description="Stable dataset identifier.")
+    hugging_face_dataset_name: str = Field(
+        ...,
+        description="Hugging Face dataset repository name.",
+    )
+    cache_root: Path = Field(..., description="Local cache directory for downloaded data.")
+
+WEBQSP_DATASET_ID: Final[str] = "WebQSP"
+DATASET_CACHE_ROOT: Final[Path] = (
+    Path(__file__).resolve().parents[3] / "data"
+)
+
+PIPELINE_DATASETS: Final[dict[str, DatasetDefinition]] = {
+    WEBQSP_DATASET_ID: DatasetDefinition(
+        dataset_id=WEBQSP_DATASET_ID,
+        display_name="WebQSP",
+        dataset_family="question_answering",
+        task_domain="knowledge_graph_question_answering",
         description=(
-            "A Freebase-derived knowledge graph benchmark commonly used for "
-            "link prediction and graph reasoning experiments."
+            "A question-answering benchmark where each example contains a "
+            "question, topic entities, gold answer entities, and a local graph."
         ),
         supported=True,
+    ),
+}
+
+DATASET_LOADERS: Final[dict[str, DatasetLoaderDefinition]] = {
+    WEBQSP_DATASET_ID: DatasetLoaderDefinition(
+        dataset_id=WEBQSP_DATASET_ID,
+        hugging_face_dataset_name="ml1996/webqsp",
+        cache_root=DATASET_CACHE_ROOT / "webqsp",
     ),
 }
