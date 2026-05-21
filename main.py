@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
+    DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
@@ -77,6 +78,7 @@ class PipelineRuntimeConfig(BaseModel):
     evaluation_model_run_number: int | None = None
     answer_threshold: float = DEFAULT_ANSWER_THRESHOLD
     candidate_top_k: int = DEFAULT_CANDIDATE_TOP_K
+    candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
     evaluation_run_name: str | None = None
     evaluation_max_instances: int | None = None
     with_llm_inference: bool = False
@@ -156,6 +158,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             model_run_number=resolved_config.evaluation_model_run_number,
             answer_threshold=resolved_config.answer_threshold,
             candidate_top_k=resolved_config.candidate_top_k,
+            candidate_limit=resolved_config.candidate_limit,
             evaluation_run_name=resolved_config.evaluation_run_name,
             evaluation_max_instances=resolved_config.evaluation_max_instances,
         ),
@@ -375,7 +378,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--candidate-top-k",
         type=int,
         default=DEFAULT_CANDIDATE_TOP_K,
-        help="Fallback top-k candidate count when no node passes the threshold.",
+        help="Minimum selected candidate count when threshold selection is too small.",
+    )
+    parser.add_argument(
+        "--candidate-limit",
+        "--limit",
+        dest="candidate_limit",
+        type=int,
+        default=DEFAULT_CANDIDATE_LIMIT,
+        help="Maximum selected candidate count after threshold selection.",
     )
     parser.add_argument(
         "--evaluation-run-name",
@@ -448,6 +459,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         evaluation_model_run_number=args.evaluation_model_run_number,
         answer_threshold=args.answer_threshold,
         candidate_top_k=args.candidate_top_k,
+        candidate_limit=args.candidate_limit,
         evaluation_run_name=args.evaluation_run_name,
         evaluation_max_instances=args.evaluation_max_instances,
         with_llm_inference=args.with_llm_inference,

@@ -6,7 +6,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from helpers.constants import DEFAULT_ANSWER_THRESHOLD, DEFAULT_CANDIDATE_TOP_K
+from helpers.constants import (
+    DEFAULT_ANSWER_THRESHOLD,
+    DEFAULT_CANDIDATE_LIMIT,
+    DEFAULT_CANDIDATE_TOP_K,
+)
 from pipeline.abstract import StepResult
 
 
@@ -17,6 +21,7 @@ class GnnAnswerRetrieverEvaluationConfig(BaseModel):
     model_run_number: int | None = Field(default=None)
     answer_threshold: float = Field(default=DEFAULT_ANSWER_THRESHOLD)
     candidate_top_k: int = Field(default=DEFAULT_CANDIDATE_TOP_K)
+    candidate_limit: int = Field(default=DEFAULT_CANDIDATE_LIMIT)
     run_name: str | None = Field(default=None)
     max_instances: int | None = Field(default=None)
 
