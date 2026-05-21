@@ -16,6 +16,7 @@ from pipeline.preparation.helpers.dataset_definitions import (
 from helpers.constants import WEBQSP_QUESTION_VOCABULARY_FILENAME
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
+    WebQSPEntityMappingSummary,
     WebQSPProcessedInstance,
     WebQSPVocabularyStore,
 )
@@ -95,6 +96,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
                 train_instances=train_instances,
                 test_instances=test_instances,
                 vocabulary_store=vocabulary_store,
+                entity_mapping_summary=self._load_entity_mapping_summary(metadata),
                 cache_directory=cache_directory,
             )
         except Exception as error:
@@ -139,7 +141,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
 
     @staticmethod
     def _is_valid_metadata(
-        metadata: dict[str, str | int],
+        metadata: dict,
         dataset_id: str,
         processing_version: str,
     ) -> bool:
@@ -152,7 +154,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
         )
 
     @staticmethod
-    def _build_metadata(dataset: PreparedWebQSPGraphDataset) -> dict[str, str | int]:
+    def _build_metadata(dataset: PreparedWebQSPGraphDataset) -> dict:
         """Build persisted metadata for a processed dataset."""
         return {
             "dataset_id": dataset.dataset_id,
@@ -162,7 +164,17 @@ class WebQSPLocalGraphStorageService(AbstractService):
             "node_count": len(dataset.vocabulary_store.nodes),
             "relation_count": len(dataset.vocabulary_store.relations),
             "question_count": len(dataset.vocabulary_store.questions),
+            "entity_mapping": dataset.entity_mapping_summary.model_dump(),
         }
+
+    @staticmethod
+    def _load_entity_mapping_summary(metadata: dict) -> WebQSPEntityMappingSummary:
+        """Load entity mapping summary from persisted metadata when available."""
+        entity_mapping = metadata.get("entity_mapping")
+        if not isinstance(entity_mapping, dict):
+            return WebQSPEntityMappingSummary()
+
+        return WebQSPEntityMappingSummary(**entity_mapping)
 
     def _load_instances(self, path: Path) -> list[WebQSPProcessedInstance]:
         """Load processed graph instances from a torch cache file."""

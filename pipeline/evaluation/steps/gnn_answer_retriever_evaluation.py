@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pydantic import Field
 
-from helpers.constants import DEFAULT_ANSWER_THRESHOLD, DEFAULT_CANDIDATE_TOP_K
+from helpers.constants import (
+    DEFAULT_ANSWER_THRESHOLD,
+    DEFAULT_CANDIDATE_LIMIT,
+    DEFAULT_CANDIDATE_TOP_K,
+)
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.evaluation.models import (
@@ -46,6 +50,7 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
         model_run_number: int | None = None,
         answer_threshold: float = DEFAULT_ANSWER_THRESHOLD,
         candidate_top_k: int = DEFAULT_CANDIDATE_TOP_K,
+        candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         evaluation_run_name: str | None = None,
         evaluation_max_instances: int | None = None,
         evaluation_service: GnnAnswerRetrieverEvaluationService | None = None,
@@ -57,6 +62,7 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             model_run_number=model_run_number,
             answer_threshold=answer_threshold,
             candidate_top_k=candidate_top_k,
+            candidate_limit=candidate_limit,
             run_name=evaluation_run_name,
             max_instances=evaluation_max_instances,
         )
@@ -93,7 +99,8 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             f"requested_model_run_name={evaluation_config.model_run_name} "
             f"requested_model_run_number={evaluation_config.model_run_number} "
             f"threshold={evaluation_config.answer_threshold} "
-            f"candidate_top_k={evaluation_config.candidate_top_k}"
+            f"candidate_top_k={evaluation_config.candidate_top_k} "
+            f"candidate_limit={evaluation_config.candidate_limit}"
         )
         outcome = self.evaluation_service.evaluate(
             prepared_dataset=context.prepared_dataset,

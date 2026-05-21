@@ -14,7 +14,7 @@ from pipeline.services.webqsp_local_graph_storage import (
     WebQSPLocalGraphStorageService,
 )
 
-WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION = "3"
+WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION = "5"
 logger = get_logger(__name__)
 
 

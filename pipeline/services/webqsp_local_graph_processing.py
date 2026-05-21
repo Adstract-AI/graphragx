@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from helpers.logging_config import get_logger
 from pipeline.exceptions import (
     MalformedWebQSPExampleException,
     UnsupportedDatasetProcessorException,
@@ -17,13 +18,24 @@ from pipeline.preparation.models.webqsp_local_graph import (
     WebQSPVocabularyStore,
 )
 from pipeline.services.abstract import AbstractService
+from pipeline.services.webqsp_entity_name_mapping import WebQSPEntityNameMappingService
 
 if TYPE_CHECKING:
     from pipeline.preparation.steps.dataset_loading import LoadedDataset
 
+logger = get_logger(__name__)
+
 
 class WebQSPLocalGraphProcessorService(AbstractService):
     """Convert loaded WebQSP rows into trainable processed instances."""
+
+    def __init__(
+        self,
+        entity_name_mapping_service: WebQSPEntityNameMappingService | None = None,
+    ):
+        self.entity_name_mapping_service = (
+            entity_name_mapping_service or WebQSPEntityNameMappingService()
+        )
 
     def process_loaded_dataset(
         self,
@@ -38,15 +50,34 @@ class WebQSPLocalGraphProcessorService(AbstractService):
             )
 
         vocabulary_store = WebQSPVocabularyStore()
+        self.entity_name_mapping_service.reset_summary()
+        logger.info(f"Processing WebQSP train split into local graph instances")
         train_instances = self._process_split(
             rows=loaded_dataset.hugging_face_dataset["train"],
             vocabulary_store=vocabulary_store,
         )
         test_rows = self._combined_test_rows(loaded_dataset.hugging_face_dataset)
+        logger.info(f"Processing WebQSP validation+test split into local graph instances")
         test_instances = self._process_split(
             rows=test_rows,
             vocabulary_store=vocabulary_store,
         )
+        entity_mapping_summary = self.entity_name_mapping_service.build_summary()
+        logger.info(
+            f"Finished WebQSP entity mapping: "
+            f"total_references={entity_mapping_summary.total_entity_references} "
+            f"mapped_references={entity_mapping_summary.mapped_entity_references} "
+            f"disambiguated_references={entity_mapping_summary.disambiguated_entity_references} "
+            f"unmapped_mid_references={entity_mapping_summary.unmapped_mid_entity_references} "
+            f"unique_mapped_mids={entity_mapping_summary.unique_mapped_mid_count} "
+            f"unique_disambiguated_mids={entity_mapping_summary.unique_disambiguated_mid_count} "
+            f"unique_unmapped_mids={entity_mapping_summary.unique_unmapped_mid_count}"
+        )
+        if entity_mapping_summary.unique_unmapped_mid_count > 0:
+            logger.warning(
+                f"Unmapped WebQSP MID-like entities remain after processing: "
+                f"samples={entity_mapping_summary.unmapped_mid_samples}"
+            )
 
         return PreparedWebQSPGraphDataset(
             dataset_id=loaded_dataset.dataset_id,
@@ -54,6 +85,7 @@ class WebQSPLocalGraphProcessorService(AbstractService):
             train_instances=train_instances,
             test_instances=test_instances,
             vocabulary_store=vocabulary_store,
+            entity_mapping_summary=entity_mapping_summary,
             cache_directory=cache_directory,
         )
 
@@ -78,9 +110,13 @@ class WebQSPLocalGraphProcessorService(AbstractService):
 
         question = str(row["question"])
         self._get_or_add_vocabulary_item(question, vocabulary_store.questions)
-        q_entity = self._normalize_string_list(row["q_entity"], "q_entity")
-        a_entity = self._normalize_string_list(row["a_entity"], "a_entity")
-        triples = self._normalize_triples(row["graph"])
+        q_entity = self._resolve_entities(
+            self._normalize_string_list(row["q_entity"], "q_entity")
+        )
+        a_entity = self._resolve_entities(
+            self._normalize_string_list(row["a_entity"], "a_entity")
+        )
+        triples = self._resolve_entity_triples(self._normalize_triples(row["graph"]))
 
         nodes: list[str] = []
         node2id: dict[str, int] = {}
@@ -121,6 +157,27 @@ class WebQSPLocalGraphProcessorService(AbstractService):
             edge_relations=edge_relations,
             node_labels=node_labels,
         )
+
+    def _resolve_entities(self, entities: list[str]) -> list[str]:
+        """Resolve entity IDs to readable names while preserving list order."""
+        return [
+            self.entity_name_mapping_service.resolve_entity(entity)
+            for entity in entities
+        ]
+
+    def _resolve_entity_triples(
+        self,
+        triples: list[tuple[str, str, str]],
+    ) -> list[tuple[str, str, str]]:
+        """Resolve only triple endpoints, keeping relation text unchanged."""
+        return [
+            (
+                self.entity_name_mapping_service.resolve_entity(head),
+                relation,
+                self.entity_name_mapping_service.resolve_entity(tail),
+            )
+            for head, relation, tail in triples
+        ]
 
     @staticmethod
     def _combined_test_rows(dataset: Mapping[str, Iterable[Mapping[str, Any]]]) -> list[Mapping[str, Any]]:

@@ -96,6 +96,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             prepared_dataset=prepared_dataset,
             max_instances=evaluation_config.max_instances,
         )
+        self._validate_candidate_selection_config(evaluation_config)
         if not test_instances:
             raise GnnAnswerRetrieverEvaluationException(
                 "GNN answer-retriever evaluation requires at least one test instance."
@@ -137,7 +138,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             f"model_run={loaded_model_run.run_name} "
             f"instances={len(test_instances)} device={device} "
             f"threshold={evaluation_config.answer_threshold} "
-            f"candidate_top_k={evaluation_config.candidate_top_k}"
+            f"candidate_top_k={evaluation_config.candidate_top_k} "
+            f"candidate_limit={evaluation_config.candidate_limit}"
         )
         self._populate_embedding_caches(
             test_instances=test_instances,
@@ -182,6 +184,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     probabilities=probabilities.detach().cpu(),
                     answer_threshold=evaluation_config.answer_threshold,
                     candidate_top_k=evaluation_config.candidate_top_k,
+                    candidate_limit=evaluation_config.candidate_limit,
                     global_node_vocabulary=prepared_dataset.vocabulary_store.nodes,
                     torch=torch,
                 )
@@ -248,6 +251,25 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             return prepared_dataset.test_instances
 
         return prepared_dataset.test_instances[:max_instances]
+
+    @staticmethod
+    def _validate_candidate_selection_config(
+        evaluation_config: GnnAnswerRetrieverEvaluationConfig,
+    ) -> None:
+        if evaluation_config.candidate_top_k <= 0:
+            raise GnnAnswerRetrieverEvaluationException(
+                "candidate_top_k must be greater than zero."
+            )
+
+        if evaluation_config.candidate_limit <= 0:
+            raise GnnAnswerRetrieverEvaluationException(
+                "candidate_limit must be greater than zero."
+            )
+
+        if evaluation_config.candidate_limit < evaluation_config.candidate_top_k:
+            raise GnnAnswerRetrieverEvaluationException(
+                "candidate_limit must be greater than or equal to candidate_top_k."
+            )
 
     @staticmethod
     def _resolve_device(torch) -> str:
@@ -343,6 +365,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         probabilities,
         answer_threshold: float,
         candidate_top_k: int,
+        candidate_limit: int,
         global_node_vocabulary: dict[str, int],
         torch,
     ) -> EvaluatedAnswerRetrievalInstance:
@@ -353,18 +376,19 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             if probability >= answer_threshold
         ]
         selection_reason = "threshold"
-        if not selected_ids:
-            selected_ids = torch.topk(
+        if len(selected_ids) < candidate_top_k:
+            top_k_ids = torch.topk(
                 probabilities,
                 k=min(candidate_top_k, len(instance.nodes)),
             ).indices.tolist()
+            selected_ids = list(dict.fromkeys([*selected_ids, *top_k_ids]))
             selection_reason = "fallback_top_k"
 
         selected_ids = sorted(
             selected_ids,
             key=lambda node_id: float(probabilities[node_id].item()),
             reverse=True,
-        )
+        )[:candidate_limit]
         answer_candidates = [
             AnswerCandidateScore(
                 node=instance.nodes[node_id],

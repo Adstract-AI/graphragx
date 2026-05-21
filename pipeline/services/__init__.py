@@ -11,6 +11,7 @@ from pipeline.services.embedding_cache import (
 )
 from pipeline.services.openai_text_embedding import LangChainOpenAiTextEmbeddingService
 from pipeline.services.selection import SelectionService
+from pipeline.services.webqsp_entity_name_mapping import WebQSPEntityNameMappingService
 from pipeline.services.webqsp_local_graph_processing import (
     WebQSPLocalGraphProcessorService,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "SelectionService",
     "TextEmbeddingCache",
     "WebQSPEmbeddingCacheService",
+    "WebQSPEntityNameMappingService",
     "WebQSPLocalGraphProcessorService",
     "WebQSPLocalGraphStorageService",
 ]
