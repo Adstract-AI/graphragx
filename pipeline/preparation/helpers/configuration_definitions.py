@@ -208,8 +208,8 @@ OPENAI_EMBEDDING_MODELS: Final[dict[str, OpenAiEmbeddingModelDefinition]] = {
     ),
 }
 
-RECOMMENDED_MAIN_LLM_MODEL_ID: Final[str] = "gpt-5.4"
-RECOMMENDED_ASSISTANT_LLM_MODEL_ID: Final[str] = "gpt-5.4-mini"
+RECOMMENDED_MAIN_LLM_MODEL_ID: Final[str] = "gpt-4.1-mini"
+RECOMMENDED_ASSISTANT_LLM_MODEL_ID: Final[str] = "gpt-4.1-mini"
 RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID: Final[str] = "shortest_path"
 RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID: Final[str] = "textualized"
 RECOMMENDED_GNN_LAYER_COUNT: Final[int] = 2
