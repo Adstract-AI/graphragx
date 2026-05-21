@@ -13,11 +13,10 @@ from pipeline import (
     BuiltGnnAnswerRetriever,
     EvaluateGnnAnswerRetrieverStep,
     ExtractShortestPathsBatchStep,
-    GenerateFinalAnswersBatchStep,
+    GenerateAndSaveFinalAnswersBatchesStep,
     GnnAnswerRetrieverEvaluationResult,
     LoadDatasetStep,
     PreparedWebQSPGraphDataset,
-    SaveInferenceRunStep,
     TrainGnnAnswerRetrieverStep,
     TrainedGnnAnswerRetriever,
     WebQSPVocabularyStore,
@@ -337,8 +336,11 @@ class MainEntrypointTests(unittest.TestCase):
             BuildReasoningSamplesFromGnnEvaluationStep,
         )
         self.assertIsInstance(pipeline.evaluation_steps[2], ExtractShortestPathsBatchStep)
-        self.assertIsInstance(pipeline.evaluation_steps[3], GenerateFinalAnswersBatchStep)
-        self.assertIsInstance(pipeline.evaluation_steps[4], SaveInferenceRunStep)
+        self.assertIsInstance(
+            pipeline.evaluation_steps[3],
+            GenerateAndSaveFinalAnswersBatchesStep,
+        )
+        self.assertEqual(len(pipeline.evaluation_steps), 4)
 
 
 if __name__ == "__main__":
