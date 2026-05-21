@@ -76,8 +76,12 @@ class GeneratedAnswerForPrediction(BaseModel):
     reasoning_subgraph_triples: list[GraphTriple] = Field(default_factory=list)
     reasoning_paths_text: str = Field(default="")
     model_id: str = Field(..., description="LLM model used for answer generation.")
-    prompt: str = Field(default="", description="Prompt sent to the LLM.")
     answer: str = Field(default="", description="Generated final answer.")
+    explanation: str = Field(
+        default="",
+        description="Explanation of which reasoning paths supported the answer.",
+    )
+    raw_response: str = Field(default="", description="Raw LLM response text.")
     error_message: str | None = Field(
         default=None,
         description="Generation error when this instance failed.",
@@ -115,7 +119,6 @@ class SavedLlmInferenceRun(StepResult):
     total_instances: int = Field(..., description="Number of instances processed.")
     successful_answers: int = Field(..., description="Number of successful generations.")
     failed_answers: int = Field(..., description="Number of failed generations.")
-    reasoning_paths_path: Path = Field(..., description="Saved reasoning paths path.")
     reasoning_subgraphs_path: Path = Field(..., description="Saved subgraphs path.")
     prompts_path: Path = Field(..., description="Saved prompts path.")
     answers_path: Path = Field(..., description="Saved answers path.")

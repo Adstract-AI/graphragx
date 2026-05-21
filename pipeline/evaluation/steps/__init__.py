@@ -11,7 +11,9 @@ from pipeline.evaluation.steps.llm_answer_generation import GenerateFinalAnswerS
 from pipeline.evaluation.steps.llm_inference import (
     BuildReasoningSamplesFromGnnEvaluationContext,
     BuildReasoningSamplesFromGnnEvaluationStep,
+    GenerateAndSaveFinalAnswersBatchesContext,
     ExtractShortestPathsBatchStep,
+    GenerateAndSaveFinalAnswersBatchesStep,
     GenerateFinalAnswersBatchStep,
     SaveInferenceRunStep,
 )
@@ -21,9 +23,11 @@ from pipeline.evaluation.steps.path_extraction import ExtractShortestPathsStep
 __all__ = [
     "BuildReasoningSamplesFromGnnEvaluationContext",
     "BuildReasoningSamplesFromGnnEvaluationStep",
+    "GenerateAndSaveFinalAnswersBatchesContext",
     "EvaluateGnnAnswerRetrieverContext",
     "EvaluateGnnAnswerRetrieverStep",
     "ExtractShortestPathsBatchStep",
+    "GenerateAndSaveFinalAnswersBatchesStep",
     "ExtractShortestPathsStep",
     "GenerateFinalAnswersBatchStep",
     "GenerateFinalAnswerStep",
