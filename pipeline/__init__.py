@@ -123,6 +123,7 @@ from pipeline.preparation import (
     TrainGnnAnswerRetrieverContext,
     TrainGnnAnswerRetrieverStep,
     WEBQSP_DATASET_ID,
+    WebQSPEntityMappingSummary,
     WebQSPProcessedInstance,
     WebQSPVocabularyStore,
 )
@@ -134,6 +135,7 @@ from pipeline.services import (
     SelectionService,
     TextEmbeddingCache,
     WebQSPEmbeddingCacheService,
+    WebQSPEntityNameMappingService,
     WebQSPLocalGraphProcessorService,
     WebQSPLocalGraphStorageService,
 )
@@ -262,6 +264,8 @@ __all__ = [
     "UnsupportedDatasetProcessorException",
     "UnsupportedDatasetSelectionException",
     "WEBQSP_DATASET_ID",
+    "WebQSPEntityMappingSummary",
+    "WebQSPEntityNameMappingService",
     "WebQSPProcessedInstance",
     "WebQSPEmbeddingCacheService",
     "WebQSPLocalGraphProcessorService",

@@ -46,6 +46,7 @@ _LAZY_EXPORT_MODULES: dict[str, str] = {
     "LoadDatasetStep": "pipeline.preparation.steps.dataset_loading",
     "LoadedDataset": "pipeline.preparation.steps.dataset_loading",
     "PreparedWebQSPGraphDataset": "pipeline.preparation.models.webqsp_local_graph",
+    "WebQSPEntityMappingSummary": "pipeline.preparation.models.webqsp_local_graph",
     "WebQSPProcessedInstance": "pipeline.preparation.models.webqsp_local_graph",
     "WebQSPVocabularyStore": "pipeline.preparation.models.webqsp_local_graph",
     "BuildGnnAnswerRetrieverContext": "pipeline.preparation.steps.gnn_model_building",
@@ -116,6 +117,7 @@ __all__ = [
     "TrainGnnAnswerRetrieverContext",
     "TrainGnnAnswerRetrieverStep",
     "WEBQSP_DATASET_ID",
+    "WebQSPEntityMappingSummary",
     "WebQSPProcessedInstance",
     "WebQSPVocabularyStore",
 ]

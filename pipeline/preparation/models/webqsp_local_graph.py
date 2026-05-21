@@ -38,6 +38,19 @@ class WebQSPVocabularyStore(BaseModel):
     questions: dict[str, int] = Field(default_factory=dict)
 
 
+class WebQSPEntityMappingSummary(BaseModel):
+    """Summary of MID-to-readable-name mapping during WebQSP processing."""
+
+    total_entity_references: int = Field(default=0)
+    mapped_entity_references: int = Field(default=0)
+    disambiguated_entity_references: int = Field(default=0)
+    unmapped_mid_entity_references: int = Field(default=0)
+    unique_mapped_mid_count: int = Field(default=0)
+    unique_disambiguated_mid_count: int = Field(default=0)
+    unique_unmapped_mid_count: int = Field(default=0)
+    unmapped_mid_samples: list[str] = Field(default_factory=list)
+
+
 class PreparedWebQSPGraphDataset(StepResult):
     """Prepared WebQSP graph dataset artifact."""
 
@@ -48,6 +61,9 @@ class PreparedWebQSPGraphDataset(StepResult):
     train_instances: list[WebQSPProcessedInstance] = Field(default_factory=list)
     test_instances: list[WebQSPProcessedInstance] = Field(default_factory=list)
     vocabulary_store: WebQSPVocabularyStore = Field(...)
+    entity_mapping_summary: WebQSPEntityMappingSummary = Field(
+        default_factory=WebQSPEntityMappingSummary
+    )
     cache_directory: Path = Field(..., description="Processed dataset cache directory.")
 
     @property
