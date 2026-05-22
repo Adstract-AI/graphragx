@@ -324,6 +324,13 @@ class GenerateFinalAnswersBatchStep(
                 candidate.node for candidate in item.prediction.answer_candidates
             ],
             reasoning_subgraph_triples=extracted_paths.reasoning_subgraph_triples,
+            reasoning_path_lengths=[
+                len(path.triples)
+                for path in extracted_paths.paths
+                if path.path_found
+            ],
+            found_reasoning_paths=extracted_paths.found_paths,
+            missing_reasoning_paths=extracted_paths.missing_paths,
             reasoning_paths_text=extracted_paths.reasoning_paths_text,
             model_id=self.model_id,
             answer=answer,
@@ -419,7 +426,10 @@ class GenerateAndSaveFinalAnswersBatchesStep(
                 run=run,
                 answers=generated_batch,
             )
-            self.storage_service.write_summary(run=run, answers=cumulative_batch)
+            self.storage_service.write_inference_config(
+                run=run,
+                answers=cumulative_batch,
+            )
             logger.info(
                 f"Saved LLM inference batch: "
                 f"evaluation_run={paths_batch.evaluation_run_name} "
@@ -434,7 +444,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             model_id=model_id,
             items=all_items,
         )
-        self.storage_service.write_summary(run=run, answers=final_answers)
+        self.storage_service.write_inference_config(run=run, answers=final_answers)
         logger.info(
             f"Finished batched LLM inference: "
             f"evaluation_run={paths_batch.evaluation_run_name} "
@@ -452,10 +462,9 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             total_instances=len(final_answers.items),
             successful_answers=final_answers.successful_answers,
             failed_answers=final_answers.failed_answers,
-            reasoning_subgraphs_path=run.reasoning_subgraphs_path,
-            prompts_path=run.prompts_path,
+            reasoning_path=run.reasoning_path,
             answers_path=run.answers_path,
-            summary_path=run.summary_path,
+            inference_config_path=run.inference_config_path,
         )
 
     @staticmethod
@@ -542,8 +551,7 @@ class SaveInferenceRunStep(
             total_instances=len(answers.items),
             successful_answers=answers.successful_answers,
             failed_answers=answers.failed_answers,
-            reasoning_subgraphs_path=storage_result.reasoning_subgraphs_path,
-            prompts_path=storage_result.prompts_path,
+            reasoning_path=storage_result.reasoning_path,
             answers_path=storage_result.answers_path,
-            summary_path=storage_result.summary_path,
+            inference_config_path=storage_result.inference_config_path,
         )
