@@ -250,9 +250,9 @@ class WandbFinalResultsLoggingService(AbstractService):
                 [
                     instance_index,
                     row.get("question", ""),
-                    row.get("q_entity", []),
-                    row.get("gold_answers", []),
-                    row.get("predicted_answers", []),
+                    self._format_table_cell(row.get("q_entity", [])),
+                    self._format_table_cell(row.get("gold_answers", [])),
+                    self._format_table_cell(row.get("predicted_answers", [])),
                     answer_row.get("explanation", ""),
                     row.get("exact_match", False),
                     row.get("hit", False),
@@ -272,6 +272,15 @@ class WandbFinalResultsLoggingService(AbstractService):
                 ]
             )
         return table_rows
+
+    @classmethod
+    def _format_table_cell(cls, value: Any) -> Any:
+        """Convert nested values to readable table text for WandB."""
+        if isinstance(value, list):
+            return ", ".join(cls._format_table_cell(item) for item in value)
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False, sort_keys=True)
+        return value
 
     def build_wandb_config(
         self,

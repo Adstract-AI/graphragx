@@ -195,6 +195,9 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert ["retrieval", "hits_at_1", 0.5] in aggregate_rows
     assert service.table_columns[0] == "instance_index"
     assert len(table_rows) == 1
+    assert table_rows[0][2] == "Moon"
+    assert table_rows[0][3] == "Earth"
+    assert table_rows[0][4] == "Earth"
     assert table_rows[0][5] == "Moon -> orbits -> Earth"
     assert wandb_config["model_run_number"] == 7
     assert wandb_config["runs"]["model"]["number"] == 7
