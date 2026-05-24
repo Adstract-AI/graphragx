@@ -40,10 +40,11 @@ class WandbFinalResultsLogResult(BaseModel):
 class WandbFinalResultsLoggingService(AbstractService):
     """Upload final result metrics, tables, and artifacts to WandB."""
 
+    run_summary_prefix = "Run_Summary"
+    loss_metric_key = "Training/gnn_training_loss"
     table_key = "Per_Instance_Metrics/per_instance_results"
     aggregate_table_key = "Summary_Metrics/aggregate_metrics"
     summary_plot_prefix = "Summary_Plots"
-    loss_metric_key = "Training/gnn_training_loss"
     artifact_type = "evaluation-results"
     source_path_keys = {
         "answers_path",
@@ -125,20 +126,26 @@ class WandbFinalResultsLoggingService(AbstractService):
                 )
                 table = wandb.Table(columns=self.table_columns, data=table_rows)
                 payload = {
-                    self.aggregate_table_key: aggregate_table,
                     self.table_key: table,
+                    self.aggregate_table_key: aggregate_table,
                     **self.build_summary_plot_metrics(scalar_metrics),
                 }
+                run_summary_plot_metrics = self.build_run_summary_plot_metrics(
+                    scalar_metrics=scalar_metrics,
+                    wandb_config=wandb_config,
+                )
                 loss_points = self.build_training_loss_points(
                     wandb_config.get("configs", {}).get("model", {})
                 )
-                run.log(payload)
+                if run_summary_plot_metrics:
+                    run.log(run_summary_plot_metrics)
                 if loss_points:
                     for point in loss_points:
                         run.log(
                             {self.loss_metric_key: point["average_loss"]},
                             step=point["epoch"],
                         )
+                run.log(payload)
                 artifact = wandb.Artifact(
                     self._artifact_name(final_result.results_run_name),
                     type=self.artifact_type,
@@ -222,6 +229,38 @@ class WandbFinalResultsLoggingService(AbstractService):
         return {
             f"{cls.summary_plot_prefix}/{metric_name}": metric_value
             for metric_name, metric_value in scalar_metrics.items()
+        }
+
+    @classmethod
+    def build_run_summary_plot_metrics(
+        cls,
+        scalar_metrics: dict[str, float | int],
+        wandb_config: dict[str, Any],
+    ) -> dict[str, float | int]:
+        """Build curated run-summary metrics for WandB history plots."""
+        evaluation_config = wandb_config.get("configs", {}).get("evaluation", {})
+        candidate_limit = None
+        if isinstance(evaluation_config, dict):
+            raw_candidate_limit = evaluation_config.get("candidate_limit")
+            if isinstance(raw_candidate_limit, int):
+                candidate_limit = raw_candidate_limit
+
+        run_summary_keys = {
+            "retrieval_hits_at_1": "retrieval_hits_at_1",
+            "retrieval_hit_at_k": (
+                f"retrieval_hits_at_{candidate_limit}"
+                if candidate_limit is not None
+                else "retrieval_hits_at_candidate_limit"
+            ),
+            "answer_hit_rate": "answer_hit_rate",
+            "answer_f1": "answer_f1",
+            "ranking_ndcg_at_10": "ranking_ndcg_at_10",
+            "grounding_grounded_explanation_rate": "grounded_explanation_rate",
+        }
+        return {
+            f"{cls.run_summary_prefix}/{target_key}": scalar_metrics[source_key]
+            for source_key, target_key in run_summary_keys.items()
+            if source_key in scalar_metrics
         }
 
     @staticmethod

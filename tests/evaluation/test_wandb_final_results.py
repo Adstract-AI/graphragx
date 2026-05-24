@@ -188,6 +188,10 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     summary_plot_metrics = service.build_summary_plot_metrics(scalars)
     table_rows = service.build_table_rows(results_config, per_instance_rows)
     wandb_config = service.build_wandb_config(final_result, results_config)
+    run_summary_metrics = service.build_run_summary_plot_metrics(
+        scalar_metrics=scalars,
+        wandb_config=wandb_config,
+    )
 
     assert scalars["retrieval_hits_at_1"] == 0.5
     assert scalars["answer_f1"] == 2 / 3
@@ -196,6 +200,15 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert ["retrieval", "hits_at_1", 0.5] in aggregate_rows
     assert summary_plot_metrics["Summary_Plots/answer_f1"] == 2 / 3
     assert summary_plot_metrics["Summary_Plots/retrieval_hits_at_1"] == 0.5
+    assert run_summary_metrics["Run_Summary/retrieval_hits_at_1"] == 0.5
+    assert run_summary_metrics["Run_Summary/retrieval_hits_at_15"] == 1.0
+    assert run_summary_metrics["Run_Summary/answer_hit_rate"] == 0.5
+    assert run_summary_metrics["Run_Summary/answer_f1"] == 2 / 3
+    assert run_summary_metrics["Run_Summary/ranking_ndcg_at_10"] == 0.75
+    assert (
+        run_summary_metrics["Run_Summary/grounded_explanation_rate"]
+        == 0.5
+    )
     assert service.table_columns[0] == "instance_index"
     assert len(table_rows) == 1
     assert table_rows[0][2] == "Moon"
@@ -291,16 +304,13 @@ def test_wandb_logging_success_with_fake_module(
     assert captured["init"]["config"]["model_run_number"] == 7
     assert captured["init"]["config"]["configs"]["model"]["training"]["epochs"] == 3
     assert "model_run_number:7" in captured["init"]["tags"]
-    logged_payload = captured["logs"][0]["payload"]
-    assert "answer_f1" not in logged_payload
-    assert "Summary_Metrics/aggregate_metrics" in logged_payload
-    assert "Per_Instance_Metrics/per_instance_results" in logged_payload
-    assert logged_payload["Summary_Plots/answer_f1"] == 2 / 3
-    assert logged_payload["Summary_Plots/retrieval_hits_at_1"] == 0.5
-    assert "gnn_training_loss" not in logged_payload
-    aggregate_table = logged_payload["Summary_Metrics/aggregate_metrics"]
-    assert aggregate_table.columns == ["group", "metric", "value"]
-    assert ["answer", "f1", 2 / 3] in aggregate_table.data
+    run_summary_payload = captured["logs"][0]["payload"]
+    assert run_summary_payload["Run_Summary/retrieval_hits_at_1"] == 0.5
+    assert run_summary_payload["Run_Summary/retrieval_hits_at_15"] == 1.0
+    assert run_summary_payload["Run_Summary/answer_hit_rate"] == 0.5
+    assert run_summary_payload["Run_Summary/answer_f1"] == 2 / 3
+    assert run_summary_payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
+    assert run_summary_payload["Run_Summary/grounded_explanation_rate"] == 0.5
     assert captured["logs"][1] == {
         "payload": {"Training/gnn_training_loss": 0.8},
         "step": 1,
@@ -309,7 +319,18 @@ def test_wandb_logging_success_with_fake_module(
         "payload": {"Training/gnn_training_loss": 0.4},
         "step": 2,
     }
-    assert len(captured["logs"]) == 3
+    logged_payload = captured["logs"][3]["payload"]
+    assert "answer_f1" not in logged_payload
+    assert "Summary_Metrics/aggregate_metrics" in logged_payload
+    assert "Per_Instance_Metrics/per_instance_results" in logged_payload
+    assert logged_payload["Summary_Plots/answer_f1"] == 2 / 3
+    assert logged_payload["Summary_Plots/retrieval_hits_at_1"] == 0.5
+    assert "Run_Summary/answer_f1" not in logged_payload
+    assert "gnn_training_loss" not in logged_payload
+    aggregate_table = logged_payload["Summary_Metrics/aggregate_metrics"]
+    assert aggregate_table.columns == ["group", "metric", "value"]
+    assert ["answer", "f1", 2 / 3] in aggregate_table.data
+    assert len(captured["logs"]) == 4
     assert any(service_name == "results/results_config.json" for _, service_name in captured["artifact_files"])
     assert any(service_name == "sources/answers.jsonl" for _, service_name in captured["artifact_files"])
 
