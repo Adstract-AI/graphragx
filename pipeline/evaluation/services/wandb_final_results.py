@@ -42,6 +42,7 @@ class WandbFinalResultsLoggingService(AbstractService):
 
     table_key = "Per_Instance_Metrics/per_instance_results"
     aggregate_table_key = "Summary_Metrics/aggregate_metrics"
+    summary_plot_prefix = "Summary_Plots"
     loss_metric_key = "Training/gnn_training_loss"
     artifact_type = "evaluation-results"
     source_path_keys = {
@@ -126,6 +127,7 @@ class WandbFinalResultsLoggingService(AbstractService):
                 payload = {
                     self.aggregate_table_key: aggregate_table,
                     self.table_key: table,
+                    **self.build_summary_plot_metrics(scalar_metrics),
                 }
                 loss_points = self.build_training_loss_points(
                     wandb_config.get("configs", {}).get("model", {})
@@ -210,6 +212,17 @@ class WandbFinalResultsLoggingService(AbstractService):
             group, _, short_name = metric_name.partition("_")
             rows.append([group or "metric", short_name or metric_name, metric_value])
         return rows
+
+    @classmethod
+    def build_summary_plot_metrics(
+        cls,
+        scalar_metrics: dict[str, float | int],
+    ) -> dict[str, float | int]:
+        """Build one-value summary metrics for WandB history plots."""
+        return {
+            f"{cls.summary_plot_prefix}/{metric_name}": metric_value
+            for metric_name, metric_value in scalar_metrics.items()
+        }
 
     @staticmethod
     def build_training_loss_points(

@@ -185,6 +185,7 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
 
     scalars = service.build_scalar_metrics(retrieval_metrics, reasoning_metrics)
     aggregate_rows = service.build_aggregate_metric_rows(scalars)
+    summary_plot_metrics = service.build_summary_plot_metrics(scalars)
     table_rows = service.build_table_rows(results_config, per_instance_rows)
     wandb_config = service.build_wandb_config(final_result, results_config)
 
@@ -193,6 +194,8 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert scalars["ranking_ndcg_at_10"] == 0.75
     assert ["answer", "f1", 2 / 3] in aggregate_rows
     assert ["retrieval", "hits_at_1", 0.5] in aggregate_rows
+    assert summary_plot_metrics["Summary_Plots/answer_f1"] == 2 / 3
+    assert summary_plot_metrics["Summary_Plots/retrieval_hits_at_1"] == 0.5
     assert service.table_columns[0] == "instance_index"
     assert len(table_rows) == 1
     assert table_rows[0][2] == "Moon"
@@ -292,6 +295,8 @@ def test_wandb_logging_success_with_fake_module(
     assert "answer_f1" not in logged_payload
     assert "Summary_Metrics/aggregate_metrics" in logged_payload
     assert "Per_Instance_Metrics/per_instance_results" in logged_payload
+    assert logged_payload["Summary_Plots/answer_f1"] == 2 / 3
+    assert logged_payload["Summary_Plots/retrieval_hits_at_1"] == 0.5
     assert "gnn_training_loss" not in logged_payload
     aggregate_table = logged_payload["Summary_Metrics/aggregate_metrics"]
     assert aggregate_table.columns == ["group", "metric", "value"]
