@@ -103,7 +103,8 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
         retrieval_metrics_path,
         {
             "hits_at_1": 0.5,
-            "hit_at_k": 1.0,
+            "hits_at_5": 1.0,
+            "hits_at_10": 1.0,
             "average_candidate_count": 2.0,
             "missing_gold_in_graph_count": 0,
         },
@@ -201,7 +202,8 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert summary_plot_metrics["Summary_Plots/answer_f1"] == 2 / 3
     assert summary_plot_metrics["Summary_Plots/retrieval_hits_at_1"] == 0.5
     assert run_summary_metrics["Run_Summary/retrieval_hits_at_1"] == 0.5
-    assert run_summary_metrics["Run_Summary/retrieval_hits_at_15"] == 1.0
+    assert run_summary_metrics["Run_Summary/retrieval_hits_at_5"] == 1.0
+    assert run_summary_metrics["Run_Summary/retrieval_hits_at_10"] == 1.0
     assert run_summary_metrics["Run_Summary/answer_hit_rate"] == 0.5
     assert run_summary_metrics["Run_Summary/answer_f1"] == 2 / 3
     assert run_summary_metrics["Run_Summary/ranking_ndcg_at_10"] == 0.75
@@ -306,7 +308,8 @@ def test_wandb_logging_success_with_fake_module(
     assert "model_run_number:7" in captured["init"]["tags"]
     run_summary_payload = captured["logs"][0]["payload"]
     assert run_summary_payload["Run_Summary/retrieval_hits_at_1"] == 0.5
-    assert run_summary_payload["Run_Summary/retrieval_hits_at_15"] == 1.0
+    assert run_summary_payload["Run_Summary/retrieval_hits_at_5"] == 1.0
+    assert run_summary_payload["Run_Summary/retrieval_hits_at_10"] == 1.0
     assert run_summary_payload["Run_Summary/answer_hit_rate"] == 0.5
     assert run_summary_payload["Run_Summary/answer_f1"] == 2 / 3
     assert run_summary_payload["Run_Summary/ranking_ndcg_at_10"] == 0.75

@@ -151,7 +151,16 @@ class FinalResultsEvaluationService(AbstractService):
     ) -> dict[str, Any]:
         evaluated_instances = len(predictions)
         hits_at_1_count = sum(1 for prediction in predictions if prediction.hit_at_1)
-        hit_at_k_count = sum(1 for prediction in predictions if prediction.hit_at_k)
+        hits_at_5_count = sum(
+            1
+            for prediction in predictions
+            if FinalResultsEvaluationService._retrieval_hit_at_k(prediction, 5)
+        )
+        hits_at_10_count = sum(
+            1
+            for prediction in predictions
+            if FinalResultsEvaluationService._retrieval_hit_at_k(prediction, 10)
+        )
         total_candidate_count = sum(
             len(prediction.answer_candidates)
             for prediction in predictions
@@ -171,17 +180,32 @@ class FinalResultsEvaluationService(AbstractService):
                 evaluated_instances,
             ),
             "hits_at_1_count": hits_at_1_count,
-            "hit_at_k": FinalResultsEvaluationService._safe_divide(
-                hit_at_k_count,
+            "hits_at_5": FinalResultsEvaluationService._safe_divide(
+                hits_at_5_count,
                 evaluated_instances,
             ),
-            "hit_at_k_count": hit_at_k_count,
+            "hits_at_5_count": hits_at_5_count,
+            "hits_at_10": FinalResultsEvaluationService._safe_divide(
+                hits_at_10_count,
+                evaluated_instances,
+            ),
+            "hits_at_10_count": hits_at_10_count,
             "average_candidate_count": FinalResultsEvaluationService._safe_divide(
                 total_candidate_count,
                 evaluated_instances,
             ),
             "missing_gold_in_graph_count": missing_gold_in_graph_count,
         }
+
+    @staticmethod
+    def _retrieval_hit_at_k(
+        prediction: EvaluatedAnswerRetrievalInstance,
+        k: int,
+    ) -> bool:
+        return any(
+            candidate.is_gold_answer
+            for candidate in prediction.answer_candidates[:k]
+        )
 
     def _build_per_instance_result(
         self,

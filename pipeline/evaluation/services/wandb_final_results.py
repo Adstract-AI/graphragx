@@ -177,7 +177,8 @@ class WandbFinalResultsLoggingService(AbstractService):
         """Build WandB-safe scalar metric names."""
         mappings = {
             "retrieval_hits_at_1": retrieval_metrics.get("hits_at_1"),
-            "retrieval_hit_at_k": retrieval_metrics.get("hit_at_k"),
+            "retrieval_hits_at_5": retrieval_metrics.get("hits_at_5"),
+            "retrieval_hits_at_10": retrieval_metrics.get("hits_at_10"),
             "retrieval_average_candidate_count": retrieval_metrics.get(
                 "average_candidate_count"
             ),
@@ -238,20 +239,10 @@ class WandbFinalResultsLoggingService(AbstractService):
         wandb_config: dict[str, Any],
     ) -> dict[str, float | int]:
         """Build curated run-summary metrics for WandB history plots."""
-        evaluation_config = wandb_config.get("configs", {}).get("evaluation", {})
-        candidate_limit = None
-        if isinstance(evaluation_config, dict):
-            raw_candidate_limit = evaluation_config.get("candidate_limit")
-            if isinstance(raw_candidate_limit, int):
-                candidate_limit = raw_candidate_limit
-
         run_summary_keys = {
             "retrieval_hits_at_1": "retrieval_hits_at_1",
-            "retrieval_hit_at_k": (
-                f"retrieval_hits_at_{candidate_limit}"
-                if candidate_limit is not None
-                else "retrieval_hits_at_candidate_limit"
-            ),
+            "retrieval_hits_at_5": "retrieval_hits_at_5",
+            "retrieval_hits_at_10": "retrieval_hits_at_10",
             "answer_hit_rate": "answer_hit_rate",
             "answer_f1": "answer_f1",
             "ranking_ndcg_at_10": "ranking_ndcg_at_10",

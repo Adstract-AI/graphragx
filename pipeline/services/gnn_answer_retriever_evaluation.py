@@ -51,8 +51,12 @@ class GnnAnswerRetrieverEvaluationOutcome(BaseModel):
     evaluated_instances: int = Field(..., description="Number of evaluated instances.")
     hits_at_1: float = Field(..., description="Hits@1 rate.")
     hits_at_1_count: int = Field(..., description="Hits@1 count.")
-    hit_at_k: float = Field(..., description="Answer coverage rate.")
-    hit_at_k_count: int = Field(..., description="Answer coverage count.")
+    hit_at_k: float = Field(..., description="Deprecated alias for Hits@10 rate.")
+    hit_at_k_count: int = Field(..., description="Deprecated alias for Hits@10 count.")
+    hits_at_5: float = Field(..., description="Hits@5 rate.")
+    hits_at_5_count: int = Field(..., description="Hits@5 count.")
+    hits_at_10: float = Field(..., description="Hits@10 rate.")
+    hits_at_10_count: int = Field(..., description="Hits@10 count.")
     average_candidate_count: float = Field(
         ...,
         description="Average number of selected candidate nodes.",
@@ -149,6 +153,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         predictions: list[EvaluatedAnswerRetrievalInstance] = []
         hits_at_1_count = 0
         hit_at_k_count = 0
+        hits_at_5_count = 0
+        hits_at_10_count = 0
         missing_gold_in_graph_count = 0
         total_candidate_count = 0
 
@@ -189,12 +195,16 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 predictions.append(prediction)
                 hits_at_1_count += int(prediction.hit_at_1)
                 hit_at_k_count += int(prediction.hit_at_k)
+                hits_at_5_count += int(prediction.hit_at_5)
+                hits_at_10_count += int(prediction.hit_at_10)
                 missing_gold_in_graph_count += int(prediction.missing_gold_in_graph)
                 total_candidate_count += len(prediction.answer_candidates)
 
         evaluated_instances = len(predictions)
         hits_at_1 = hits_at_1_count / evaluated_instances
         hit_at_k = hit_at_k_count / evaluated_instances
+        hits_at_5 = hits_at_5_count / evaluated_instances
+        hits_at_10 = hits_at_10_count / evaluated_instances
         average_candidate_count = total_candidate_count / evaluated_instances
         storage_result = self.storage_service.save_evaluation_run(
             evaluation_root=cache_root / "evaluations",
@@ -212,7 +222,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         logger.info(
             f"Finished GNN answer-retriever evaluation: "
             f"run={storage_result.evaluation_run_name} "
-            f"hits_at_1={hits_at_1:.4f} hit_at_k={hit_at_k:.4f} "
+            f"hits_at_1={hits_at_1:.4f} hits_at_5={hits_at_5:.4f} "
+            f"hits_at_10={hits_at_10:.4f} "
             f"average_candidate_count={average_candidate_count:.2f}"
         )
         return GnnAnswerRetrieverEvaluationOutcome(
@@ -223,6 +234,10 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             hits_at_1_count=hits_at_1_count,
             hit_at_k=hit_at_k,
             hit_at_k_count=hit_at_k_count,
+            hits_at_5=hits_at_5,
+            hits_at_5_count=hits_at_5_count,
+            hits_at_10=hits_at_10,
+            hits_at_10_count=hits_at_10_count,
             average_candidate_count=average_candidate_count,
             missing_gold_in_graph_count=missing_gold_in_graph_count,
         )
@@ -399,7 +414,9 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
 
         top_node_id = int(torch.argmax(probabilities).item())
         hit_at_1 = instance.nodes[top_node_id] in gold_answers
-        hit_at_k = any(candidate.is_gold_answer for candidate in answer_candidates)
+        hit_at_5 = any(candidate.is_gold_answer for candidate in answer_candidates[:5])
+        hit_at_10 = any(candidate.is_gold_answer for candidate in answer_candidates[:10])
+        hit_at_k = hit_at_10
         missing_gold_in_graph = not any(score.present_in_graph for score in gold_answer_scores)
 
         return EvaluatedAnswerRetrievalInstance(
@@ -411,6 +428,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             gold_answer_scores=gold_answer_scores,
             hit_at_1=hit_at_1,
             hit_at_k=hit_at_k,
+            hit_at_5=hit_at_5,
+            hit_at_10=hit_at_10,
             missing_gold_in_graph=missing_gold_in_graph,
         )
 

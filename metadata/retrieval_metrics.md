@@ -43,26 +43,43 @@ hits_at_1 = hits_at_1_count / evaluated_instances
 ### `hits_at_1_count`
 Number of questions where `Hits@1 = 1`.
 
-### `hit_at_k`
-Share of questions where at least one selected retrieved candidate is a gold answer.
+### `hits_at_5`
+Share of questions where at least one of the top 5 retrieved candidates is a gold answer.
 
 Per question:
 
 ```text
-Hit@K = 1 if any retrieved answer candidate is in gold_answers
-Hit@K = 0 otherwise
+Hits@5 = 1 if any of the first 5 retrieved answer candidates is in gold_answers
+Hits@5 = 0 otherwise
 ```
 
 Aggregate:
 
 ```text
-hit_at_k = hit_at_k_count / evaluated_instances
+hits_at_5 = hits_at_5_count / evaluated_instances
 ```
 
-Here `K` is the number of selected candidates for that question, after threshold/top-k fallback and candidate limit filtering.
+### `hits_at_5_count`
+Number of questions where `Hits@5 = 1`.
 
-### `hit_at_k_count`
-Number of questions where `Hit@K = 1`.
+### `hits_at_10`
+Share of questions where at least one of the top 10 retrieved candidates is a gold answer.
+
+Per question:
+
+```text
+Hits@10 = 1 if any of the first 10 retrieved answer candidates is in gold_answers
+Hits@10 = 0 otherwise
+```
+
+Aggregate:
+
+```text
+hits_at_10 = hits_at_10_count / evaluated_instances
+```
+
+### `hits_at_10_count`
+Number of questions where `Hits@10 = 1`.
 
 ### `average_candidate_count`
 Average number of retrieved answer candidates per question.
