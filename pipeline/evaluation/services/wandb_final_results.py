@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -40,6 +41,7 @@ class WandbFinalResultsLoggingService(AbstractService):
     """Upload final result metrics, tables, and artifacts to WandB."""
 
     table_key = "per_instance_results"
+    aggregate_table_key = "aggregate_metrics"
     artifact_type = "evaluation-results"
     source_path_keys = {
         "answers_path",
@@ -94,11 +96,16 @@ class WandbFinalResultsLoggingService(AbstractService):
                 retrieval_metrics=retrieval_metrics,
                 reasoning_metrics=reasoning_metrics,
             )
+            aggregate_metric_rows = self.build_aggregate_metric_rows(scalar_metrics)
             table_rows = self.build_table_rows(
                 results_config=results_config,
                 per_instance_rows=per_instance_rows,
             )
-            run_name = f"graphragx_{final_result.results_run_name}"
+            wandb_config = self.build_wandb_config(
+                final_result=final_result,
+                results_config=results_config,
+            )
+            run_name = final_result.results_run_name
             tags = self._build_tags(results_config)
 
             with wandb.init(
@@ -107,12 +114,20 @@ class WandbFinalResultsLoggingService(AbstractService):
                 mode=config.mode,
                 name=run_name,
                 tags=tags,
-                config=self._stringify_paths(results_config),
+                config=wandb_config,
                 job_type="final-results",
             ) as run:
-                run.log(scalar_metrics)
+                aggregate_table = wandb.Table(
+                    columns=["group", "metric", "value"],
+                    data=aggregate_metric_rows,
+                )
                 table = wandb.Table(columns=self.table_columns, data=table_rows)
-                run.log({self.table_key: table})
+                run.log(
+                    {
+                        self.aggregate_table_key: aggregate_table,
+                        self.table_key: table,
+                    }
+                )
                 artifact = wandb.Artifact(
                     self._artifact_name(final_result.results_run_name),
                     type=self.artifact_type,
@@ -176,6 +191,17 @@ class WandbFinalResultsLoggingService(AbstractService):
             if isinstance(value, int | float)
         }
 
+    @staticmethod
+    def build_aggregate_metric_rows(
+        scalar_metrics: dict[str, float | int],
+    ) -> list[list[Any]]:
+        """Convert aggregate scalar metrics into table rows."""
+        rows: list[list[Any]] = []
+        for metric_name, metric_value in scalar_metrics.items():
+            group, _, short_name = metric_name.partition("_")
+            rows.append([group or "metric", short_name or metric_name, metric_value])
+        return rows
+
     def build_table_rows(
         self,
         results_config: dict[str, Any],
@@ -214,6 +240,76 @@ class WandbFinalResultsLoggingService(AbstractService):
             )
         return table_rows
 
+    def build_wandb_config(
+        self,
+        final_result: FinalResultsEvaluationResult,
+        results_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build one deduplicated WandB config payload for run filtering."""
+        evaluation_config = self._load_optional_json_object(
+            results_config.get("evaluation_config_path")
+        )
+        inference_config = self._load_optional_json_object(
+            results_config.get("inference_config_path")
+        )
+        model_config = self._load_model_config(
+            results_config=results_config,
+            evaluation_config=evaluation_config,
+        )
+        model_run = evaluation_config.get("model_run", {})
+        if not isinstance(model_run, dict):
+            model_run = {}
+
+        model_run_number = self._int_or_none(
+            model_run.get("number")
+        ) or self._extract_run_number(results_config.get("model_run_name"))
+        evaluation_run_number = self._extract_run_number(
+            results_config.get("evaluation_run_name")
+        )
+        inference_run_number = self._extract_run_number(
+            results_config.get("inference_run_name")
+        )
+        source_paths = self._build_source_paths(results_config)
+        return self._stringify_paths(
+            {
+                "dataset_id": results_config.get("dataset_id"),
+                "model_id": results_config.get("model_id"),
+                "model_run_name": results_config.get("model_run_name"),
+                "model_run_number": model_run_number,
+                "evaluation_run_name": results_config.get("evaluation_run_name"),
+                "evaluation_run_number": evaluation_run_number,
+                "inference_run_name": results_config.get("inference_run_name"),
+                "inference_run_number": inference_run_number,
+                "results_run_name": final_result.results_run_name,
+                "results_run_number": final_result.results_run_number,
+                "runs": {
+                    "model": {
+                        "name": results_config.get("model_run_name"),
+                        "number": model_run_number,
+                    },
+                    "evaluation": {
+                        "name": results_config.get("evaluation_run_name"),
+                        "number": evaluation_run_number,
+                    },
+                    "inference": {
+                        "name": results_config.get("inference_run_name"),
+                        "number": inference_run_number,
+                    },
+                    "results": {
+                        "name": final_result.results_run_name,
+                        "number": final_result.results_run_number,
+                    },
+                },
+                "configs": {
+                    "model": model_config,
+                    "evaluation": evaluation_config.get("evaluation", {}),
+                    "inference": inference_config,
+                },
+                "selected_device": evaluation_config.get("selected_device"),
+                "source_paths": source_paths,
+            }
+        )
+
     def _load_answers_by_index(
         self,
         results_config: dict[str, Any],
@@ -230,18 +326,65 @@ class WandbFinalResultsLoggingService(AbstractService):
             if isinstance(row.get("instance_index"), int)
         }
 
+    def _load_model_config(
+        self,
+        results_config: dict[str, Any],
+        evaluation_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        model_run_directory = results_config.get("model_run_directory")
+        if isinstance(model_run_directory, str):
+            model_config_path = (
+                Path(model_run_directory) / "gnn_answer_retriever_config.json"
+            )
+            if model_config_path.exists():
+                return self._load_json_object(model_config_path)
+
+        model_configuration = evaluation_config.get("model_configuration")
+        if isinstance(model_configuration, dict):
+            return model_configuration
+
+        return {}
+
+    @classmethod
+    def _build_source_paths(cls, results_config: dict[str, Any]) -> dict[str, str]:
+        path_keys = {
+            *cls.source_path_keys,
+            "model_run_directory",
+            "evaluation_run_directory",
+            "inference_run_directory",
+            "answers_path",
+            "reasoning_path",
+            "predictions_path",
+        }
+        paths: dict[str, str] = {}
+        for key in sorted(path_keys):
+            value = results_config.get(key)
+            if isinstance(value, str):
+                paths[key] = value
+        return paths
+
     @classmethod
     def _build_tags(cls, results_config: dict[str, Any]) -> list[str]:
         tags = ["graphragx"]
         for key in [
             "dataset_id",
             "model_id",
+            "model_run_name",
             "evaluation_run_name",
             "inference_run_name",
         ]:
             value = results_config.get(key)
             if value:
                 tags.append(str(value))
+        evaluation_config_path = results_config.get("evaluation_config_path")
+        if isinstance(evaluation_config_path, str):
+            try:
+                evaluation_config = cls._load_json_object(Path(evaluation_config_path))
+                model_run = evaluation_config.get("model_run", {})
+                if isinstance(model_run, dict) and model_run.get("number") is not None:
+                    tags.append(f"model_run_number:{model_run['number']}")
+            except (OSError, ValueError, json.JSONDecodeError):
+                pass
         return tags
 
     @classmethod
@@ -269,7 +412,7 @@ class WandbFinalResultsLoggingService(AbstractService):
             character if character.isalnum() or character in "._-" else "_"
             for character in results_run_name
         ).strip("._-")
-        return f"graphragx-results-{sanitized or 'run'}"
+        return f"results-{sanitized or 'run'}"
 
     @classmethod
     def _stringify_paths(cls, value: Any) -> Any:
@@ -287,6 +430,30 @@ class WandbFinalResultsLoggingService(AbstractService):
         if not isinstance(value, dict):
             raise ValueError(f"JSON file {path} must contain an object.")
         return value
+
+    @classmethod
+    def _load_optional_json_object(cls, value: Any) -> dict[str, Any]:
+        if not isinstance(value, str):
+            return {}
+        path = Path(value)
+        if not path.exists():
+            return {}
+        return cls._load_json_object(path)
+
+    @staticmethod
+    def _extract_run_number(value: Any) -> int | None:
+        if not isinstance(value, str):
+            return None
+        match = re.match(r"^(\d+)_", value)
+        if match is None:
+            return None
+        return int(match.group(1))
+
+    @staticmethod
+    def _int_or_none(value: Any) -> int | None:
+        if isinstance(value, int):
+            return value
+        return None
 
     @staticmethod
     def _load_jsonl_objects(path: Path) -> list[dict[str, Any]]:

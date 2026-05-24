@@ -32,18 +32,39 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
     results_dir = tmp_path / "data" / "webqsp" / "results" / "1_test"
     sources_dir = tmp_path / "sources"
+    model_run_dir = sources_dir / "models" / "7_model"
     answers_path = sources_dir / "answers.jsonl"
     reasoning_path = sources_dir / "reasoning.jsonl"
     predictions_path = sources_dir / "predictions.jsonl"
     inference_config_path = sources_dir / "inference_config.json"
     evaluation_config_path = sources_dir / "evaluation_config.json"
-    for path in [
-        reasoning_path,
-        predictions_path,
-        inference_config_path,
-        evaluation_config_path,
-    ]:
+    for path in [reasoning_path, predictions_path]:
         _write_json(path, {"source": path.name})
+    _write_json(
+        model_run_dir / "gnn_answer_retriever_config.json",
+        {
+            "dataset_id": "webqsp",
+            "gnn_layer_count": 2,
+            "hidden_dimension": 256,
+            "training": {"epochs": 3, "learning_rate": 0.001},
+        },
+    )
+    _write_json(
+        evaluation_config_path,
+        {
+            "selected_device": "cpu",
+            "model_run": {
+                "name": "7_model",
+                "number": 7,
+                "directory": str(model_run_dir),
+            },
+            "model_configuration": {
+                "should_not": "duplicate_when_model_config_file_exists",
+            },
+            "evaluation": {"candidate_limit": 15},
+        },
+    )
+    _write_json(inference_config_path, {"model_id": "test-model", "total_instances": 1})
     _write_jsonl(
         answers_path,
         [
@@ -62,8 +83,10 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
         {
             "dataset_id": "webqsp",
             "model_id": "test-model",
+            "model_run_name": "7_model",
             "evaluation_run_name": "1_eval",
             "inference_run_name": "1_inference",
+            "model_run_directory": str(model_run_dir),
             "answers_path": str(answers_path),
             "reasoning_path": str(reasoning_path),
             "predictions_path": str(predictions_path),
@@ -156,14 +179,28 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     )
 
     scalars = service.build_scalar_metrics(retrieval_metrics, reasoning_metrics)
+    aggregate_rows = service.build_aggregate_metric_rows(scalars)
     table_rows = service.build_table_rows(results_config, per_instance_rows)
+    wandb_config = service.build_wandb_config(final_result, results_config)
 
     assert scalars["retrieval_hits_at_1"] == 0.5
     assert scalars["answer_f1"] == 2 / 3
     assert scalars["ranking_ndcg_at_10"] == 0.75
+    assert ["answer", "f1", 2 / 3] in aggregate_rows
+    assert ["retrieval", "hits_at_1", 0.5] in aggregate_rows
     assert service.table_columns[0] == "instance_index"
     assert len(table_rows) == 1
     assert table_rows[0][5] == "Moon -> orbits -> Earth"
+    assert wandb_config["model_run_number"] == 7
+    assert wandb_config["runs"]["model"]["number"] == 7
+    assert wandb_config["evaluation_run_number"] == 1
+    assert wandb_config["configs"]["model"]["training"]["epochs"] == 3
+    assert wandb_config["configs"]["evaluation"]["candidate_limit"] == 15
+    assert wandb_config["configs"]["inference"]["total_instances"] == 1
+    assert (
+        "should_not"
+        not in wandb_config["configs"]["model"]
+    )
 
 
 def test_wandb_logging_success_with_fake_module(
@@ -228,7 +265,17 @@ def test_wandb_logging_success_with_fake_module(
     assert captured["init"]["project"] == "project"
     assert captured["init"]["entity"] == "entity"
     assert captured["init"]["mode"] == "disabled"
-    assert any("answer_f1" in payload for payload in captured["logs"])
+    assert captured["init"]["name"] == "1_test"
+    assert captured["init"]["config"]["model_run_number"] == 7
+    assert captured["init"]["config"]["configs"]["model"]["training"]["epochs"] == 3
+    assert "model_run_number:7" in captured["init"]["tags"]
+    logged_payload = captured["logs"][0]
+    assert "answer_f1" not in logged_payload
+    assert "aggregate_metrics" in logged_payload
+    assert "per_instance_results" in logged_payload
+    aggregate_table = logged_payload["aggregate_metrics"]
+    assert aggregate_table.columns == ["group", "metric", "value"]
+    assert ["answer", "f1", 2 / 3] in aggregate_table.data
     assert any(service_name == "results/results_config.json" for _, service_name in captured["artifact_files"])
     assert any(service_name == "sources/answers.jsonl" for _, service_name in captured["artifact_files"])
 
