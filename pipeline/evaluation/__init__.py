@@ -55,12 +55,16 @@ _LAZY_EXPORT_MODULES: dict[str, str] = {
     "FinalResultsEvaluationOutcome": "pipeline.evaluation.services.final_results_evaluation",
     "FinalResultsStorageResult": "pipeline.evaluation.services.final_results_evaluation",
     "LangChainOpenAiAnswerGenerationService": "pipeline.evaluation.services.llm_answer_generation",
+    "LogFinalResultsToWandbStep": "pipeline.evaluation.steps.wandb_final_results",
     "LlmInferenceStoragePayload": "pipeline.evaluation.services.llm_inference_storage",
     "LlmInferenceStorageResult": "pipeline.evaluation.services.llm_inference_storage",
     "LlmInferenceStorageService": "pipeline.evaluation.services.llm_inference_storage",
     "MockCandidateNodeScoringStep": "pipeline.evaluation.steps.mock_candidate_scoring",
     "SaveInferenceRunStep": "pipeline.evaluation.steps.llm_inference",
     "ShortestPathExtractionService": "pipeline.evaluation.services.shortest_path_extraction",
+    "WandbFinalResultsConfig": "pipeline.evaluation.services.wandb_final_results",
+    "WandbFinalResultsLoggingService": "pipeline.evaluation.services.wandb_final_results",
+    "WandbFinalResultsLogResult": "pipeline.evaluation.services.wandb_final_results",
 }
 
 
@@ -117,6 +121,7 @@ __all__ = [
     "GraphTriple",
     "InvalidEvaluationSampleException",
     "LangChainOpenAiAnswerGenerationService",
+    "LogFinalResultsToWandbStep",
     "LlmInferenceStoragePayload",
     "LlmInferenceStorageResult",
     "LlmInferenceStorageService",
@@ -131,4 +136,7 @@ __all__ = [
     "SavedLlmInferenceRun",
     "ShortestPathExtractionException",
     "ShortestPathExtractionService",
+    "WandbFinalResultsConfig",
+    "WandbFinalResultsLoggingService",
+    "WandbFinalResultsLogResult",
 ]

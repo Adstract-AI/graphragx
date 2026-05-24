@@ -35,7 +35,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             main_llm_model="gpt-5.4",
             assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
-            context_strategy="textualized",
+            context_strategy="structured_triples",
             gnn_layer_count=2,
             gnn_hidden_dimension=256,
             node_classifier="mlp",
@@ -50,7 +50,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.main_llm_model, "gpt-5.4")
         self.assertEqual(result.assistant_llm_model, "gpt-5.4-mini")
         self.assertEqual(result.subgraph_construction_algorithm, "shortest_path")
-        self.assertEqual(result.context_construction_strategy, "textualized")
+        self.assertEqual(result.context_construction_strategy, "structured_triples")
         self.assertEqual(result.gnn_layer_count, 2)
         self.assertEqual(result.node_classifier, "mlp")
         self.assertEqual(result.question_embedding_model, "text-embedding-3-small")
@@ -58,7 +58,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.entity_embedding_model, "text-embedding-3-small")
 
     def test_mixed_path_prompts_only_missing_fields(self) -> None:
-        answers = iter(["2", "2"])
+        answers = iter(["2", "1"])
         prompts: list[str] = []
 
         def fake_input(prompt: str) -> str:
@@ -88,7 +88,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(len(prompts), 2)
 
     def test_fully_interactive_path_works(self) -> None:
-        answers = iter(["1", "2", "1", "1", "2", "1", "2", "1", "1", "1"])
+        answers = iter(["1", "2", "1", "1", "2", "1", "1", "1", "1", "1"])
 
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
         result = step.execute(self.make_dataset_context())
@@ -109,7 +109,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             main_llm_model="invalid-model",
             assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
-            context_strategy="textualized",
+            context_strategy="structured_triples",
             gnn_layer_count=2,
             gnn_hidden_dimension=256,
             node_classifier="mlp",
@@ -126,7 +126,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             main_llm_model="gpt-5.4",
             assistant_llm_model="invalid-model",
             subgraph_algorithm="shortest_path",
-            context_strategy="textualized",
+            context_strategy="structured_triples",
             gnn_layer_count=2,
             gnn_hidden_dimension=256,
             node_classifier="mlp",
@@ -143,7 +143,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             main_llm_model="gpt-5.4",
             assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="invalid",
-            context_strategy="textualized",
+            context_strategy="structured_triples",
             gnn_layer_count=2,
             gnn_hidden_dimension=256,
             node_classifier="mlp",
@@ -177,7 +177,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             main_llm_model="gpt-5.4",
             assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
-            context_strategy="textualized",
+            context_strategy="structured_triples",
             gnn_layer_count=9,
             gnn_hidden_dimension=256,
             node_classifier="mlp",
@@ -194,7 +194,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             main_llm_model="gpt-5.4",
             assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
-            context_strategy="textualized",
+            context_strategy="structured_triples",
             gnn_layer_count=2,
             gnn_hidden_dimension=256,
             node_classifier="invalid",
@@ -211,7 +211,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             main_llm_model="gpt-5.4",
             assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
-            context_strategy="textualized",
+            context_strategy="structured_triples",
             gnn_layer_count=2,
             gnn_hidden_dimension=256,
             node_classifier="mlp",
@@ -246,7 +246,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
                     main_llm_model="gpt-5.4",
                     assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
-                    context_strategy="textualized",
+                    context_strategy="structured_triples",
                     gnn_layer_count=2,
                     gnn_hidden_dimension=256,
                     node_classifier="mlp",

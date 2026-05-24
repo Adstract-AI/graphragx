@@ -16,6 +16,7 @@ from pipeline import (
     ExtractShortestPathsBatchStep,
     GenerateAndSaveFinalAnswersBatchesStep,
     GnnAnswerRetrieverEvaluationResult,
+    LogFinalResultsToWandbStep,
     LoadDatasetStep,
     PreparedWebQSPGraphDataset,
     TrainGnnAnswerRetrieverStep,
@@ -178,7 +179,7 @@ class MainEntrypointTests(unittest.TestCase):
                     main_llm_model="gpt-5.4",
                     assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
-                    context_strategy="textualized",
+                    context_strategy="structured_triples",
                     gnn_layer_count=2,
                     gnn_hidden_dimension=256,
                     node_classifier="mlp",
@@ -208,7 +209,7 @@ class MainEntrypointTests(unittest.TestCase):
                     "--subgraph-algorithm",
                     "shortest_path",
                     "--context-strategy",
-                    "textualized",
+                    "structured_triples",
                     "--gnn-layers",
                     "2",
                     "--gnn-hidden-dim",
@@ -246,7 +247,7 @@ class MainEntrypointTests(unittest.TestCase):
                     "--subgraph-algorithm",
                     "shortest_path",
                     "--context-strategy",
-                    "textualized",
+                    "structured_triples",
                     "--gnn-layers",
                     "2",
                     "--gnn-hidden-dim",
@@ -342,6 +343,32 @@ class MainEntrypointTests(unittest.TestCase):
         )
         self.assertIsInstance(pipeline.evaluation_steps[4], ComputeFinalResultsStep)
         self.assertEqual(len(pipeline.evaluation_steps), 5)
+
+    def test_wandb_flag_appends_after_final_results_only_when_requested(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                with_llm_inference=True,
+                with_wandb=True,
+                wandb_project="project",
+                wandb_mode="disabled",
+            ),
+        )
+
+        self.assertIsInstance(pipeline.evaluation_steps[4], ComputeFinalResultsStep)
+        self.assertIsInstance(
+            pipeline.evaluation_steps[5],
+            LogFinalResultsToWandbStep,
+        )
+        self.assertEqual(len(pipeline.evaluation_steps), 6)
+
+    def test_wandb_requires_llm_inference(self) -> None:
+        with self.assertRaisesRegex(
+            main.PipelineException,
+            "requires --with-llm-inference",
+        ):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(with_wandb=True),
+            )
 
 
 if __name__ == "__main__":

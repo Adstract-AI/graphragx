@@ -35,6 +35,7 @@ from pipeline import (
     ComputeFinalResultsStep,
     ExtractShortestPathsBatchStep,
     GenerateAndSaveFinalAnswersBatchesStep,
+    LogFinalResultsToWandbStep,
     PipelineException,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
@@ -84,6 +85,10 @@ class PipelineRuntimeConfig(BaseModel):
     with_llm_inference: bool = False
     inference_run_name: str | None = None
     llm_inference_batch_size: int = 10
+    with_wandb: bool = False
+    wandb_project: str | None = None
+    wandb_entity: str | None = None
+    wandb_mode: str | None = None
     use_default_config_values: bool = False
     force_all_default: bool = False
 
@@ -120,6 +125,12 @@ class PipelineRuntimeConfig(BaseModel):
 
 def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     """Build the current runnable graphragX pipeline."""
+    if config.with_wandb and not config.with_llm_inference:
+        raise PipelineException(
+            "WandB logging requires --with-llm-inference because it logs final "
+            "LLM reasoning results."
+        )
+
     resolved_config = config.with_defaulted_user_inputs()
     setup_steps = [
         SelectDatasetStep(
@@ -176,6 +187,14 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 ComputeFinalResultsStep(),
             ]
         )
+        if resolved_config.with_wandb:
+            evaluation_steps.append(
+                LogFinalResultsToWandbStep(
+                    project=resolved_config.wandb_project,
+                    entity=resolved_config.wandb_entity,
+                    mode=resolved_config.wandb_mode,
+                )
+            )
 
     if resolved_config.run_mode == "train-only":
         preparation_steps = [*setup_steps, *training_steps]
@@ -418,6 +437,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of samples to generate and save per LLM inference batch.",
     )
     parser.add_argument(
+        "--with-wandb",
+        action="store_true",
+        help="Upload final LLM inference results to WandB after local result files are saved.",
+    )
+    parser.add_argument(
+        "--wandb-project",
+        default=None,
+        help="Optional WandB project. Defaults to WANDB_PROJECT or graphragx.",
+    )
+    parser.add_argument(
+        "--wandb-entity",
+        default=None,
+        help="Optional WandB entity/team. Defaults to WANDB_ENTITY.",
+    )
+    parser.add_argument(
+        "--wandb-mode",
+        default=None,
+        choices=["online", "offline", "disabled"],
+        help="Optional WandB mode. Defaults to WANDB_MODE or online.",
+    )
+    parser.add_argument(
         "--default",
         dest="use_default_config_values",
         action="store_true",
@@ -468,6 +508,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         with_llm_inference=args.with_llm_inference,
         inference_run_name=args.inference_run_name,
         llm_inference_batch_size=args.llm_inference_batch_size,
+        with_wandb=args.with_wandb,
+        wandb_project=args.wandb_project,
+        wandb_entity=args.wandb_entity,
+        wandb_mode=args.wandb_mode,
         use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )

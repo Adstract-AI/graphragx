@@ -213,3 +213,19 @@ class FinalResultsEvaluationResult(StepResult):
         description="Share of instances with grounded explanations.",
     )
     ndcg_at_10: float = Field(..., description="Mean nDCG@10.")
+    wandb_status: str | None = Field(
+        default=None,
+        description="Optional WandB logging status.",
+    )
+    wandb_run_id: str | None = Field(
+        default=None,
+        description="Optional WandB run id.",
+    )
+    wandb_run_url: str | None = Field(
+        default=None,
+        description="Optional WandB run URL.",
+    )
+    wandb_error_message: str | None = Field(
+        default=None,
+        description="Optional WandB logging error.",
+    )

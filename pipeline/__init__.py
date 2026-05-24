@@ -74,6 +74,7 @@ from pipeline.evaluation import (
     GraphTriple,
     InvalidEvaluationSampleException,
     LangChainOpenAiAnswerGenerationService,
+    LogFinalResultsToWandbStep,
     LlmInferenceStoragePayload,
     LlmInferenceStorageResult,
     LlmInferenceStorageService,
@@ -88,6 +89,9 @@ from pipeline.evaluation import (
     SavedLlmInferenceRun,
     ShortestPathExtractionException,
     ShortestPathExtractionService,
+    WandbFinalResultsConfig,
+    WandbFinalResultsLoggingService,
+    WandbFinalResultsLogResult,
 )
 from pipeline.models import InitialStepResult, PipelineExecutionResult
 from pipeline.models import PipelineResultBank
@@ -232,6 +236,7 @@ __all__ = [
     "LoadDatasetStep",
     "LangChainOpenAiTextEmbeddingService",
     "LangChainOpenAiAnswerGenerationService",
+    "LogFinalResultsToWandbStep",
     "LlmInferenceStoragePayload",
     "LlmInferenceStorageResult",
     "LlmInferenceStorageService",
@@ -294,6 +299,9 @@ __all__ = [
     "UnsupportedDatasetProcessorException",
     "UnsupportedDatasetSelectionException",
     "WEBQSP_DATASET_ID",
+    "WandbFinalResultsConfig",
+    "WandbFinalResultsLoggingService",
+    "WandbFinalResultsLogResult",
     "WebQSPEntityMappingSummary",
     "WebQSPEntityNameMappingService",
     "WebQSPProcessedInstance",

@@ -17,6 +17,11 @@ from pipeline.evaluation.services.llm_inference_storage import (
 from pipeline.evaluation.services.shortest_path_extraction import (
     ShortestPathExtractionService,
 )
+from pipeline.evaluation.services.wandb_final_results import (
+    WandbFinalResultsConfig,
+    WandbFinalResultsLoggingService,
+    WandbFinalResultsLogResult,
+)
 
 __all__ = [
     "CreatedLlmInferenceRun",
@@ -28,4 +33,7 @@ __all__ = [
     "LlmInferenceStorageResult",
     "LlmInferenceStorageService",
     "ShortestPathExtractionService",
+    "WandbFinalResultsConfig",
+    "WandbFinalResultsLoggingService",
+    "WandbFinalResultsLogResult",
 ]

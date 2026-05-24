@@ -23,6 +23,7 @@ from pipeline.evaluation.steps.llm_inference import (
 )
 from pipeline.evaluation.steps.mock_candidate_scoring import MockCandidateNodeScoringStep
 from pipeline.evaluation.steps.path_extraction import ExtractShortestPathsStep
+from pipeline.evaluation.steps.wandb_final_results import LogFinalResultsToWandbStep
 
 __all__ = [
     "BuildReasoningSamplesFromGnnEvaluationContext",
@@ -40,4 +41,5 @@ __all__ = [
     "GnnPredictionCandidateScoringStep",
     "MockCandidateNodeScoringStep",
     "SaveInferenceRunStep",
+    "LogFinalResultsToWandbStep",
 ]
