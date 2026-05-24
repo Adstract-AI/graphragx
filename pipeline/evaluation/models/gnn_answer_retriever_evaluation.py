@@ -110,5 +110,4 @@ class GnnAnswerRetrieverEvaluationResult(StepResult):
         description="Instances where no gold answer appears in the local graph.",
     )
     predictions_path: Path = Field(..., description="Saved JSONL predictions path.")
-    summary_metrics_path: Path = Field(..., description="Saved summary metrics path.")
     evaluation_config_path: Path = Field(..., description="Saved evaluation config path.")

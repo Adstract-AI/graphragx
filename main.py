@@ -32,6 +32,7 @@ from pipeline import (
     TrainGnnAnswerRetrieverStep,
     EvaluateGnnAnswerRetrieverStep,
     BuildReasoningSamplesFromGnnEvaluationStep,
+    ComputeFinalResultsStep,
     ExtractShortestPathsBatchStep,
     GenerateAndSaveFinalAnswersBatchesStep,
     PipelineException,
@@ -172,6 +173,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                     inference_run_name=resolved_config.inference_run_name,
                     inference_batch_size=resolved_config.llm_inference_batch_size,
                 ),
+                ComputeFinalResultsStep(),
             ]
         )
 

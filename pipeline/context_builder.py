@@ -11,6 +11,10 @@ from pipeline.evaluation.steps.gnn_answer_retriever_evaluation import (
     EvaluateGnnAnswerRetrieverContext,
     EvaluateGnnAnswerRetrieverStep,
 )
+from pipeline.evaluation.steps.final_results_evaluation import (
+    ComputeFinalResultsContext,
+    ComputeFinalResultsStep,
+)
 from pipeline.evaluation.steps.llm_inference import (
     BuildReasoningSamplesFromGnnEvaluationContext,
     BuildReasoningSamplesFromGnnEvaluationStep,
@@ -18,6 +22,7 @@ from pipeline.evaluation.steps.llm_inference import (
     GenerateAndSaveFinalAnswersBatchesStep,
 )
 from pipeline.models import PipelineResultBank
+from pipeline.evaluation.models import GnnAnswerRetrieverEvaluationResult
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.steps.gnn_model_building import (
     BuildGnnAnswerRetrieverContext,
@@ -48,6 +53,7 @@ class StepContextBuilder:
             GenerateAndSaveFinalAnswersBatchesStep: (
                 self._create_generate_and_save_final_answers_batches_context
             ),
+            ComputeFinalResultsStep: self._create_compute_final_results_context,
         }
 
     def create_context(
@@ -149,6 +155,22 @@ class StepContextBuilder:
             exception=exception,
             pipeline_configuration=self.get_required_result(
                 BuiltPipelineConfiguration
+            ),
+        )
+
+    def _create_compute_final_results_context(
+        self,
+        result: StepResult | None,
+        outcome: bool,
+        exception: PipelineException,
+    ) -> ComputeFinalResultsContext:
+        """Create the context required by final results evaluation."""
+        return ComputeFinalResultsContext(
+            result=result,
+            outcome=outcome,
+            exception=exception,
+            gnn_evaluation_result=self.get_required_result(
+                GnnAnswerRetrieverEvaluationResult
             ),
         )
 

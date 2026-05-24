@@ -128,6 +128,5 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             average_candidate_count=outcome.average_candidate_count,
             missing_gold_in_graph_count=outcome.missing_gold_in_graph_count,
             predictions_path=outcome.storage_result.predictions_path,
-            summary_metrics_path=outcome.storage_result.summary_metrics_path,
             evaluation_config_path=outcome.storage_result.evaluation_config_path,
         )

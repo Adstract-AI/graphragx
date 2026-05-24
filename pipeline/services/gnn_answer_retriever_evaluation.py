@@ -26,7 +26,6 @@ from pipeline.services.gnn_answer_retriever_evaluation_storage import (
     GnnAnswerRetrieverEvaluationStoragePayload,
     GnnAnswerRetrieverEvaluationStorageResult,
     GnnAnswerRetrieverEvaluationStorageService,
-    JsonObjectLevel1,
     JsonObjectLevel3,
 )
 from pipeline.services.gnn_answer_retriever_model_runs import (
@@ -198,18 +197,6 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         hits_at_1 = hits_at_1_count / evaluated_instances
         hit_at_k = hit_at_k_count / evaluated_instances
         average_candidate_count = total_candidate_count / evaluated_instances
-        summary_metrics: JsonObjectLevel1 = {
-            "dataset_id": prepared_dataset.dataset_id,
-            "model_run_name": loaded_model_run.run_name,
-            "model_run_number": loaded_model_run.run_number,
-            "evaluated_instances": evaluated_instances,
-            "hits_at_1": hits_at_1,
-            "hits_at_1_count": hits_at_1_count,
-            "hit_at_k": hit_at_k,
-            "hit_at_k_count": hit_at_k_count,
-            "average_candidate_count": average_candidate_count,
-            "missing_gold_in_graph_count": missing_gold_in_graph_count,
-        }
         storage_result = self.storage_service.save_evaluation_run(
             evaluation_root=cache_root / "evaluations",
             run_name=evaluation_config.run_name,
@@ -220,7 +207,6 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     pipeline_configuration=pipeline_configuration,
                     device=device,
                 ),
-                summary_metrics=summary_metrics,
                 predictions=predictions,
             ),
         )

@@ -11,6 +11,7 @@ from pipeline import (
     BuildGnnAnswerRetrieverStep,
     BuildWebQSPLocalGraphsStep,
     BuiltGnnAnswerRetriever,
+    ComputeFinalResultsStep,
     EvaluateGnnAnswerRetrieverStep,
     ExtractShortestPathsBatchStep,
     GenerateAndSaveFinalAnswersBatchesStep,
@@ -116,7 +117,6 @@ class FakeEvaluateGnnAnswerRetrieverStep(EvaluateGnnAnswerRetrieverStep):
             average_candidate_count=0.0,
             missing_gold_in_graph_count=0,
             predictions_path="/tmp/graphragx-test/evaluations/1_test/predictions.jsonl",
-            summary_metrics_path="/tmp/graphragx-test/evaluations/1_test/summary_metrics.json",
             evaluation_config_path="/tmp/graphragx-test/evaluations/1_test/evaluation_config.json",
         )
 
@@ -340,7 +340,8 @@ class MainEntrypointTests(unittest.TestCase):
             pipeline.evaluation_steps[3],
             GenerateAndSaveFinalAnswersBatchesStep,
         )
-        self.assertEqual(len(pipeline.evaluation_steps), 4)
+        self.assertIsInstance(pipeline.evaluation_steps[4], ComputeFinalResultsStep)
+        self.assertEqual(len(pipeline.evaluation_steps), 5)
 
 
 if __name__ == "__main__":

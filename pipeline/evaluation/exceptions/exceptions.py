@@ -13,3 +13,7 @@ class ShortestPathExtractionException(PipelineException):
 
 class LlmAnswerGenerationException(PipelineException):
     """Raised when final LLM answer generation fails."""
+
+
+class FinalResultsEvaluationException(PipelineException):
+    """Raised when final results evaluation cannot be computed or stored."""

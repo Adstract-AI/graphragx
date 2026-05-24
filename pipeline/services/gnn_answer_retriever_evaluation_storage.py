@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 from helpers.constants import (
     GNN_ANSWER_RETRIEVER_EVALUATION_CONFIG_FILENAME,
     GNN_ANSWER_RETRIEVER_EVALUATION_PREDICTIONS_FILENAME,
-    GNN_ANSWER_RETRIEVER_EVALUATION_SUMMARY_FILENAME,
 )
 from pipeline.evaluation.models import EvaluatedAnswerRetrievalInstance
 from pipeline.exceptions import GnnAnswerRetrieverEvaluationException
@@ -28,7 +27,6 @@ class GnnAnswerRetrieverEvaluationStoragePayload(BaseModel):
     """Data persisted for one evaluation run."""
 
     evaluation_config: JsonObjectLevel3 = Field(default_factory=dict)
-    summary_metrics: JsonObjectLevel1 = Field(default_factory=dict)
     predictions: list[EvaluatedAnswerRetrievalInstance] = Field(default_factory=list)
 
 
@@ -39,7 +37,6 @@ class GnnAnswerRetrieverEvaluationStorageResult(BaseModel):
     evaluation_run_name: str
     evaluation_run_number: int
     evaluation_config_path: Path
-    summary_metrics_path: Path
     predictions_path: Path
 
 
@@ -47,7 +44,6 @@ class GnnAnswerRetrieverEvaluationStorageService(AbstractService):
     """Persist numbered evaluation runs."""
 
     config_filename = GNN_ANSWER_RETRIEVER_EVALUATION_CONFIG_FILENAME
-    summary_filename = GNN_ANSWER_RETRIEVER_EVALUATION_SUMMARY_FILENAME
     predictions_filename = GNN_ANSWER_RETRIEVER_EVALUATION_PREDICTIONS_FILENAME
 
     def save_evaluation_run(
@@ -63,15 +59,10 @@ class GnnAnswerRetrieverEvaluationStorageService(AbstractService):
                 run_name=run_name,
             )
             evaluation_config_path = evaluation_run_directory / self.config_filename
-            summary_metrics_path = evaluation_run_directory / self.summary_filename
             predictions_path = evaluation_run_directory / self.predictions_filename
 
             evaluation_config_path.write_text(
                 json.dumps(payload.evaluation_config, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
-            summary_metrics_path.write_text(
-                json.dumps(payload.summary_metrics, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
             with predictions_path.open("w", encoding="utf-8") as predictions_file:
@@ -90,7 +81,6 @@ class GnnAnswerRetrieverEvaluationStorageService(AbstractService):
                 evaluation_run_directory.name
             ),
             evaluation_config_path=evaluation_config_path,
-            summary_metrics_path=summary_metrics_path,
             predictions_path=predictions_path,
         )
 

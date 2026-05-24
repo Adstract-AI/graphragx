@@ -522,7 +522,6 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 average_candidate_count=1.0,
                 missing_gold_in_graph_count=0,
                 predictions_path=predictions_path,
-                summary_metrics_path=directory / "summary_metrics.json",
                 evaluation_config_path=directory / "evaluation_config.json",
             )
 
@@ -571,7 +570,6 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 average_candidate_count=1.0,
                 missing_gold_in_graph_count=0,
                 predictions_path=predictions_path,
-                summary_metrics_path=directory / "summary_metrics.json",
                 evaluation_config_path=directory / "evaluation_config.json",
             )
             built_samples = BuildReasoningSamplesFromGnnEvaluationStep().execute(
@@ -652,7 +650,6 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 average_candidate_count=1.0,
                 missing_gold_in_graph_count=0,
                 predictions_path=predictions_path,
-                summary_metrics_path=directory / "summary_metrics.json",
                 evaluation_config_path=directory / "evaluation_config.json",
             )
             built_samples = BuildReasoningSamplesFromGnnEvaluationStep().execute(
