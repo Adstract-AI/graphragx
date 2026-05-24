@@ -287,18 +287,18 @@ def test_wandb_logging_success_with_fake_module(
     assert "model_run_number:7" in captured["init"]["tags"]
     logged_payload = captured["logs"][0]["payload"]
     assert "answer_f1" not in logged_payload
-    assert "aggregate_metrics" in logged_payload
-    assert "per_instance_results" in logged_payload
+    assert "Summary_Metrics/aggregate_metrics" in logged_payload
+    assert "Per_Instance_Metrics/per_instance_results" in logged_payload
     assert "gnn_training_loss" not in logged_payload
-    aggregate_table = logged_payload["aggregate_metrics"]
+    aggregate_table = logged_payload["Summary_Metrics/aggregate_metrics"]
     assert aggregate_table.columns == ["group", "metric", "value"]
     assert ["answer", "f1", 2 / 3] in aggregate_table.data
     assert captured["logs"][1] == {
-        "payload": {"gnn_training_loss": 0.8},
+        "payload": {"Training/gnn_training_loss": 0.8},
         "step": 1,
     }
     assert captured["logs"][2] == {
-        "payload": {"gnn_training_loss": 0.4},
+        "payload": {"Training/gnn_training_loss": 0.4},
         "step": 2,
     }
     assert len(captured["logs"]) == 3

@@ -40,9 +40,9 @@ class WandbFinalResultsLogResult(BaseModel):
 class WandbFinalResultsLoggingService(AbstractService):
     """Upload final result metrics, tables, and artifacts to WandB."""
 
-    table_key = "per_instance_results"
-    aggregate_table_key = "aggregate_metrics"
-    loss_metric_key = "gnn_training_loss"
+    table_key = "Per_Instance_Metrics/per_instance_results"
+    aggregate_table_key = "Summary_Metrics/aggregate_metrics"
+    loss_metric_key = "Training/gnn_training_loss"
     artifact_type = "evaluation-results"
     source_path_keys = {
         "answers_path",
