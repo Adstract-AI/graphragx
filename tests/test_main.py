@@ -92,7 +92,7 @@ class FakeTrainGnnAnswerRetrieverStep(TrainGnnAnswerRetrieverStep):
             trained_instances=0,
             model=context.result.model,
             model_artifact_path="/tmp/graphragx-test/gnn_answer_retriever.pt",
-            model_config_path="/tmp/graphragx-test/model.config",
+            model_config_path="/tmp/graphragx-test/model_config.json",
             model_run_directory="/tmp/graphragx-test/1_test",
             model_run_name="1_test",
             model_run_number=1,

@@ -12,7 +12,7 @@ def test_evaluation_storage_payload_accepts_nested_model_config_reference() -> N
             "model_config": {
                 "model_run_name": "1_model",
                 "model_run_number": 1,
-                "full_config_path": "/tmp/models/1_model/model.config",
+                "full_config_path": "/tmp/models/1_model/model_config.json",
                 "weights_path": "/tmp/models/1_model/gnn_answer_retriever.pt",
             },
             "evaluation": {

@@ -117,7 +117,7 @@ class FinalResultsEvaluationService(AbstractService):
             candidate_limit=candidate_limit,
         )
         model_config_path = (
-            gnn_evaluation_result.model_run_directory / "model.config"
+            gnn_evaluation_result.model_run_directory / "model_config.json"
         )
         gnn_id = self._build_gnn_id(model_config_path)
         results_config = FinalResultsConfig(
@@ -130,12 +130,29 @@ class FinalResultsEvaluationService(AbstractService):
                 "inference_config_path": llm_inference_run.inference_config_path,
             },
             artifacts={
-                "model_run_name": gnn_evaluation_result.model_run_name,
-                "evaluation_run_name": gnn_evaluation_result.evaluation_run_name,
-                "inference_run_name": llm_inference_run.inference_run_name,
-                "predictions_path": str(gnn_evaluation_result.predictions_path),
-                "answers_path": str(llm_inference_run.answers_path),
-                "reasoning_path": str(llm_inference_run.reasoning_path),
+                "training": {
+                    "name": gnn_evaluation_result.model_run_name,
+                    "model_config_path": str(model_config_path),
+                    "weights_path": str(
+                        gnn_evaluation_result.model_run_directory
+                        / "gnn_answer_retriever.pt"
+                    ),
+                },
+                "evaluation": {
+                    "name": gnn_evaluation_result.evaluation_run_name,
+                    "evaluation_config_path": str(
+                        gnn_evaluation_result.evaluation_config_path
+                    ),
+                    "predictions_path": str(gnn_evaluation_result.predictions_path),
+                },
+                "inference": {
+                    "name": llm_inference_run.inference_run_name,
+                    "inference_config_path": str(
+                        llm_inference_run.inference_config_path
+                    ),
+                    "answers_path": str(llm_inference_run.answers_path),
+                    "reasoning_path": str(llm_inference_run.reasoning_path),
+                },
             },
         )
         storage_result = self._save_results_run(
@@ -654,16 +671,19 @@ class FinalResultsEvaluationService(AbstractService):
     @classmethod
     def _build_gnn_id(cls, model_config_path: Path) -> str:
         if not model_config_path.exists():
-            legacy_config_path = model_config_path.with_name(
-                "gnn_answer_retriever_config.json"
-            )
-            if legacy_config_path.exists():
-                model_config_path = legacy_config_path
+            for legacy_filename in ["model.config", "gnn_answer_retriever_config.json"]:
+                legacy_config_path = model_config_path.with_name(legacy_filename)
+                if legacy_config_path.exists():
+                    model_config_path = legacy_config_path
+                    break
         if model_config_path.exists():
             try:
                 model_config = cls._load_json_object(model_config_path)
-                layers = model_config.get("gnn_layer_count")
-                hidden = model_config.get("hidden_dimension")
+                training_config = model_config.get("training", {})
+                if not isinstance(training_config, dict):
+                    training_config = {}
+                layers = training_config.get("gnn_layer_count") or model_config.get("gnn_layer_count")
+                hidden = training_config.get("hidden_dimension") or model_config.get("hidden_dimension")
                 if isinstance(layers, int) and isinstance(hidden, int):
                     return f"{layers}-{hidden}-gnn"
             except FinalResultsEvaluationException:

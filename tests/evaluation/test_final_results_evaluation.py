@@ -229,10 +229,12 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     _write_json(inference_config_path, {"model_id": "test-model"})
     model_run_directory = tmp_path / "models" / "1_model"
     _write_json(
-        model_run_directory / "model.config",
+        model_run_directory / "model_config.json",
         {
-            "gnn_layer_count": 2,
-            "hidden_dimension": 128,
+            "training": {
+                "gnn_layer_count": 2,
+                "hidden_dimension": 128,
+            },
         },
     )
     _write_jsonl(
@@ -342,7 +344,12 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     assert "evaluation_run_directory" not in results_config
     assert "inference_run_directory" not in results_config
     assert "model_config_path" in results_config["configs"]
-    assert "answers_path" in results_config["artifacts"]
+    assert results_config["artifacts"]["training"]["name"] == "1_model"
+    assert "model_config_path" in results_config["artifacts"]["training"]
+    assert results_config["artifacts"]["evaluation"]["name"] == "1_eval"
+    assert "predictions_path" in results_config["artifacts"]["evaluation"]
+    assert results_config["artifacts"]["inference"]["name"] == "1_inference"
+    assert "answers_path" in results_config["artifacts"]["inference"]
     retrieval_metrics = json.loads(
         outcome.storage_result.retrieval_metrics_path.read_text()
     )

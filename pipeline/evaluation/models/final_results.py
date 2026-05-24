@@ -19,7 +19,7 @@ class FinalResultsConfig(BaseModel):
     run_name: str | None = Field(default=None, description="Created results run name.")
     run_number: int | None = Field(default=None, description="Created results run number.")
     configs: dict[str, Path] = Field(default_factory=dict)
-    artifacts: dict[str, str] = Field(default_factory=dict)
+    artifacts: dict[str, Any] = Field(default_factory=dict)
 
 
 class FinalAnswerMetrics(BaseModel):

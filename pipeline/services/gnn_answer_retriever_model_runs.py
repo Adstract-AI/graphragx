@@ -30,6 +30,9 @@ class SavedGnnAnswerRetrieverTrainingConfig(BaseModel):
     max_instances: int | None = None
     log_every: int
     device: str
+    gnn_layer_count: int | None = None
+    hidden_dimension: int | None = None
+    loss_function: str | None = None
 
 
 class SavedGnnAnswerRetrieverConfig(BaseModel):
@@ -40,16 +43,23 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
     entity_embedding_dimension: int
-    hidden_dimension: int
-    gnn_layer_count: int
+    hidden_dimension: int | None = None
+    gnn_layer_count: int | None = None
     node_classifier: str
     training: SavedGnnAnswerRetrieverTrainingConfig
     run_name: str | None = None
     run_number: int | None = None
-    loss_function: str | None = None
     loss_history: list[dict[str, float | int]] = Field(default_factory=list)
     final_loss: float
     trained_instances: int
+
+    @property
+    def resolved_hidden_dimension(self) -> int:
+        return self.hidden_dimension or self.training.hidden_dimension or 0
+
+    @property
+    def resolved_gnn_layer_count(self) -> int:
+        return self.gnn_layer_count or self.training.gnn_layer_count or 0
 
 
 class SavedGnnAnswerRetrieverRun(BaseModel):
@@ -137,8 +147,8 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
 
         model = GnnAnswerRetriever(
             entity_embedding_dimension=saved_run.config.entity_embedding_dimension,
-            hidden_dimension=saved_run.config.hidden_dimension,
-            gnn_layer_count=saved_run.config.gnn_layer_count,
+            hidden_dimension=saved_run.config.resolved_hidden_dimension,
+            gnn_layer_count=saved_run.config.resolved_gnn_layer_count,
             node_classifier=saved_run.config.node_classifier,
         )
         try:

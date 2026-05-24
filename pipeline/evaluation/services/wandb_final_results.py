@@ -241,7 +241,6 @@ class WandbFinalResultsLoggingService(AbstractService):
         """Build curated run-summary metrics for WandB history plots."""
         run_summary_keys = {
             "retrieval_hits_at_1": "retrieval_hits_at_1",
-            "retrieval_hits_at_5": "retrieval_hits_at_5",
             "retrieval_hits_at_10": "retrieval_hits_at_10",
             "answer_hit_rate": "answer_hit_rate",
             "answer_f1": "answer_f1",
@@ -433,6 +432,13 @@ class WandbFinalResultsLoggingService(AbstractService):
         artifacts = results_config.get("artifacts")
         if isinstance(artifacts, dict) and isinstance(artifacts.get(key), str):
             return artifacts[key]
+        if isinstance(artifacts, dict):
+            for stage_artifacts in artifacts.values():
+                if (
+                    isinstance(stage_artifacts, dict)
+                    and isinstance(stage_artifacts.get(key), str)
+                ):
+                    return stage_artifacts[key]
         value = results_config.get(key)
         return value if isinstance(value, str) else None
 
@@ -449,7 +455,11 @@ class WandbFinalResultsLoggingService(AbstractService):
 
         model_run_directory = results_config.get("model_run_directory")
         if isinstance(model_run_directory, str):
-            for filename in ["model.config", "gnn_answer_retriever_config.json"]:
+            for filename in [
+                "model_config.json",
+                "model.config",
+                "gnn_answer_retriever_config.json",
+            ]:
                 model_config_path = Path(model_run_directory) / filename
                 if model_config_path.exists():
                     return self._load_json_object(model_config_path)
@@ -478,6 +488,10 @@ class WandbFinalResultsLoggingService(AbstractService):
                 for key, value in collection.items():
                     if isinstance(value, str):
                         paths[key] = value
+                    elif isinstance(value, dict):
+                        for nested_key, nested_value in value.items():
+                            if isinstance(nested_value, str):
+                                paths[f"{key}_{nested_key}"] = nested_value
         for key in sorted(path_keys):
             value = results_config.get(key)
             if isinstance(value, str):

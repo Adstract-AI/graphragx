@@ -41,19 +41,22 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
     for path in [reasoning_path, predictions_path]:
         _write_json(path, {"source": path.name})
     _write_json(
-        model_run_dir / "model.config",
+        model_run_dir / "model_config.json",
         {
             "dataset_id": "webqsp",
             "run_name": "7_model",
             "run_number": 7,
-            "gnn_layer_count": 2,
-            "hidden_dimension": 256,
-            "loss_function": "BCEWithLogitsLoss",
             "loss_history": [
                 {"epoch": 1, "average_loss": 0.8},
                 {"epoch": 2, "average_loss": 0.4},
             ],
-            "training": {"epochs": 3, "learning_rate": 0.001},
+            "training": {
+                "epochs": 3,
+                "learning_rate": 0.001,
+                "gnn_layer_count": 2,
+                "hidden_dimension": 256,
+                "loss_function": "BCEWithLogitsLoss",
+            },
         },
     )
     _write_json(
@@ -67,7 +70,7 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             "model_config": {
                 "model_run_name": "7_model",
                 "model_run_number": 7,
-                "full_config_path": str(model_run_dir / "model.config"),
+                "full_config_path": str(model_run_dir / "model_config.json"),
                 "weights_path": str(model_run_dir / "gnn_answer_retriever.pt"),
             },
             "evaluation": {"candidate_limit": 15},
@@ -114,18 +117,28 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             "run_name": "1_test",
             "run_number": 1,
             "configs": {
-                "model_config_path": str(model_run_dir / "model.config"),
+                "model_config_path": str(model_run_dir / "model_config.json"),
                 "evaluation_config_path": str(evaluation_config_path),
                 "inference_config_path": str(inference_config_path),
                 "results_config_path": str(results_config_path),
             },
             "artifacts": {
-                "model_run_name": "7_model",
-                "evaluation_run_name": "1_eval",
-                "inference_run_name": "1_inference",
-                "answers_path": str(answers_path),
-                "reasoning_path": str(reasoning_path),
-                "predictions_path": str(predictions_path),
+                "training": {
+                    "name": "7_model",
+                    "model_config_path": str(model_run_dir / "model_config.json"),
+                    "weights_path": str(model_run_dir / "gnn_answer_retriever.pt"),
+                },
+                "evaluation": {
+                    "name": "1_eval",
+                    "evaluation_config_path": str(evaluation_config_path),
+                    "predictions_path": str(predictions_path),
+                },
+                "inference": {
+                    "name": "1_inference",
+                    "inference_config_path": str(inference_config_path),
+                    "answers_path": str(answers_path),
+                    "reasoning_path": str(reasoning_path),
+                },
             },
         },
     )
@@ -232,7 +245,7 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert summary_plot_metrics["Summary_Plots/answer_f1"] == 2 / 3
     assert summary_plot_metrics["Summary_Plots/retrieval_hits_at_1"] == 0.5
     assert run_summary_metrics["Run_Summary/retrieval_hits_at_1"] == 0.5
-    assert run_summary_metrics["Run_Summary/retrieval_hits_at_5"] == 1.0
+    assert "Run_Summary/retrieval_hits_at_5" not in run_summary_metrics
     assert run_summary_metrics["Run_Summary/retrieval_hits_at_10"] == 1.0
     assert run_summary_metrics["Run_Summary/answer_hit_rate"] == 0.5
     assert run_summary_metrics["Run_Summary/answer_f1"] == 2 / 3
@@ -251,7 +264,10 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert wandb_config["runs"]["model"]["number"] == 7
     assert wandb_config["evaluation_run_number"] == 1
     assert wandb_config["configs"]["model"]["training"]["epochs"] == 3
-    assert wandb_config["configs"]["model"]["loss_function"] == "BCEWithLogitsLoss"
+    assert (
+        wandb_config["configs"]["model"]["training"]["loss_function"]
+        == "BCEWithLogitsLoss"
+    )
     assert wandb_config["configs"]["evaluation"]["candidate_limit"] == 15
     assert wandb_config["configs"]["inference"]["total_requests"] == 1
     loss_points = service.build_training_loss_points(wandb_config["configs"]["model"])
@@ -338,7 +354,7 @@ def test_wandb_logging_success_with_fake_module(
     assert "model_run_number:7" in captured["init"]["tags"]
     run_summary_payload = captured["logs"][0]["payload"]
     assert run_summary_payload["Run_Summary/retrieval_hits_at_1"] == 0.5
-    assert run_summary_payload["Run_Summary/retrieval_hits_at_5"] == 1.0
+    assert "Run_Summary/retrieval_hits_at_5" not in run_summary_payload
     assert run_summary_payload["Run_Summary/retrieval_hits_at_10"] == 1.0
     assert run_summary_payload["Run_Summary/answer_hit_rate"] == 0.5
     assert run_summary_payload["Run_Summary/answer_f1"] == 2 / 3

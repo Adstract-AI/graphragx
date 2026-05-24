@@ -394,6 +394,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         model_run_number = self._extract_run_number(model_run_name)
         training_payload = training_config.model_dump(exclude={"run_name"})
         training_payload["device"] = selected_device
+        training_payload["gnn_layer_count"] = built_retriever.gnn_layer_count
+        training_payload["hidden_dimension"] = built_retriever.hidden_dimension
+        training_payload["loss_function"] = "BCEWithLogitsLoss"
         torch.save(model.state_dict(), model_artifact_path)
         model_config_path.write_text(
             json.dumps(
@@ -405,11 +408,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     "question_embedding_model": configuration.question_embedding_model,
                     "relation_embedding_model": configuration.relation_embedding_model,
                     "entity_embedding_dimension": built_retriever.entity_embedding_dimension,
-                    "hidden_dimension": built_retriever.hidden_dimension,
-                    "gnn_layer_count": built_retriever.gnn_layer_count,
                     "node_classifier": built_retriever.node_classifier,
                     "training": training_payload,
-                    "loss_function": "BCEWithLogitsLoss",
                     "loss_history": loss_history,
                     "final_loss": final_loss,
                     "trained_instances": trained_instances,

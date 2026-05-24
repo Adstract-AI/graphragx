@@ -36,6 +36,35 @@ from pipeline.preparation.helpers.configuration_definitions import (
     SubgraphConstructionDefinition,
     SUBGRAPH_CONSTRUCTION_ALGORITHMS,
 )
+from pipeline.preparation.models import (
+    PreparedWebQSPGraphDataset,
+    WebQSPEntityMappingSummary,
+    WebQSPProcessedInstance,
+    WebQSPVocabularyStore
+)
+
+from pipeline.preparation.steps.configuration_building import (
+    BuildPipelineConfigurationStep,
+    BuiltPipelineConfiguration,
+    PipelineConfigurationInput
+)
+
+from pipeline.preparation.steps.dataset_loading import LoadedDataset, LoadDatasetStep
+
+from pipeline.preparation.steps.dataset_selection import SelectedDataset, SelectDatasetStep
+
+from pipeline.preparation.steps.gnn_answer_retriever_training import (
+    TrainedGnnAnswerRetriever,
+    TrainGnnAnswerRetrieverContext,
+    TrainGnnAnswerRetrieverStep
+)
+from pipeline.preparation.steps.gnn_model_building import (
+    BuildGnnAnswerRetrieverContext,
+    BuildGnnAnswerRetrieverStep,
+    BuiltGnnAnswerRetriever
+)
+
+from pipeline.preparation.steps.webqsp_local_graph_preparation import BuildWebQSPLocalGraphsStep
 
 _LAZY_EXPORT_MODULES: dict[str, str] = {
     "BuildPipelineConfigurationStep": "pipeline.preparation.steps.configuration_building",
@@ -70,6 +99,7 @@ def __getattr__(name: str) -> Any:
     value = getattr(import_module(module_name), name)
     globals()[name] = value
     return value
+
 
 __all__ = [
     "BuildGnnAnswerRetrieverContext",
