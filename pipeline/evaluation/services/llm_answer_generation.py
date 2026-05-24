@@ -15,6 +15,15 @@ from pipeline.services.abstract import AbstractService
 class LangChainOpenAiAnswerGenerationService(AbstractService):
     """Generate final QA answers with a simple OpenAI chat model."""
 
+    # USD per 1M tokens. Unknown models fall back to 0-cost accounting.
+    model_token_prices = {
+        "gpt-4.1": {"input": 2.0, "output": 8.0},
+        "gpt-4.1-mini": {"input": 0.4, "output": 1.6},
+        "gpt-4.1-nano": {"input": 0.1, "output": 0.4},
+        "gpt-4o": {"input": 2.5, "output": 10.0},
+        "gpt-4o-mini": {"input": 0.15, "output": 0.6},
+    }
+
     system_prompt = (
         "You answer questions using only the provided reasoning paths. "
         "Return only valid JSON with the keys answer and explanation. "
@@ -74,12 +83,75 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
 
         raw_response = self.extract_response_content(response.content).strip()
         parsed_response = self.parse_json_response(raw_response)
+        usage = self.extract_token_usage(response)
+        estimated_cost = self.estimate_cost_usd(
+            model_id=model_id,
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+        )
         return {
             "answer": parsed_response["answer"],
             "explanation": parsed_response["explanation"],
             "raw_response": raw_response,
             "prompt": prompt,
+            "prompt_tokens": usage["prompt_tokens"],
+            "completion_tokens": usage["completion_tokens"],
+            "total_tokens": usage["total_tokens"],
+            "estimated_cost_usd": estimated_cost,
         }
+
+    @classmethod
+    def extract_token_usage(cls, response: Any) -> dict[str, int]:
+        """Extract token counts from LangChain/OpenAI response metadata."""
+        usage_metadata = getattr(response, "usage_metadata", None)
+        if isinstance(usage_metadata, dict):
+            input_tokens = cls._int_value(usage_metadata.get("input_tokens"))
+            output_tokens = cls._int_value(usage_metadata.get("output_tokens"))
+            total_tokens = cls._int_value(usage_metadata.get("total_tokens"))
+            return {
+                "prompt_tokens": input_tokens,
+                "completion_tokens": output_tokens,
+                "total_tokens": total_tokens or input_tokens + output_tokens,
+            }
+
+        response_metadata = getattr(response, "response_metadata", None)
+        token_usage = {}
+        if isinstance(response_metadata, dict):
+            raw_token_usage = response_metadata.get("token_usage", {})
+            if isinstance(raw_token_usage, dict):
+                token_usage = raw_token_usage
+
+        prompt_tokens = cls._int_value(token_usage.get("prompt_tokens"))
+        completion_tokens = cls._int_value(token_usage.get("completion_tokens"))
+        total_tokens = cls._int_value(token_usage.get("total_tokens"))
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens or prompt_tokens + completion_tokens,
+        }
+
+    @classmethod
+    def estimate_cost_usd(
+        cls,
+        model_id: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> float:
+        prices = cls.model_token_prices.get(model_id)
+        if prices is None:
+            return 0.0
+        return round(
+            (
+                (prompt_tokens * prices["input"])
+                + (completion_tokens * prices["output"])
+            )
+            / 1_000_000,
+            8,
+        )
+
+    @staticmethod
+    def _int_value(value: Any) -> int:
+        return value if isinstance(value, int) else 0
 
     @staticmethod
     def build_prompt(question: str, reasoning_paths_text: str) -> str:

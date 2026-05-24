@@ -51,8 +51,6 @@ class GnnAnswerRetrieverEvaluationOutcome(BaseModel):
     evaluated_instances: int = Field(..., description="Number of evaluated instances.")
     hits_at_1: float = Field(..., description="Hits@1 rate.")
     hits_at_1_count: int = Field(..., description="Hits@1 count.")
-    hit_at_k: float = Field(..., description="Deprecated alias for Hits@10 rate.")
-    hit_at_k_count: int = Field(..., description="Deprecated alias for Hits@10 count.")
     hits_at_5: float = Field(..., description="Hits@5 rate.")
     hits_at_5_count: int = Field(..., description="Hits@5 count.")
     hits_at_10: float = Field(..., description="Hits@10 rate.")
@@ -152,7 +150,6 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
 
         predictions: list[EvaluatedAnswerRetrievalInstance] = []
         hits_at_1_count = 0
-        hit_at_k_count = 0
         hits_at_5_count = 0
         hits_at_10_count = 0
         missing_gold_in_graph_count = 0
@@ -194,7 +191,6 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 )
                 predictions.append(prediction)
                 hits_at_1_count += int(prediction.hit_at_1)
-                hit_at_k_count += int(prediction.hit_at_k)
                 hits_at_5_count += int(prediction.hit_at_5)
                 hits_at_10_count += int(prediction.hit_at_10)
                 missing_gold_in_graph_count += int(prediction.missing_gold_in_graph)
@@ -202,7 +198,6 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
 
         evaluated_instances = len(predictions)
         hits_at_1 = hits_at_1_count / evaluated_instances
-        hit_at_k = hit_at_k_count / evaluated_instances
         hits_at_5 = hits_at_5_count / evaluated_instances
         hits_at_10 = hits_at_10_count / evaluated_instances
         average_candidate_count = total_candidate_count / evaluated_instances
@@ -232,8 +227,6 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             evaluated_instances=evaluated_instances,
             hits_at_1=hits_at_1,
             hits_at_1_count=hits_at_1_count,
-            hit_at_k=hit_at_k,
-            hit_at_k_count=hit_at_k_count,
             hits_at_5=hits_at_5,
             hits_at_5_count=hits_at_5_count,
             hits_at_10=hits_at_10,
@@ -416,7 +409,6 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         hit_at_1 = instance.nodes[top_node_id] in gold_answers
         hit_at_5 = any(candidate.is_gold_answer for candidate in answer_candidates[:5])
         hit_at_10 = any(candidate.is_gold_answer for candidate in answer_candidates[:10])
-        hit_at_k = hit_at_10
         missing_gold_in_graph = not any(score.present_in_graph for score in gold_answer_scores)
 
         return EvaluatedAnswerRetrievalInstance(
@@ -427,7 +419,6 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             answer_candidates=answer_candidates,
             gold_answer_scores=gold_answer_scores,
             hit_at_1=hit_at_1,
-            hit_at_k=hit_at_k,
             hit_at_5=hit_at_5,
             hit_at_10=hit_at_10,
             missing_gold_in_graph=missing_gold_in_graph,
@@ -468,16 +459,17 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         pipeline_configuration: BuiltPipelineConfiguration,
         device: str,
     ) -> dict:
+        evaluation_payload = evaluation_config.model_dump(mode="json")
+        requested_run_name = evaluation_payload.pop("run_name", None)
         return {
             "dataset_id": pipeline_configuration.dataset_id,
+            "run_name": requested_run_name,
             "selected_device": device,
-            "model_run": {
-                "name": loaded_model_run.run_name,
-                "number": loaded_model_run.run_number,
-                "directory": str(loaded_model_run.run_directory),
-                "config_path": str(loaded_model_run.config_path),
+            "model_config": {
+                "model_run_name": loaded_model_run.run_name,
+                "model_run_number": loaded_model_run.run_number,
+                "full_config_path": str(loaded_model_run.config_path),
                 "weights_path": str(loaded_model_run.weights_path),
             },
-            "model_configuration": loaded_model_run.config.model_dump(mode="json"),
-            "evaluation": evaluation_config.model_dump(mode="json"),
+            "evaluation": evaluation_payload,
         }

@@ -85,6 +85,10 @@ class GeneratedAnswerForPrediction(BaseModel):
         description="Explanation of which reasoning paths supported the answer.",
     )
     raw_response: str = Field(default="", description="Raw LLM response text.")
+    prompt_tokens: int = Field(default=0, description="Prompt/input tokens used.")
+    completion_tokens: int = Field(default=0, description="Completion/output tokens used.")
+    total_tokens: int = Field(default=0, description="Total tokens used.")
+    estimated_cost_usd: float = Field(default=0.0, description="Estimated generation cost.")
     error_message: str | None = Field(
         default=None,
         description="Generation error when this instance failed.",

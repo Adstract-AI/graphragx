@@ -54,7 +54,8 @@ def _prediction(candidates: list[AnswerCandidateScore]) -> EvaluatedAnswerRetrie
         answer_candidates=candidates,
         gold_answer_scores=[],
         hit_at_1=bool(candidates and candidates[0].is_gold_answer),
-        hit_at_k=any(candidate.is_gold_answer for candidate in candidates),
+        hit_at_5=any(candidate.is_gold_answer for candidate in candidates[:5]),
+        hit_at_10=any(candidate.is_gold_answer for candidate in candidates[:10]),
         missing_gold_in_graph=not any(candidate.is_gold_answer for candidate in candidates),
     )
 
@@ -203,7 +204,8 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
             ],
             "gold_answer_scores": [],
             "hit_at_1": True,
-            "hit_at_k": True,
+            "hit_at_5": True,
+            "hit_at_10": True,
             "missing_gold_in_graph": False,
         },
         {
@@ -217,13 +219,22 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
             ],
             "gold_answer_scores": [],
             "hit_at_1": False,
-            "hit_at_k": True,
+            "hit_at_5": True,
+            "hit_at_10": True,
             "missing_gold_in_graph": False,
         },
     ]
     _write_jsonl(predictions_path, prediction_rows)
     _write_json(evaluation_config_path, {"evaluation": {"candidate_limit": 5}})
     _write_json(inference_config_path, {"model_id": "test-model"})
+    model_run_directory = tmp_path / "models" / "1_model"
+    _write_json(
+        model_run_directory / "model.config",
+        {
+            "gnn_layer_count": 2,
+            "hidden_dimension": 128,
+        },
+    )
     _write_jsonl(
         answers_path,
         [
@@ -278,7 +289,7 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     )
     gnn_result = GnnAnswerRetrieverEvaluationResult(
         dataset_id="webqsp",
-        model_run_directory=tmp_path / "models" / "1_model",
+        model_run_directory=model_run_directory,
         model_run_name="1_model",
         model_run_number=1,
         evaluation_run_directory=evaluation_dir,
@@ -287,8 +298,10 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
         evaluated_instances=2,
         hits_at_1=0.5,
         hits_at_1_count=1,
-        hit_at_k=1.0,
-        hit_at_k_count=2,
+        hits_at_5=1.0,
+        hits_at_5_count=2,
+        hits_at_10=1.0,
+        hits_at_10_count=2,
         average_candidate_count=2,
         missing_gold_in_graph_count=0,
         predictions_path=predictions_path,
@@ -320,6 +333,16 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     assert outcome.storage_result.reasoning_metrics_path.exists()
     assert outcome.storage_result.per_instance_results_path.exists()
     assert not (evaluation_dir / "summary_metrics.json").exists()
+    results_config = json.loads(outcome.storage_result.results_config_path.read_text())
+    assert results_config["dataset_id"] == "webqsp"
+    assert results_config["model_id"] == "test-model"
+    assert results_config["gnn_id"] == "2-128-gnn"
+    assert results_config["run_number"] == outcome.storage_result.results_run_number
+    assert "model_run_directory" not in results_config
+    assert "evaluation_run_directory" not in results_config
+    assert "inference_run_directory" not in results_config
+    assert "model_config_path" in results_config["configs"]
+    assert "answers_path" in results_config["artifacts"]
     retrieval_metrics = json.loads(
         outcome.storage_result.retrieval_metrics_path.read_text()
     )

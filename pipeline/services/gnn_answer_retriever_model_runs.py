@@ -30,7 +30,6 @@ class SavedGnnAnswerRetrieverTrainingConfig(BaseModel):
     max_instances: int | None = None
     log_every: int
     device: str
-    run_name: str | None = None
 
 
 class SavedGnnAnswerRetrieverConfig(BaseModel):
@@ -45,6 +44,8 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     gnn_layer_count: int
     node_classifier: str
     training: SavedGnnAnswerRetrieverTrainingConfig
+    run_name: str | None = None
+    run_number: int | None = None
     loss_function: str | None = None
     loss_history: list[dict[str, float | int]] = Field(default_factory=list)
     final_loss: float
@@ -83,6 +84,7 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
 
     weights_filename = GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME
     config_filename = GNN_ANSWER_RETRIEVER_CONFIG_FILENAME
+    legacy_config_filename = "gnn_answer_retriever_config.json"
 
     def resolve_run(
         self,
@@ -240,6 +242,10 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
     def _build_saved_run(self, run_directory: Path) -> SavedGnnAnswerRetrieverRun:
         weights_path = run_directory / self.weights_filename
         config_path = run_directory / self.config_filename
+        if not config_path.exists():
+            legacy_config_path = run_directory / self.legacy_config_filename
+            if legacy_config_path.exists():
+                config_path = legacy_config_path
         if not weights_path.exists():
             raise GnnAnswerRetrieverModelRunException(
                 f"Selected model run is missing weights: {weights_path}"

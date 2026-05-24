@@ -14,27 +14,12 @@ class FinalResultsConfig(BaseModel):
     """Source artifact paths and run metadata for one final results run."""
 
     dataset_id: str = Field(..., description="Evaluated dataset identifier.")
-    evaluation_run_name: str = Field(..., description="Source GNN evaluation run name.")
-    inference_run_name: str = Field(..., description="Source LLM inference run name.")
-    model_run_name: str = Field(..., description="Source GNN model run name.")
     model_id: str = Field(..., description="LLM model used for answer generation.")
-    model_run_directory: Path = Field(..., description="Source GNN model run path.")
-    evaluation_run_directory: Path = Field(
-        ...,
-        description="Source GNN evaluation run path.",
-    )
-    inference_run_directory: Path = Field(
-        ...,
-        description="Source LLM inference run path.",
-    )
-    predictions_path: Path = Field(..., description="Source GNN predictions path.")
-    evaluation_config_path: Path = Field(
-        ...,
-        description="Source GNN evaluation config path.",
-    )
-    answers_path: Path = Field(..., description="Source LLM answers path.")
-    reasoning_path: Path = Field(..., description="Source reasoning subgraph path.")
-    inference_config_path: Path = Field(..., description="Source inference config path.")
+    gnn_id: str = Field(..., description="Compact GNN architecture id.")
+    run_name: str | None = Field(default=None, description="Created results run name.")
+    run_number: int | None = Field(default=None, description="Created results run number.")
+    configs: dict[str, Path] = Field(default_factory=dict)
+    artifacts: dict[str, str] = Field(default_factory=dict)
 
 
 class FinalAnswerMetrics(BaseModel):

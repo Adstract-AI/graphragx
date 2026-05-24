@@ -41,9 +41,11 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
     for path in [reasoning_path, predictions_path]:
         _write_json(path, {"source": path.name})
     _write_json(
-        model_run_dir / "gnn_answer_retriever_config.json",
+        model_run_dir / "model.config",
         {
             "dataset_id": "webqsp",
+            "run_name": "7_model",
+            "run_number": 7,
             "gnn_layer_count": 2,
             "hidden_dimension": 256,
             "loss_function": "BCEWithLogitsLoss",
@@ -57,19 +59,39 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
     _write_json(
         evaluation_config_path,
         {
+            "dataset_id": "webqsp",
+            "run_name": "1_eval",
+            "run_number": 1,
+            "evaluated_instances": 1,
             "selected_device": "cpu",
-            "model_run": {
-                "name": "7_model",
-                "number": 7,
-                "directory": str(model_run_dir),
-            },
-            "model_configuration": {
-                "should_not": "duplicate_when_model_config_file_exists",
+            "model_config": {
+                "model_run_name": "7_model",
+                "model_run_number": 7,
+                "full_config_path": str(model_run_dir / "model.config"),
+                "weights_path": str(model_run_dir / "gnn_answer_retriever.pt"),
             },
             "evaluation": {"candidate_limit": 15},
         },
     )
-    _write_json(inference_config_path, {"model_id": "test-model", "total_instances": 1})
+    _write_json(
+        inference_config_path,
+        {
+            "run_name": "1_inference",
+            "run_number": 1,
+            "evaluation_config": {
+                "evaluation_run_name": "1_eval",
+                "evaluation_run_number": 1,
+                "full_config_path": str(evaluation_config_path),
+                "predictions_path": str(predictions_path),
+            },
+            "inference": {
+                "model_id": "test-model",
+                "total_requests": 1,
+                "total_tokens": 0,
+                "total_cost_usd": 0.0,
+            },
+        },
+    )
     _write_jsonl(
         answers_path,
         [
@@ -88,15 +110,23 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
         {
             "dataset_id": "webqsp",
             "model_id": "test-model",
-            "model_run_name": "7_model",
-            "evaluation_run_name": "1_eval",
-            "inference_run_name": "1_inference",
-            "model_run_directory": str(model_run_dir),
-            "answers_path": str(answers_path),
-            "reasoning_path": str(reasoning_path),
-            "predictions_path": str(predictions_path),
-            "inference_config_path": str(inference_config_path),
-            "evaluation_config_path": str(evaluation_config_path),
+            "gnn_id": "2-256-gnn",
+            "run_name": "1_test",
+            "run_number": 1,
+            "configs": {
+                "model_config_path": str(model_run_dir / "model.config"),
+                "evaluation_config_path": str(evaluation_config_path),
+                "inference_config_path": str(inference_config_path),
+                "results_config_path": str(results_config_path),
+            },
+            "artifacts": {
+                "model_run_name": "7_model",
+                "evaluation_run_name": "1_eval",
+                "inference_run_name": "1_inference",
+                "answers_path": str(answers_path),
+                "reasoning_path": str(reasoning_path),
+                "predictions_path": str(predictions_path),
+            },
         },
     )
     _write_json(
@@ -223,7 +253,7 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert wandb_config["configs"]["model"]["training"]["epochs"] == 3
     assert wandb_config["configs"]["model"]["loss_function"] == "BCEWithLogitsLoss"
     assert wandb_config["configs"]["evaluation"]["candidate_limit"] == 15
-    assert wandb_config["configs"]["inference"]["total_instances"] == 1
+    assert wandb_config["configs"]["inference"]["total_requests"] == 1
     loss_points = service.build_training_loss_points(wandb_config["configs"]["model"])
     assert loss_points == [
         {"epoch": 1, "average_loss": 0.8},

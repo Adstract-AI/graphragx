@@ -332,52 +332,61 @@ class WandbFinalResultsLoggingService(AbstractService):
     ) -> dict[str, Any]:
         """Build one deduplicated WandB config payload for run filtering."""
         evaluation_config = self._load_optional_json_object(
-            results_config.get("evaluation_config_path")
+            self._result_config_path(results_config, "evaluation_config_path")
         )
         inference_config = self._load_optional_json_object(
-            results_config.get("inference_config_path")
+            self._result_config_path(results_config, "inference_config_path")
         )
         model_config = self._load_model_config(
             results_config=results_config,
             evaluation_config=evaluation_config,
         )
-        model_run = evaluation_config.get("model_run", {})
-        if not isinstance(model_run, dict):
-            model_run = {}
+        model_ref = evaluation_config.get("model_config", {})
+        if not isinstance(model_ref, dict):
+            model_ref = {}
+        inference_ref = inference_config.get("evaluation_config", {})
+        if not isinstance(inference_ref, dict):
+            inference_ref = {}
+        inference_payload = inference_config.get("inference", {})
+        if not isinstance(inference_payload, dict):
+            inference_payload = inference_config
+        elif "total_instances" in inference_config and "total_instances" not in inference_payload:
+            inference_payload = {
+                **inference_payload,
+                "total_instances": inference_config["total_instances"],
+            }
 
-        model_run_number = self._int_or_none(
-            model_run.get("number")
-        ) or self._extract_run_number(results_config.get("model_run_name"))
-        evaluation_run_number = self._extract_run_number(
-            results_config.get("evaluation_run_name")
-        )
-        inference_run_number = self._extract_run_number(
-            results_config.get("inference_run_name")
-        )
+        model_run_name = model_ref.get("model_run_name") or results_config.get("model_run_name")
+        model_run_number = self._int_or_none(model_ref.get("model_run_number")) or self._extract_run_number(model_run_name)
+        evaluation_run_name = inference_ref.get("evaluation_run_name") or results_config.get("evaluation_run_name")
+        evaluation_run_number = self._int_or_none(inference_ref.get("evaluation_run_number")) or self._extract_run_number(evaluation_run_name)
+        inference_run_name = inference_config.get("run_name") or results_config.get("inference_run_name")
+        inference_run_number = self._int_or_none(inference_config.get("run_number")) or self._extract_run_number(inference_run_name)
         source_paths = self._build_source_paths(results_config)
         return self._stringify_paths(
             {
                 "dataset_id": results_config.get("dataset_id"),
                 "model_id": results_config.get("model_id"),
-                "model_run_name": results_config.get("model_run_name"),
+                "gnn_id": results_config.get("gnn_id"),
+                "model_run_name": model_run_name,
                 "model_run_number": model_run_number,
-                "evaluation_run_name": results_config.get("evaluation_run_name"),
+                "evaluation_run_name": evaluation_run_name,
                 "evaluation_run_number": evaluation_run_number,
-                "inference_run_name": results_config.get("inference_run_name"),
+                "inference_run_name": inference_run_name,
                 "inference_run_number": inference_run_number,
                 "results_run_name": final_result.results_run_name,
                 "results_run_number": final_result.results_run_number,
                 "runs": {
                     "model": {
-                        "name": results_config.get("model_run_name"),
+                        "name": model_run_name,
                         "number": model_run_number,
                     },
                     "evaluation": {
-                        "name": results_config.get("evaluation_run_name"),
+                        "name": evaluation_run_name,
                         "number": evaluation_run_number,
                     },
                     "inference": {
-                        "name": results_config.get("inference_run_name"),
+                        "name": inference_run_name,
                         "number": inference_run_number,
                     },
                     "results": {
@@ -388,7 +397,7 @@ class WandbFinalResultsLoggingService(AbstractService):
                 "configs": {
                     "model": model_config,
                     "evaluation": evaluation_config.get("evaluation", {}),
-                    "inference": inference_config,
+                    "inference": inference_payload,
                 },
                 "selected_device": evaluation_config.get("selected_device"),
                 "source_paths": source_paths,
@@ -399,7 +408,7 @@ class WandbFinalResultsLoggingService(AbstractService):
         self,
         results_config: dict[str, Any],
     ) -> dict[int, dict[str, Any]]:
-        answers_path = results_config.get("answers_path")
+        answers_path = self._result_artifact_path(results_config, "answers_path")
         if not isinstance(answers_path, str):
             return {}
         path = Path(answers_path)
@@ -411,18 +420,39 @@ class WandbFinalResultsLoggingService(AbstractService):
             if isinstance(row.get("instance_index"), int)
         }
 
+    @staticmethod
+    def _result_config_path(results_config: dict[str, Any], key: str) -> str | None:
+        configs = results_config.get("configs")
+        if isinstance(configs, dict) and isinstance(configs.get(key), str):
+            return configs[key]
+        value = results_config.get(key)
+        return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _result_artifact_path(results_config: dict[str, Any], key: str) -> str | None:
+        artifacts = results_config.get("artifacts")
+        if isinstance(artifacts, dict) and isinstance(artifacts.get(key), str):
+            return artifacts[key]
+        value = results_config.get(key)
+        return value if isinstance(value, str) else None
+
     def _load_model_config(
         self,
         results_config: dict[str, Any],
         evaluation_config: dict[str, Any],
     ) -> dict[str, Any]:
-        model_run_directory = results_config.get("model_run_directory")
-        if isinstance(model_run_directory, str):
-            model_config_path = (
-                Path(model_run_directory) / "gnn_answer_retriever_config.json"
-            )
+        model_config_path_value = self._result_config_path(results_config, "model_config_path")
+        if isinstance(model_config_path_value, str):
+            model_config_path = Path(model_config_path_value)
             if model_config_path.exists():
                 return self._load_json_object(model_config_path)
+
+        model_run_directory = results_config.get("model_run_directory")
+        if isinstance(model_run_directory, str):
+            for filename in ["model.config", "gnn_answer_retriever_config.json"]:
+                model_config_path = Path(model_run_directory) / filename
+                if model_config_path.exists():
+                    return self._load_json_object(model_config_path)
 
         model_configuration = evaluation_config.get("model_configuration")
         if isinstance(model_configuration, dict):
@@ -442,6 +472,12 @@ class WandbFinalResultsLoggingService(AbstractService):
             "predictions_path",
         }
         paths: dict[str, str] = {}
+        for collection_key in ["configs", "artifacts"]:
+            collection = results_config.get(collection_key)
+            if isinstance(collection, dict):
+                for key, value in collection.items():
+                    if isinstance(value, str):
+                        paths[key] = value
         for key in sorted(path_keys):
             value = results_config.get(key)
             if isinstance(value, str):
@@ -461,10 +497,21 @@ class WandbFinalResultsLoggingService(AbstractService):
             value = results_config.get(key)
             if value:
                 tags.append(str(value))
-        evaluation_config_path = results_config.get("evaluation_config_path")
+        if results_config.get("gnn_id"):
+            tags.append(str(results_config["gnn_id"]))
+        evaluation_config_path = cls._result_config_path(
+            results_config,
+            "evaluation_config_path",
+        )
         if isinstance(evaluation_config_path, str):
             try:
                 evaluation_config = cls._load_json_object(Path(evaluation_config_path))
+                model_config = evaluation_config.get("model_config", {})
+                if (
+                    isinstance(model_config, dict)
+                    and model_config.get("model_run_number") is not None
+                ):
+                    tags.append(f"model_run_number:{model_config['model_run_number']}")
                 model_run = evaluation_config.get("model_run", {})
                 if isinstance(model_run, dict) and model_run.get("number") is not None:
                     tags.append(f"model_run_number:{model_run['number']}")
@@ -483,10 +530,7 @@ class WandbFinalResultsLoggingService(AbstractService):
             if path.is_file():
                 artifact.add_file(str(path), name=f"results/{path.name}")
 
-        for key in sorted(cls.source_path_keys):
-            value = results_config.get(key)
-            if not isinstance(value, str):
-                continue
+        for value in cls._build_source_paths(results_config).values():
             path = Path(value)
             if path.exists() and path.is_file():
                 artifact.add_file(str(path), name=f"sources/{path.name}")

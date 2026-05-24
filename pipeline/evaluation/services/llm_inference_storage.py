@@ -151,7 +151,7 @@ class LlmInferenceStorageService(AbstractService):
         try:
             run.inference_config_path.write_text(
                 json.dumps(
-                    self._build_summary(LlmInferenceStoragePayload(answers=answers)),
+                    self._build_summary(run, LlmInferenceStoragePayload(answers=answers)),
                     indent=2,
                     sort_keys=True,
                 ),
@@ -248,19 +248,59 @@ class LlmInferenceStorageService(AbstractService):
                 "answer": item.answer,
                 "explanation": item.explanation,
                 "raw_response": item.raw_response,
+                "prompt_tokens": item.prompt_tokens,
+                "completion_tokens": item.completion_tokens,
+                "total_tokens": item.total_tokens,
+                "estimated_cost_usd": item.estimated_cost_usd,
                 "error_message": item.error_message,
             }
             for item in payload.answers.items
         ]
 
-    @staticmethod
-    def _build_summary(payload: LlmInferenceStoragePayload) -> dict[str, Any]:
+    @classmethod
+    def _build_summary(
+        cls,
+        run: CreatedLlmInferenceRun,
+        payload: LlmInferenceStoragePayload,
+    ) -> dict[str, Any]:
         answers = payload.answers
+        evaluation_run_directory = (
+            run.inference_run_directory.parent.parent
+            / "evaluations"
+            / answers.evaluation_run_name
+        )
+        total_prompt_tokens = sum(item.prompt_tokens for item in answers.items)
+        total_completion_tokens = sum(
+            item.completion_tokens for item in answers.items
+        )
+        total_tokens = sum(item.total_tokens for item in answers.items)
+        total_cost = sum(item.estimated_cost_usd for item in answers.items)
         return {
             "dataset_id": answers.dataset_id,
-            "evaluation_run_name": answers.evaluation_run_name,
-            "model_id": answers.model_id,
-            "total_instances": len(answers.items),
+            "run_name": run.inference_run_name,
+            "run_number": run.inference_run_number,
+            "evaluation_config": {
+                "evaluation_run_name": answers.evaluation_run_name,
+                "evaluation_run_number": cls._extract_run_number(
+                    answers.evaluation_run_name
+                ),
+                "full_config_path": str(
+                    evaluation_run_directory
+                    / "evaluation_config.json"
+                ),
+                "predictions_path": str(
+                    evaluation_run_directory
+                    / "predictions.jsonl"
+                ),
+            },
+            "inference": {
+                "model_id": answers.model_id,
+                "total_requests": len(answers.items),
+                "total_prompt_tokens": total_prompt_tokens,
+                "total_completion_tokens": total_completion_tokens,
+                "total_tokens": total_tokens,
+                "total_cost_usd": round(total_cost, 8),
+            },
             "successful_answers": answers.successful_answers,
             "failed_answers": answers.failed_answers,
         }

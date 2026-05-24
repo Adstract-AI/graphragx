@@ -116,20 +116,27 @@ class FinalResultsEvaluationService(AbstractService):
             per_instance_results=per_instance_results,
             candidate_limit=candidate_limit,
         )
+        model_config_path = (
+            gnn_evaluation_result.model_run_directory / "model.config"
+        )
+        gnn_id = self._build_gnn_id(model_config_path)
         results_config = FinalResultsConfig(
             dataset_id=llm_inference_run.dataset_id,
-            evaluation_run_name=gnn_evaluation_result.evaluation_run_name,
-            inference_run_name=llm_inference_run.inference_run_name,
-            model_run_name=gnn_evaluation_result.model_run_name,
             model_id=llm_inference_run.model_id,
-            model_run_directory=gnn_evaluation_result.model_run_directory,
-            evaluation_run_directory=gnn_evaluation_result.evaluation_run_directory,
-            inference_run_directory=llm_inference_run.inference_run_directory,
-            predictions_path=gnn_evaluation_result.predictions_path,
-            evaluation_config_path=gnn_evaluation_result.evaluation_config_path,
-            answers_path=llm_inference_run.answers_path,
-            reasoning_path=llm_inference_run.reasoning_path,
-            inference_config_path=llm_inference_run.inference_config_path,
+            gnn_id=gnn_id,
+            configs={
+                "model_config_path": model_config_path,
+                "evaluation_config_path": gnn_evaluation_result.evaluation_config_path,
+                "inference_config_path": llm_inference_run.inference_config_path,
+            },
+            artifacts={
+                "model_run_name": gnn_evaluation_result.model_run_name,
+                "evaluation_run_name": gnn_evaluation_result.evaluation_run_name,
+                "inference_run_name": llm_inference_run.inference_run_name,
+                "predictions_path": str(gnn_evaluation_result.predictions_path),
+                "answers_path": str(llm_inference_run.answers_path),
+                "reasoning_path": str(llm_inference_run.reasoning_path),
+            },
         )
         storage_result = self._save_results_run(
             results_root=llm_inference_run.inference_run_directory.parent.parent / "results",
@@ -154,12 +161,12 @@ class FinalResultsEvaluationService(AbstractService):
         hits_at_5_count = sum(
             1
             for prediction in predictions
-            if FinalResultsEvaluationService._retrieval_hit_at_k(prediction, 5)
+            if FinalResultsEvaluationService._retrieval_hits_at_k(prediction, 5)
         )
         hits_at_10_count = sum(
             1
             for prediction in predictions
-            if FinalResultsEvaluationService._retrieval_hit_at_k(prediction, 10)
+            if FinalResultsEvaluationService._retrieval_hits_at_k(prediction, 10)
         )
         total_candidate_count = sum(
             len(prediction.answer_candidates)
@@ -198,7 +205,7 @@ class FinalResultsEvaluationService(AbstractService):
         }
 
     @staticmethod
-    def _retrieval_hit_at_k(
+    def _retrieval_hits_at_k(
         prediction: EvaluatedAnswerRetrievalInstance,
         k: int,
     ) -> bool:
@@ -353,6 +360,22 @@ class FinalResultsEvaluationService(AbstractService):
             reasoning_metrics_path = results_run_directory / self.reasoning_metrics_filename
             per_instance_results_path = (
                 results_run_directory / self.per_instance_results_filename
+            )
+            results_config = results_config.model_copy(
+                update={
+                    "run_name": results_run_directory.name,
+                    "run_number": self._extract_run_number(results_run_directory.name),
+                    "configs": {
+                        **results_config.configs,
+                        "results_config_path": results_config_path,
+                    },
+                    "artifacts": {
+                        **results_config.artifacts,
+                        "retrieval_metrics_path": str(retrieval_metrics_path),
+                        "reasoning_metrics_path": str(reasoning_metrics_path),
+                        "per_instance_results_path": str(per_instance_results_path),
+                    },
+                }
             )
             results_config_path.write_text(
                 json.dumps(results_config.model_dump(mode="json"), indent=2, sort_keys=True),
@@ -627,6 +650,25 @@ class FinalResultsEvaluationService(AbstractService):
             return raw_candidate_limit
 
         return 10
+
+    @classmethod
+    def _build_gnn_id(cls, model_config_path: Path) -> str:
+        if not model_config_path.exists():
+            legacy_config_path = model_config_path.with_name(
+                "gnn_answer_retriever_config.json"
+            )
+            if legacy_config_path.exists():
+                model_config_path = legacy_config_path
+        if model_config_path.exists():
+            try:
+                model_config = cls._load_json_object(model_config_path)
+                layers = model_config.get("gnn_layer_count")
+                hidden = model_config.get("hidden_dimension")
+                if isinstance(layers, int) and isinstance(hidden, int):
+                    return f"{layers}-{hidden}-gnn"
+            except FinalResultsEvaluationException:
+                pass
+        return "unknown-gnn"
 
     def _create_results_run_directory(self, results_root: Path) -> Path:
         results_root.mkdir(parents=True, exist_ok=True)

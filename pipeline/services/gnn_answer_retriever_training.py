@@ -225,6 +225,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             built_retriever=built_retriever,
             configuration=configuration,
             training_config=training_config,
+            selected_device=device,
             final_loss=final_loss,
             loss_history=loss_history,
             trained_instances=len(train_instances),
@@ -379,6 +380,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         built_retriever: BuiltGnnAnswerRetriever,
         configuration: BuiltPipelineConfiguration,
         training_config: GnnAnswerRetrieverTrainingConfig,
+        selected_device: str,
         final_loss: float,
         loss_history: list[dict[str, float | int]],
         trained_instances: int,
@@ -388,11 +390,17 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         model_run_directory.mkdir(parents=True, exist_ok=False)
         model_artifact_path = model_run_directory / self.model_weights_filename
         model_config_path = model_run_directory / self.model_config_filename
+        model_run_name = model_run_directory.name
+        model_run_number = self._extract_run_number(model_run_name)
+        training_payload = training_config.model_dump(exclude={"run_name"})
+        training_payload["device"] = selected_device
         torch.save(model.state_dict(), model_artifact_path)
         model_config_path.write_text(
             json.dumps(
                 {
                     "dataset_id": built_retriever.dataset_id,
+                    "run_name": model_run_name,
+                    "run_number": model_run_number,
                     "entity_embedding_model": built_retriever.entity_embedding_model,
                     "question_embedding_model": configuration.question_embedding_model,
                     "relation_embedding_model": configuration.relation_embedding_model,
@@ -400,7 +408,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     "hidden_dimension": built_retriever.hidden_dimension,
                     "gnn_layer_count": built_retriever.gnn_layer_count,
                     "node_classifier": built_retriever.node_classifier,
-                    "training": training_config.model_dump(),
+                    "training": training_payload,
                     "loss_function": "BCEWithLogitsLoss",
                     "loss_history": loss_history,
                     "final_loss": final_loss,

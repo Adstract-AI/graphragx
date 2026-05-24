@@ -55,9 +55,15 @@ class GnnAnswerRetrieverEvaluationStorageService(AbstractService):
             )
             evaluation_config_path = evaluation_run_directory / self.config_filename
             predictions_path = evaluation_run_directory / self.predictions_filename
+            evaluation_run_name = evaluation_run_directory.name
+            evaluation_run_number = self._extract_run_number(evaluation_run_name)
+            evaluation_config = dict(payload.evaluation_config)
+            evaluation_config["run_name"] = evaluation_run_name
+            evaluation_config["run_number"] = evaluation_run_number
+            evaluation_config["evaluated_instances"] = len(payload.predictions)
 
             evaluation_config_path.write_text(
-                json.dumps(payload.evaluation_config, indent=2, sort_keys=True),
+                json.dumps(evaluation_config, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
             with predictions_path.open("w", encoding="utf-8") as predictions_file:
@@ -71,10 +77,8 @@ class GnnAnswerRetrieverEvaluationStorageService(AbstractService):
 
         return GnnAnswerRetrieverEvaluationStorageResult(
             evaluation_run_directory=evaluation_run_directory,
-            evaluation_run_name=evaluation_run_directory.name,
-            evaluation_run_number=self._extract_run_number(
-                evaluation_run_directory.name
-            ),
+            evaluation_run_name=evaluation_run_name,
+            evaluation_run_number=evaluation_run_number,
             evaluation_config_path=evaluation_config_path,
             predictions_path=predictions_path,
         )

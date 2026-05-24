@@ -127,7 +127,8 @@ class GnnPredictionCandidateScoringStepTests(unittest.TestCase):
   ],
   "gold_answer_scores": [],
   "hit_at_1": true,
-  "hit_at_k": true,
+  "hit_at_5": true,
+  "hit_at_10": true,
   "missing_gold_in_graph": false
 }
 """.strip(),
@@ -485,7 +486,8 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                     ],
                     "gold_answer_scores": [],
                     "hit_at_1": True,
-                    "hit_at_k": True,
+                    "hit_at_5": True,
+                    "hit_at_10": True,
                     "missing_gold_in_graph": False,
                 }
             ),
@@ -517,8 +519,10 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 evaluated_instances=1,
                 hits_at_1=1.0,
                 hits_at_1_count=1,
-                hit_at_k=1.0,
-                hit_at_k_count=1,
+                hits_at_5=1.0,
+                hits_at_5_count=1,
+                hits_at_10=1.0,
+                hits_at_10_count=1,
                 average_candidate_count=1.0,
                 missing_gold_in_graph_count=0,
                 predictions_path=predictions_path,
@@ -565,8 +569,10 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 evaluated_instances=1,
                 hits_at_1=1.0,
                 hits_at_1_count=1,
-                hit_at_k=1.0,
-                hit_at_k_count=1,
+                hits_at_5=1.0,
+                hits_at_5_count=1,
+                hits_at_10=1.0,
+                hits_at_10_count=1,
                 average_candidate_count=1.0,
                 missing_gold_in_graph_count=0,
                 predictions_path=predictions_path,
@@ -645,8 +651,10 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 evaluated_instances=1,
                 hits_at_1=1.0,
                 hits_at_1_count=1,
-                hit_at_k=1.0,
-                hit_at_k_count=1,
+                hits_at_5=1.0,
+                hits_at_5_count=1,
+                hits_at_10=1.0,
+                hits_at_10_count=1,
                 average_candidate_count=1.0,
                 missing_gold_in_graph_count=0,
                 predictions_path=predictions_path,
@@ -682,7 +690,9 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
             self.assertEqual(len(fake_service.calls), 2)
             self.assertEqual(saved_run.total_instances, 2)
             self.assertEqual(saved_run.successful_answers, 2)
-            self.assertEqual(summary["total_instances"], 2)
+            self.assertEqual(summary["inference"]["total_requests"], 2)
+            self.assertEqual(summary["inference"]["total_tokens"], 0)
+            self.assertEqual(summary["inference"]["total_cost_usd"], 0.0)
             self.assertEqual(summary["successful_answers"], 2)
         print("[test_batched_inference_saves_each_batch] Passed.")
 

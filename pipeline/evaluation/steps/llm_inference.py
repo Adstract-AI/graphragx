@@ -308,8 +308,16 @@ class GenerateFinalAnswersBatchStep(
             answer = result["answer"]
             explanation = result["explanation"]
             raw_response = result["raw_response"]
+            prompt_tokens = int(result.get("prompt_tokens", 0))
+            completion_tokens = int(result.get("completion_tokens", 0))
+            total_tokens = int(result.get("total_tokens", 0))
+            estimated_cost_usd = float(result.get("estimated_cost_usd", 0.0))
         except Exception as error:  # keep batch inference usable for later review
             error_message = str(error)
+            prompt_tokens = 0
+            completion_tokens = 0
+            total_tokens = 0
+            estimated_cost_usd = 0.0
             logger.warning(
                 f"LLM answer generation failed: instance_index={item.instance_index} "
                 f"error={error_message}"
@@ -336,6 +344,10 @@ class GenerateFinalAnswersBatchStep(
             answer=answer,
             explanation=explanation,
             raw_response=raw_response,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            estimated_cost_usd=estimated_cost_usd,
             error_message=error_message,
         )
 

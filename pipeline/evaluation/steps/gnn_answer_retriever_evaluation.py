@@ -123,8 +123,6 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             evaluated_instances=outcome.evaluated_instances,
             hits_at_1=outcome.hits_at_1,
             hits_at_1_count=outcome.hits_at_1_count,
-            hit_at_k=outcome.hit_at_k,
-            hit_at_k_count=outcome.hit_at_k_count,
             hits_at_5=outcome.hits_at_5,
             hits_at_5_count=outcome.hits_at_5_count,
             hits_at_10=outcome.hits_at_10,
