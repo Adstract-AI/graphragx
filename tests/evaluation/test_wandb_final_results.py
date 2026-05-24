@@ -46,6 +46,11 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             "dataset_id": "webqsp",
             "gnn_layer_count": 2,
             "hidden_dimension": 256,
+            "loss_function": "BCEWithLogitsLoss",
+            "loss_history": [
+                {"epoch": 1, "average_loss": 0.8},
+                {"epoch": 2, "average_loss": 0.4},
+            ],
             "training": {"epochs": 3, "learning_rate": 0.001},
         },
     )
@@ -195,8 +200,14 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert wandb_config["runs"]["model"]["number"] == 7
     assert wandb_config["evaluation_run_number"] == 1
     assert wandb_config["configs"]["model"]["training"]["epochs"] == 3
+    assert wandb_config["configs"]["model"]["loss_function"] == "BCEWithLogitsLoss"
     assert wandb_config["configs"]["evaluation"]["candidate_limit"] == 15
     assert wandb_config["configs"]["inference"]["total_instances"] == 1
+    loss_points = service.build_training_loss_points(wandb_config["configs"]["model"])
+    assert loss_points == [
+        {"epoch": 1, "average_loss": 0.8},
+        {"epoch": 2, "average_loss": 0.4},
+    ]
     assert (
         "should_not"
         not in wandb_config["configs"]["model"]
@@ -220,8 +231,13 @@ def test_wandb_logging_success_with_fake_module(
         def __exit__(self, exc_type, exc, traceback):
             return False
 
-        def log(self, payload):
-            captured.setdefault("logs", []).append(payload)
+        def log(self, payload, step=None):
+            captured.setdefault("logs", []).append(
+                {
+                    "payload": payload,
+                    "step": step,
+                }
+            )
 
         def log_artifact(self, artifact):
             captured["artifact_files"] = artifact.files
@@ -269,13 +285,23 @@ def test_wandb_logging_success_with_fake_module(
     assert captured["init"]["config"]["model_run_number"] == 7
     assert captured["init"]["config"]["configs"]["model"]["training"]["epochs"] == 3
     assert "model_run_number:7" in captured["init"]["tags"]
-    logged_payload = captured["logs"][0]
+    logged_payload = captured["logs"][0]["payload"]
     assert "answer_f1" not in logged_payload
     assert "aggregate_metrics" in logged_payload
     assert "per_instance_results" in logged_payload
+    assert "gnn_training_loss" not in logged_payload
     aggregate_table = logged_payload["aggregate_metrics"]
     assert aggregate_table.columns == ["group", "metric", "value"]
     assert ["answer", "f1", 2 / 3] in aggregate_table.data
+    assert captured["logs"][1] == {
+        "payload": {"gnn_training_loss": 0.8},
+        "step": 1,
+    }
+    assert captured["logs"][2] == {
+        "payload": {"gnn_training_loss": 0.4},
+        "step": 2,
+    }
+    assert len(captured["logs"]) == 3
     assert any(service_name == "results/results_config.json" for _, service_name in captured["artifact_files"])
     assert any(service_name == "sources/answers.jsonl" for _, service_name in captured["artifact_files"])
 

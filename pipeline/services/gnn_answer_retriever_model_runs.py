@@ -45,6 +45,8 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     gnn_layer_count: int
     node_classifier: str
     training: SavedGnnAnswerRetrieverTrainingConfig
+    loss_function: str | None = None
+    loss_history: list[dict[str, float | int]] = Field(default_factory=list)
     final_loss: float
     trained_instances: int
 

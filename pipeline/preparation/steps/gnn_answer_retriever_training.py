@@ -55,6 +55,10 @@ class TrainedGnnAnswerRetriever(StepResult):
     )
     selected_device: str = Field(..., description="Resolved PyTorch training device.")
     final_loss: float = Field(..., description="Final average epoch loss.")
+    loss_history: list[dict[str, float | int]] = Field(
+        default_factory=list,
+        description="Average loss per training epoch.",
+    )
     trained_instances: int = Field(..., description="Number of instances trained on.")
     model: AnswerRetrieverModel = Field(..., description="Trained retriever model.")
     model_artifact_path: Path = Field(..., description="Saved model weights path.")
@@ -151,6 +155,7 @@ class TrainGnnAnswerRetrieverStep(
             training_run_name=self.training_config.run_name,
             selected_device=outcome.selected_device,
             final_loss=outcome.final_loss,
+            loss_history=outcome.loss_history,
             trained_instances=outcome.trained_instances,
             model=built_retriever.model,
             model_artifact_path=outcome.model_artifact_path,

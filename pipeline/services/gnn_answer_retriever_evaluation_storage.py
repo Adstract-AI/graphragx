@@ -6,6 +6,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -17,16 +18,10 @@ from pipeline.evaluation.models import EvaluatedAnswerRetrievalInstance
 from pipeline.exceptions import GnnAnswerRetrieverEvaluationException
 from pipeline.services.abstract import AbstractService
 
-JsonScalar = str | int | float | bool | None
-JsonObjectLevel1 = dict[str, JsonScalar]
-JsonObjectLevel2 = dict[str, JsonScalar | JsonObjectLevel1]
-JsonObjectLevel3 = dict[str, JsonScalar | JsonObjectLevel1 | JsonObjectLevel2]
-
-
 class GnnAnswerRetrieverEvaluationStoragePayload(BaseModel):
     """Data persisted for one evaluation run."""
 
-    evaluation_config: JsonObjectLevel3 = Field(default_factory=dict)
+    evaluation_config: dict[str, Any] = Field(default_factory=dict)
     predictions: list[EvaluatedAnswerRetrievalInstance] = Field(default_factory=list)
 
 

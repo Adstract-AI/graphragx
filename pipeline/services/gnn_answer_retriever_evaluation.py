@@ -26,7 +26,6 @@ from pipeline.services.gnn_answer_retriever_evaluation_storage import (
     GnnAnswerRetrieverEvaluationStoragePayload,
     GnnAnswerRetrieverEvaluationStorageResult,
     GnnAnswerRetrieverEvaluationStorageService,
-    JsonObjectLevel3,
 )
 from pipeline.services.gnn_answer_retriever_model_runs import (
     GnnAnswerRetrieverModelRunService,
@@ -449,7 +448,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         loaded_model_run: LoadedGnnAnswerRetrieverRun,
         pipeline_configuration: BuiltPipelineConfiguration,
         device: str,
-    ) -> JsonObjectLevel3:
+    ) -> dict:
         return {
             "dataset_id": pipeline_configuration.dataset_id,
             "selected_device": device,

@@ -56,6 +56,10 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     final_loss: float = Field(..., description="Final average epoch loss.")
+    loss_history: list[dict[str, float | int]] = Field(
+        default_factory=list,
+        description="Average loss per training epoch.",
+    )
     trained_instances: int = Field(..., description="Number of training instances used.")
     model_artifact_path: Path = Field(..., description="Saved model weights path.")
     model_config_path: Path = Field(..., description="Saved model config path.")
@@ -151,6 +155,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         )
 
         final_loss = 0.0
+        loss_history: list[dict[str, float | int]] = []
         for epoch in range(1, training_config.epochs + 1):
             logger.info(
                 f"Training epoch {epoch}/{training_config.epochs} "
@@ -204,6 +209,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     )
 
             final_loss = epoch_loss / len(train_instances)
+            loss_history.append(
+                {
+                    "epoch": epoch,
+                    "average_loss": final_loss,
+                }
+            )
             logger.info(
                 f"Finished epoch {epoch}/{training_config.epochs} "
                 f"with average_loss={final_loss:.6f}"
@@ -215,6 +226,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             configuration=configuration,
             training_config=training_config,
             final_loss=final_loss,
+            loss_history=loss_history,
             trained_instances=len(train_instances),
             model_run_directory=self._create_model_run_directory(
                 model_root=cache_root / "models",
@@ -228,6 +240,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
 
         return GnnAnswerRetrieverTrainingOutcome(
             final_loss=final_loss,
+            loss_history=loss_history,
             trained_instances=len(train_instances),
             model_artifact_path=model_artifact_path,
             model_config_path=model_artifact_path.with_name(self.model_config_filename),
@@ -367,6 +380,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         configuration: BuiltPipelineConfiguration,
         training_config: GnnAnswerRetrieverTrainingConfig,
         final_loss: float,
+        loss_history: list[dict[str, float | int]],
         trained_instances: int,
         model_run_directory: Path,
         torch,
@@ -387,6 +401,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     "gnn_layer_count": built_retriever.gnn_layer_count,
                     "node_classifier": built_retriever.node_classifier,
                     "training": training_config.model_dump(),
+                    "loss_function": "BCEWithLogitsLoss",
+                    "loss_history": loss_history,
                     "final_loss": final_loss,
                     "trained_instances": trained_instances,
                 },

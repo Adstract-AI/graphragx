@@ -42,6 +42,7 @@ class WandbFinalResultsLoggingService(AbstractService):
 
     table_key = "per_instance_results"
     aggregate_table_key = "aggregate_metrics"
+    loss_metric_key = "gnn_training_loss"
     artifact_type = "evaluation-results"
     source_path_keys = {
         "answers_path",
@@ -122,12 +123,20 @@ class WandbFinalResultsLoggingService(AbstractService):
                     data=aggregate_metric_rows,
                 )
                 table = wandb.Table(columns=self.table_columns, data=table_rows)
-                run.log(
-                    {
-                        self.aggregate_table_key: aggregate_table,
-                        self.table_key: table,
-                    }
+                payload = {
+                    self.aggregate_table_key: aggregate_table,
+                    self.table_key: table,
+                }
+                loss_points = self.build_training_loss_points(
+                    wandb_config.get("configs", {}).get("model", {})
                 )
+                run.log(payload)
+                if loss_points:
+                    for point in loss_points:
+                        run.log(
+                            {self.loss_metric_key: point["average_loss"]},
+                            step=point["epoch"],
+                        )
                 artifact = wandb.Artifact(
                     self._artifact_name(final_result.results_run_name),
                     type=self.artifact_type,
@@ -201,6 +210,30 @@ class WandbFinalResultsLoggingService(AbstractService):
             group, _, short_name = metric_name.partition("_")
             rows.append([group or "metric", short_name or metric_name, metric_value])
         return rows
+
+    @staticmethod
+    def build_training_loss_points(
+        model_config: dict[str, Any],
+    ) -> list[dict[str, float | int]]:
+        """Build scalar loss history points for WandB logging."""
+        loss_history = model_config.get("loss_history")
+        if not isinstance(loss_history, list):
+            return []
+
+        points: list[dict[str, float | int]] = []
+        for item in loss_history:
+            if not isinstance(item, dict):
+                continue
+            epoch = item.get("epoch")
+            average_loss = item.get("average_loss")
+            if isinstance(epoch, int) and isinstance(average_loss, int | float):
+                points.append(
+                    {
+                        "epoch": epoch,
+                        "average_loss": average_loss,
+                    }
+                )
+        return points
 
     def build_table_rows(
         self,
