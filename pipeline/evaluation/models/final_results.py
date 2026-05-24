@@ -45,6 +45,19 @@ class FinalAnswerMetrics(BaseModel):
     failed_answers: int = Field(..., description="Answers with generation errors.")
     exact_match_count: int = Field(..., description="Exact set match count.")
     accuracy: float = Field(..., description="Exact set match rate.")
+    hit_count: int = Field(
+        ...,
+        description="Questions where any predicted answer matches a gold answer.",
+    )
+    hit_rate: float = Field(..., description="Share of questions with any hit.")
+    hits_at_1_count: int = Field(
+        ...,
+        description="Questions where the first predicted answer is gold.",
+    )
+    hits_at_1: float = Field(
+        ...,
+        description="Share of questions where the first predicted answer is gold.",
+    )
     true_positive_count: int = Field(..., description="Micro true positives.")
     false_positive_count: int = Field(..., description="Micro false positives.")
     false_negative_count: int = Field(..., description="Micro false negatives.")
@@ -106,6 +119,14 @@ class PerInstanceFinalResult(BaseModel):
     normalized_gold_answers: list[str] = Field(default_factory=list)
     normalized_predicted_answers: list[str] = Field(default_factory=list)
     exact_match: bool = Field(..., description="Whether normalized answer sets match.")
+    hit: bool = Field(
+        ...,
+        description="Whether any predicted answer matches a gold answer.",
+    )
+    hits_at_1: bool = Field(
+        ...,
+        description="Whether the first predicted answer matches a gold answer.",
+    )
     true_positive_count: int = Field(..., description="Answer true positives.")
     false_positive_count: int = Field(..., description="Answer false positives.")
     false_negative_count: int = Field(..., description="Answer false negatives.")
@@ -182,6 +203,8 @@ class FinalResultsEvaluationResult(StepResult):
     per_instance_results_path: Path = Field(..., description="Saved per-instance rows path.")
     evaluated_instances: int = Field(..., description="Number of evaluated instances.")
     accuracy: float = Field(..., description="Final answer exact-match accuracy.")
+    hit_rate: float = Field(..., description="Final answer hit rate.")
+    hits_at_1: float = Field(..., description="Final answer Hits@1.")
     precision: float = Field(..., description="Final answer micro precision.")
     recall: float = Field(..., description="Final answer micro recall.")
     f1: float = Field(..., description="Final answer micro F1.")

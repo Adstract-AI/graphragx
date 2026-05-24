@@ -194,7 +194,7 @@ class FinalResultsEvaluationService(AbstractService):
         gold_answers = [str(item) for item in answer_row.get("gold_answers", [])]
         predicted_answers = self._prediction_answers(answer_row)
         normalized_gold_answers = self._normalize_answer_set(gold_answers)
-        normalized_predicted_answers = self._normalize_answer_set(predicted_answers)
+        normalized_predicted_answers = self._normalize_answer_list(predicted_answers)
         gold_set = set(normalized_gold_answers)
         predicted_set = set(normalized_predicted_answers)
         true_positive_count = len(gold_set & predicted_set)
@@ -216,6 +216,11 @@ class FinalResultsEvaluationService(AbstractService):
             normalized_gold_answers=normalized_gold_answers,
             normalized_predicted_answers=normalized_predicted_answers,
             exact_match=gold_set == predicted_set,
+            hit=true_positive_count > 0,
+            hits_at_1=(
+                bool(normalized_predicted_answers)
+                and normalized_predicted_answers[0] in gold_set
+            ),
             true_positive_count=true_positive_count,
             false_positive_count=false_positive_count,
             false_negative_count=false_negative_count,
@@ -242,6 +247,8 @@ class FinalResultsEvaluationService(AbstractService):
     ) -> FinalReasoningMetrics:
         evaluated_instances = len(per_instance_results)
         exact_match_count = sum(1 for item in per_instance_results if item.exact_match)
+        hit_count = sum(1 for item in per_instance_results if item.hit)
+        hits_at_1_count = sum(1 for item in per_instance_results if item.hits_at_1)
         true_positive_count = sum(item.true_positive_count for item in per_instance_results)
         false_positive_count = sum(item.false_positive_count for item in per_instance_results)
         false_negative_count = sum(item.false_negative_count for item in per_instance_results)
@@ -271,6 +278,10 @@ class FinalResultsEvaluationService(AbstractService):
                 ),
                 exact_match_count=exact_match_count,
                 accuracy=self._safe_divide(exact_match_count, evaluated_instances),
+                hit_count=hit_count,
+                hit_rate=self._safe_divide(hit_count, evaluated_instances),
+                hits_at_1_count=hits_at_1_count,
+                hits_at_1=self._safe_divide(hits_at_1_count, evaluated_instances),
                 true_positive_count=true_positive_count,
                 false_positive_count=false_positive_count,
                 false_negative_count=false_negative_count,
@@ -428,12 +439,18 @@ class FinalResultsEvaluationService(AbstractService):
         ]
 
     def _normalize_answer_set(self, answers: list[str]) -> list[str]:
-        normalized_answers = [
-            normalized_answer
-            for answer in self._split_answer_values(answers)
-            if (normalized_answer := self._normalize_answer(answer))
-        ]
-        return sorted(set(normalized_answers))
+        return sorted(set(self._normalize_answer_list(answers)))
+
+    def _normalize_answer_list(self, answers: list[str]) -> list[str]:
+        normalized_answers: list[str] = []
+        seen_answers: set[str] = set()
+        for answer in self._split_answer_values(answers):
+            normalized_answer = self._normalize_answer(answer)
+            if not normalized_answer or normalized_answer in seen_answers:
+                continue
+            normalized_answers.append(normalized_answer)
+            seen_answers.add(normalized_answer)
+        return normalized_answers
 
     @staticmethod
     def _split_answer_values(answers: list[str]) -> list[str]:

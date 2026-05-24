@@ -78,28 +78,46 @@ def test_answer_normalization_and_set_metrics() -> None:
     )
 
     assert result.normalized_gold_answers == ["earth", "moon"]
-    assert result.normalized_predicted_answers == ["earth", "moon"]
+    assert result.normalized_predicted_answers == ["moon", "earth"]
     assert result.exact_match is True
+    assert result.hit is True
+    assert result.hits_at_1 is True
     assert result.precision == 1.0
     assert result.recall == 1.0
 
+    wrong_first_row = answer_row | {"answer": "Berlin, Earth"}
+    wrong_first_result = service._build_per_instance_result(
+        instance_index=1,
+        answer_row=wrong_first_row,
+        reasoning_row={"instance_index": 1, "subgraph": []},
+        prediction=_prediction([]),
+        candidate_limit=10,
+    )
+    assert wrong_first_result.hit is True
+    assert wrong_first_result.hits_at_1 is False
+    assert wrong_first_result.precision == 0.5
+    assert wrong_first_result.recall == 0.5
+    assert wrong_first_result.f1 == 0.5
+
     unknown_row = answer_row | {"answer": "Unknown"}
     unknown_result = service._build_per_instance_result(
-        instance_index=1,
+        instance_index=2,
         answer_row=unknown_row,
-        reasoning_row={"instance_index": 1, "subgraph": []},
+        reasoning_row={"instance_index": 2, "subgraph": []},
         prediction=_prediction([]),
         candidate_limit=10,
     )
     assert unknown_result.predicted_answers == []
     assert unknown_result.false_negative_count == 2
     assert unknown_result.exact_match is False
+    assert unknown_result.hit is False
+    assert unknown_result.hits_at_1 is False
 
     failed_row = answer_row | {"answer": "Moon", "error_message": "timeout"}
     failed_result = service._build_per_instance_result(
-        instance_index=2,
+        instance_index=3,
         answer_row=failed_row,
-        reasoning_row={"instance_index": 2, "subgraph": []},
+        reasoning_row={"instance_index": 3, "subgraph": []},
         prediction=_prediction([]),
         candidate_limit=10,
     )
@@ -312,6 +330,10 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     metrics = json.loads(outcome.storage_result.reasoning_metrics_path.read_text())
     assert metrics["evaluated_instances"] == 2
     assert metrics["accuracy"] == 0.5
+    assert metrics["hit_count"] == 1
+    assert metrics["hit_rate"] == 0.5
+    assert metrics["hits_at_1_count"] == 1
+    assert metrics["hits_at_1"] == 0.5
     assert metrics["precision"] == 1.0
     assert metrics["recall"] == 0.5
     assert metrics["f1"] == 2 / 3
@@ -321,3 +343,9 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
 
     rows = outcome.storage_result.per_instance_results_path.read_text().splitlines()
     assert len(rows) == 2
+    first_row = json.loads(rows[0])
+    second_row = json.loads(rows[1])
+    assert first_row["hit"] is True
+    assert first_row["hits_at_1"] is True
+    assert second_row["hit"] is False
+    assert second_row["hits_at_1"] is False

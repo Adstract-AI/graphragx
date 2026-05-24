@@ -79,6 +79,8 @@ class ComputeFinalResultsStep(
             per_instance_results_path=outcome.storage_result.per_instance_results_path,
             evaluated_instances=answer_metrics.evaluated_instances,
             accuracy=answer_metrics.accuracy,
+            hit_rate=answer_metrics.hit_rate,
+            hits_at_1=answer_metrics.hits_at_1,
             precision=answer_metrics.precision,
             recall=answer_metrics.recall,
             f1=answer_metrics.f1,
