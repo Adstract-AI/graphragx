@@ -13,9 +13,9 @@ from pipeline.evaluation.models import (
     EvaluationSample,
     GraphTriple,
 )
-from pipeline.exceptions import GnnAnswerRetrieverEvaluationException
+from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
 from pipeline.preparation.helpers.dataset_definitions import WEBQSP_DATASET_ID
-from pipeline.services.webqsp_local_graph_storage import WebQSPLocalGraphStorageService
+from pipeline.preparation.services.webqsp_local_graph_storage import WebQSPLocalGraphStorageService
 
 
 class GnnPredictionCandidateScoringStep(

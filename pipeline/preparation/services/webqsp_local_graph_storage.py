@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pipeline.exceptions import (
+from pipeline.preparation.exceptions import (
     ProcessedDatasetStorageException,
     UnsupportedDatasetProcessorException,
 )
@@ -20,7 +20,7 @@ from pipeline.preparation.models.webqsp_local_graph import (
     WebQSPProcessedInstance,
     WebQSPVocabularyStore,
 )
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 
 class WebQSPLocalGraphStorageService(AbstractService):

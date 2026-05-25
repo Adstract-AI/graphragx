@@ -8,14 +8,14 @@ from pydantic import ConfigDict, Field
 
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
-from pipeline.exceptions import (
+from pipeline.preparation.exceptions import (
     InvalidInteractiveConfigurationInputException,
     MalformedDatasetException,
     UnsupportedDatasetLoaderException,
 )
 from pipeline.preparation.helpers.dataset_definitions import PIPELINE_DATASETS
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
-from pipeline.services import (
+from pipeline.preparation.services.dataset_loader import (
     AbstractDatasetLoaderService,
     HuggingFaceWebQSPDatasetLoaderService,
 )

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext
-from pipeline.exceptions import InvalidInteractiveConfigurationInputException
+from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.dataset_loading import LoadedDataset
-from pipeline.services.webqsp_local_graph_processing import (
+from pipeline.preparation.services.webqsp_local_graph_processing import (
     WebQSPLocalGraphProcessorService,
 )
-from pipeline.services.webqsp_local_graph_storage import (
+from pipeline.preparation.services.webqsp_local_graph_storage import (
     WebQSPLocalGraphStorageService,
 )
 

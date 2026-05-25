@@ -11,25 +11,23 @@ from pipeline.evaluation.models import (
     GnnAnswerRetrieverEvaluationConfig,
     GoldAnswerScore,
 )
-from pipeline.exceptions import GnnAnswerRetrieverEvaluationException
+from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
     WebQSPProcessedInstance,
 )
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
-from pipeline.services.abstract import AbstractService
-from pipeline.services.embedding_cache import (
+from pipeline.services import AbstractService
+from pipeline.preparation.services.embedding_cache import (
     TextEmbeddingCache,
     WebQSPEmbeddingCacheService,
 )
-from pipeline.services.gnn_answer_retriever_evaluation_storage import (
+from pipeline.preparation.services.gnn_answer_retriever_evaluation_storage import (
     GnnAnswerRetrieverEvaluationStoragePayload,
     GnnAnswerRetrieverEvaluationStorageResult,
     GnnAnswerRetrieverEvaluationStorageService,
-    JsonObjectLevel1,
-    JsonObjectLevel3,
 )
-from pipeline.services.gnn_answer_retriever_model_runs import (
+from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
     GnnAnswerRetrieverModelRunService,
     LoadedGnnAnswerRetrieverRun,
 )
@@ -53,8 +51,10 @@ class GnnAnswerRetrieverEvaluationOutcome(BaseModel):
     evaluated_instances: int = Field(..., description="Number of evaluated instances.")
     hits_at_1: float = Field(..., description="Hits@1 rate.")
     hits_at_1_count: int = Field(..., description="Hits@1 count.")
-    hit_at_k: float = Field(..., description="Answer coverage rate.")
-    hit_at_k_count: int = Field(..., description="Answer coverage count.")
+    hits_at_5: float = Field(..., description="Hits@5 rate.")
+    hits_at_5_count: int = Field(..., description="Hits@5 count.")
+    hits_at_10: float = Field(..., description="Hits@10 rate.")
+    hits_at_10_count: int = Field(..., description="Hits@10 count.")
     average_candidate_count: float = Field(
         ...,
         description="Average number of selected candidate nodes.",
@@ -150,7 +150,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
 
         predictions: list[EvaluatedAnswerRetrievalInstance] = []
         hits_at_1_count = 0
-        hit_at_k_count = 0
+        hits_at_5_count = 0
+        hits_at_10_count = 0
         missing_gold_in_graph_count = 0
         total_candidate_count = 0
 
@@ -190,26 +191,16 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 )
                 predictions.append(prediction)
                 hits_at_1_count += int(prediction.hit_at_1)
-                hit_at_k_count += int(prediction.hit_at_k)
+                hits_at_5_count += int(prediction.hit_at_5)
+                hits_at_10_count += int(prediction.hit_at_10)
                 missing_gold_in_graph_count += int(prediction.missing_gold_in_graph)
                 total_candidate_count += len(prediction.answer_candidates)
 
         evaluated_instances = len(predictions)
         hits_at_1 = hits_at_1_count / evaluated_instances
-        hit_at_k = hit_at_k_count / evaluated_instances
+        hits_at_5 = hits_at_5_count / evaluated_instances
+        hits_at_10 = hits_at_10_count / evaluated_instances
         average_candidate_count = total_candidate_count / evaluated_instances
-        summary_metrics: JsonObjectLevel1 = {
-            "dataset_id": prepared_dataset.dataset_id,
-            "model_run_name": loaded_model_run.run_name,
-            "model_run_number": loaded_model_run.run_number,
-            "evaluated_instances": evaluated_instances,
-            "hits_at_1": hits_at_1,
-            "hits_at_1_count": hits_at_1_count,
-            "hit_at_k": hit_at_k,
-            "hit_at_k_count": hit_at_k_count,
-            "average_candidate_count": average_candidate_count,
-            "missing_gold_in_graph_count": missing_gold_in_graph_count,
-        }
         storage_result = self.storage_service.save_evaluation_run(
             evaluation_root=cache_root / "evaluations",
             run_name=evaluation_config.run_name,
@@ -220,14 +211,14 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     pipeline_configuration=pipeline_configuration,
                     device=device,
                 ),
-                summary_metrics=summary_metrics,
                 predictions=predictions,
             ),
         )
         logger.info(
             f"Finished GNN answer-retriever evaluation: "
             f"run={storage_result.evaluation_run_name} "
-            f"hits_at_1={hits_at_1:.4f} hit_at_k={hit_at_k:.4f} "
+            f"hits_at_1={hits_at_1:.4f} hits_at_5={hits_at_5:.4f} "
+            f"hits_at_10={hits_at_10:.4f} "
             f"average_candidate_count={average_candidate_count:.2f}"
         )
         return GnnAnswerRetrieverEvaluationOutcome(
@@ -236,8 +227,10 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             evaluated_instances=evaluated_instances,
             hits_at_1=hits_at_1,
             hits_at_1_count=hits_at_1_count,
-            hit_at_k=hit_at_k,
-            hit_at_k_count=hit_at_k_count,
+            hits_at_5=hits_at_5,
+            hits_at_5_count=hits_at_5_count,
+            hits_at_10=hits_at_10,
+            hits_at_10_count=hits_at_10_count,
             average_candidate_count=average_candidate_count,
             missing_gold_in_graph_count=missing_gold_in_graph_count,
         )
@@ -414,7 +407,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
 
         top_node_id = int(torch.argmax(probabilities).item())
         hit_at_1 = instance.nodes[top_node_id] in gold_answers
-        hit_at_k = any(candidate.is_gold_answer for candidate in answer_candidates)
+        hit_at_5 = any(candidate.is_gold_answer for candidate in answer_candidates[:5])
+        hit_at_10 = any(candidate.is_gold_answer for candidate in answer_candidates[:10])
         missing_gold_in_graph = not any(score.present_in_graph for score in gold_answer_scores)
 
         return EvaluatedAnswerRetrievalInstance(
@@ -425,7 +419,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             answer_candidates=answer_candidates,
             gold_answer_scores=gold_answer_scores,
             hit_at_1=hit_at_1,
-            hit_at_k=hit_at_k,
+            hit_at_5=hit_at_5,
+            hit_at_10=hit_at_10,
             missing_gold_in_graph=missing_gold_in_graph,
         )
 
@@ -463,17 +458,18 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         loaded_model_run: LoadedGnnAnswerRetrieverRun,
         pipeline_configuration: BuiltPipelineConfiguration,
         device: str,
-    ) -> JsonObjectLevel3:
+    ) -> dict:
+        evaluation_payload = evaluation_config.model_dump(mode="json")
+        requested_run_name = evaluation_payload.pop("run_name", None)
         return {
             "dataset_id": pipeline_configuration.dataset_id,
+            "run_name": requested_run_name,
             "selected_device": device,
-            "model_run": {
-                "name": loaded_model_run.run_name,
-                "number": loaded_model_run.run_number,
-                "directory": str(loaded_model_run.run_directory),
-                "config_path": str(loaded_model_run.config_path),
+            "model_config": {
+                "model_run_name": loaded_model_run.run_name,
+                "model_run_number": loaded_model_run.run_number,
+                "full_config_path": str(loaded_model_run.config_path),
                 "weights_path": str(loaded_model_run.weights_path),
             },
-            "model_configuration": loaded_model_run.config.model_dump(mode="json"),
-            "evaluation": evaluation_config.model_dump(mode="json"),
+            "evaluation": evaluation_payload,
         }

@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from pipeline.exceptions import (
+from pipeline.preparation.exceptions import (
     DatasetLoadingException,
     MissingHuggingFaceDatasetsDependencyException,
     UnsupportedDatasetLoaderException,
@@ -15,7 +15,7 @@ from pipeline.preparation.helpers.dataset_definitions import (
     DatasetLoaderDefinition,
     WEBQSP_DATASET_ID,
 )
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 if TYPE_CHECKING:
     from datasets import DatasetDict

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel
@@ -18,7 +17,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_LOG_EVERY,
     DEFAULT_TRAINING_WEIGHT_DECAY,
 )
-from helpers.logging_config import setup_logger
+from helpers.logging_config import get_logger, setup_logger
 from pipeline import (
     BuildGnnAnswerRetrieverStep,
     BuildPipelineConfigurationStep,
@@ -32,12 +31,13 @@ from pipeline import (
     TrainGnnAnswerRetrieverStep,
     EvaluateGnnAnswerRetrieverStep,
     BuildReasoningSamplesFromGnnEvaluationStep,
+    ComputeFinalResultsStep,
     ExtractShortestPathsBatchStep,
     GenerateAndSaveFinalAnswersBatchesStep,
+    LogFinalResultsToWandbStep,
     PipelineException,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
-    RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
     RECOMMENDED_GNN_HIDDEN_DIMENSION,
@@ -50,6 +50,8 @@ from pipeline.preparation.helpers.configuration_definitions import (
 )
 from pipeline.preparation.helpers.dataset_definitions import WEBQSP_DATASET_ID
 
+logger = get_logger(__name__)
+
 
 class PipelineRuntimeConfig(BaseModel):
     """Runtime configuration used to initialize the current framework pipeline."""
@@ -57,7 +59,6 @@ class PipelineRuntimeConfig(BaseModel):
     run_mode: Literal["full", "train-only", "evaluation-only"] = "full"
     dataset: str | None = None
     main_llm_model: str | None = None
-    assistant_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
     gnn_layer_count: int | None = None
@@ -80,9 +81,13 @@ class PipelineRuntimeConfig(BaseModel):
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
     evaluation_run_name: str | None = None
     evaluation_max_instances: int | None = None
-    with_llm_inference: bool = False
+    no_llm_inference: bool = False
     inference_run_name: str | None = None
     llm_inference_batch_size: int = 10
+    no_wandb: bool = False
+    wandb_project: str | None = None
+    wandb_entity: str | None = None
+    wandb_mode: str | None = None
     use_default_config_values: bool = False
     force_all_default: bool = False
 
@@ -95,8 +100,6 @@ class PipelineRuntimeConfig(BaseModel):
             update={
                 "dataset": self.dataset or WEBQSP_DATASET_ID,
                 "main_llm_model": self.main_llm_model or RECOMMENDED_MAIN_LLM_MODEL_ID,
-                "assistant_llm_model": self.assistant_llm_model
-                or RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
                 "subgraph_algorithm": self.subgraph_algorithm
                 or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
                 "context_strategy": self.context_strategy
@@ -119,6 +122,12 @@ class PipelineRuntimeConfig(BaseModel):
 
 def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     """Build the current runnable graphragX pipeline."""
+    if config.no_llm_inference and not config.no_wandb:
+        raise PipelineException(
+            "WandB logging requires LLM inference. Use --no-wandb together with "
+            "--no-llm-inference when skipping final LLM reasoning results."
+        )
+
     resolved_config = config.with_defaulted_user_inputs()
     setup_steps = [
         SelectDatasetStep(
@@ -126,7 +135,6 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         ),
         BuildPipelineConfigurationStep(
             main_llm_model=resolved_config.main_llm_model,
-            assistant_llm_model=resolved_config.assistant_llm_model,
             subgraph_algorithm=resolved_config.subgraph_algorithm,
             context_strategy=resolved_config.context_strategy,
             gnn_layer_count=resolved_config.gnn_layer_count,
@@ -162,7 +170,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             evaluation_max_instances=resolved_config.evaluation_max_instances,
         ),
     ]
-    if resolved_config.with_llm_inference:
+    if not resolved_config.no_llm_inference:
         evaluation_steps.extend(
             [
                 BuildReasoningSamplesFromGnnEvaluationStep(),
@@ -172,8 +180,17 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                     inference_run_name=resolved_config.inference_run_name,
                     inference_batch_size=resolved_config.llm_inference_batch_size,
                 ),
+                ComputeFinalResultsStep(),
             ]
         )
+        if not resolved_config.no_wandb:
+            evaluation_steps.append(
+                LogFinalResultsToWandbStep(
+                    project=resolved_config.wandb_project,
+                    entity=resolved_config.wandb_entity,
+                    mode=resolved_config.wandb_mode,
+                )
+            )
 
     if resolved_config.run_mode == "train-only":
         preparation_steps = [*setup_steps, *training_steps]
@@ -233,6 +250,97 @@ def serialize_execution_result(result: PipelineExecutionResult) -> dict[str, Any
     return payload
 
 
+def _format_summary_value(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
+
+
+def _summary_line(label: str, value: Any) -> str:
+    return f"  {label}: {_format_summary_value(value)}"
+
+
+def _build_success_summary_lines(result: PipelineExecutionResult) -> list[str]:
+    final_result = result.final_result
+    lines = [
+        _summary_line("steps", f"{result.steps_executed}/{result.total_steps}"),
+        _summary_line("execution_time_ms", result.execution_time_ms),
+    ]
+    if final_result is None:
+        return lines
+
+    summary_fields = [
+        "results_run_name",
+        "evaluated_instances",
+        "hit_rate",
+        "f1",
+        "ndcg_at_10",
+        "grounded_explanation_rate",
+        "wandb_status",
+        "wandb_run_url",
+    ]
+    for field_name in summary_fields:
+        if hasattr(final_result, field_name):
+            lines.append(_summary_line(field_name, getattr(final_result, field_name)))
+
+    if hasattr(final_result, "wandb_error_message"):
+        error_message = getattr(final_result, "wandb_error_message")
+        if error_message:
+            lines.append(_summary_line("wandb_error_message", error_message))
+
+    return lines
+
+
+def _log_summary_banner(title: str, lines: list[str], color: str) -> None:
+    content_width = max(
+        [len(title), *(len(line) for line in lines)],
+        default=len(title),
+    )
+    border = "═" * max(content_width + 4, 72)
+    body = "\n".join(lines)
+    logger.info(
+        "\n\n%s%s\n%s\n%s\n%s",
+        color,
+        border,
+        title.center(len(border)),
+        body,
+        f"{border}\033[0m",
+    )
+
+
+def log_success_summary(result: PipelineExecutionResult) -> None:
+    """Log a compact human-readable successful run summary."""
+    _log_summary_banner(
+        title="RUN SUMMARY",
+        lines=_build_success_summary_lines(result),
+        color="\033[92m",
+    )
+
+
+def log_error_summary(
+    error_message: str,
+    exception_type: str,
+    result: PipelineExecutionResult | None = None,
+) -> None:
+    """Log a compact human-readable failure summary."""
+    lines = [
+        _summary_line("success", False),
+        _summary_line("exception_type", exception_type),
+        _summary_line("error_message", error_message),
+    ]
+    if result is not None:
+        lines.insert(1, _summary_line("steps", f"{result.steps_executed}/{result.total_steps}"))
+        lines.insert(2, _summary_line("execution_time_ms", result.execution_time_ms))
+
+    _log_summary_banner(
+        title="PIPELINE FAILED",
+        lines=lines,
+        color="\033[91m",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the framework entry point."""
     parser = argparse.ArgumentParser(description="Run graphragX.")
@@ -268,11 +376,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--main-llm-model",
         default=None,
         help="Optional main LLM model id for non-interactive configuration.",
-    )
-    parser.add_argument(
-        "--assistant-llm-model",
-        default=None,
-        help="Optional assistant LLM model id for non-interactive configuration.",
     )
     parser.add_argument(
         "--subgraph-algorithm",
@@ -400,9 +503,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional maximum number of WebQSP test instances to evaluate.",
     )
     parser.add_argument(
-        "--with-llm-inference",
+        "--no-llm-inference",
+        dest="no_llm_inference",
         action="store_true",
-        help="Continue after GNN candidate retrieval with paths, LLM answers, and saved inference outputs.",
+        help="Stop after GNN candidate retrieval and skip final LLM inference/results.",
     )
     parser.add_argument(
         "--inference-run-name",
@@ -414,6 +518,28 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=10,
         help="Number of samples to generate and save per LLM inference batch.",
+    )
+    parser.add_argument(
+        "--no-wandb",
+        dest="no_wandb",
+        action="store_true",
+        help="Skip WandB upload after local final result files are saved.",
+    )
+    parser.add_argument(
+        "--wandb-project",
+        default=None,
+        help="Optional WandB project. Defaults to WANDB_PROJECT or graphragx.",
+    )
+    parser.add_argument(
+        "--wandb-entity",
+        default=None,
+        help="Optional WandB entity/team. Defaults to WANDB_ENTITY.",
+    )
+    parser.add_argument(
+        "--wandb-mode",
+        default=None,
+        choices=["online", "offline", "disabled"],
+        help="Optional WandB mode. Defaults to WANDB_MODE or online.",
     )
     parser.add_argument(
         "--default",
@@ -440,7 +566,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_mode=args.run_mode,
         dataset=args.dataset,
         main_llm_model=args.main_llm_model,
-        assistant_llm_model=args.assistant_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,
         gnn_layer_count=args.gnn_layers,
@@ -463,9 +588,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_limit=args.candidate_limit,
         evaluation_run_name=args.evaluation_run_name,
         evaluation_max_instances=args.evaluation_max_instances,
-        with_llm_inference=args.with_llm_inference,
+        no_llm_inference=args.no_llm_inference,
         inference_run_name=args.inference_run_name,
         llm_inference_batch_size=args.llm_inference_batch_size,
+        no_wandb=args.no_wandb,
+        wandb_project=args.wandb_project,
+        wandb_entity=args.wandb_entity,
+        wandb_mode=args.wandb_mode,
         use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )
@@ -473,16 +602,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         result = run_pipeline(config=runtime_config)
     except Exception as error:
-        error_payload = {
-            "success": False,
-            "error_message": str(error),
-            "exception_type": error.__class__.__name__,
-        }
-        print(json.dumps(error_payload, indent=2))
+        log_error_summary(
+            error_message=str(error),
+            exception_type=error.__class__.__name__,
+        )
         return 1
 
-    print(json.dumps(serialize_execution_result(result), indent=2, default=str))
-    return 0 if result.success else 1
+    if result.success:
+        log_success_summary(result)
+        return 0
+
+    log_error_summary(
+        error_message=result.error_message or "Unknown pipeline failure.",
+        exception_type=result.exception_type or "PipelineExecutionError",
+        result=result,
+    )
+    return 1
 
 
 if __name__ == "__main__":

@@ -71,9 +71,13 @@ class EvaluatedAnswerRetrievalInstance(BaseModel):
     answer_candidates: list[AnswerCandidateScore] = Field(default_factory=list)
     gold_answer_scores: list[GoldAnswerScore] = Field(default_factory=list)
     hit_at_1: bool = Field(..., description="Whether top scored node is gold.")
-    hit_at_k: bool = Field(
-        ...,
-        description="Whether any selected answer candidate is gold.",
+    hit_at_5: bool = Field(
+        default=False,
+        description="Whether any top-5 selected answer candidate is gold.",
+    )
+    hit_at_10: bool = Field(
+        default=False,
+        description="Whether any top-10 selected answer candidate is gold.",
     )
     missing_gold_in_graph: bool = Field(
         ...,
@@ -99,8 +103,10 @@ class GnnAnswerRetrieverEvaluationResult(StepResult):
     evaluated_instances: int = Field(..., description="Number of evaluated instances.")
     hits_at_1: float = Field(..., description="Hits@1 rate.")
     hits_at_1_count: int = Field(..., description="Hits@1 count.")
-    hit_at_k: float = Field(..., description="Selected-candidate answer coverage rate.")
-    hit_at_k_count: int = Field(..., description="Selected-candidate hit count.")
+    hits_at_5: float = Field(default=0.0, description="Hits@5 rate.")
+    hits_at_5_count: int = Field(default=0, description="Hits@5 count.")
+    hits_at_10: float = Field(default=0.0, description="Hits@10 rate.")
+    hits_at_10_count: int = Field(default=0, description="Hits@10 count.")
     average_candidate_count: float = Field(
         ...,
         description="Average number of selected candidates.",
@@ -110,5 +116,4 @@ class GnnAnswerRetrieverEvaluationResult(StepResult):
         description="Instances where no gold answer appears in the local graph.",
     )
     predictions_path: Path = Field(..., description="Saved JSONL predictions path.")
-    summary_metrics_path: Path = Field(..., description="Saved summary metrics path.")
     evaluation_config_path: Path = Field(..., description="Saved evaluation config path.")

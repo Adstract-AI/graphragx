@@ -20,14 +20,14 @@ from helpers.constants import (
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
 )
 from helpers.logging_config import get_logger
-from pipeline.exceptions import GnnAnswerRetrieverTrainingException
+from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
     WebQSPProcessedInstance,
 )
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
-from pipeline.services.abstract import AbstractService
-from pipeline.services.embedding_cache import (
+from pipeline.services import AbstractService
+from pipeline.preparation.services.embedding_cache import (
     TextEmbeddingCache,
     WebQSPEmbeddingCacheService,
 )
@@ -56,6 +56,10 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     final_loss: float = Field(..., description="Final average epoch loss.")
+    loss_history: list[dict[str, float | int]] = Field(
+        default_factory=list,
+        description="Average loss per training epoch.",
+    )
     trained_instances: int = Field(..., description="Number of training instances used.")
     model_artifact_path: Path = Field(..., description="Saved model weights path.")
     model_config_path: Path = Field(..., description="Saved model config path.")
@@ -151,6 +155,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         )
 
         final_loss = 0.0
+        loss_history: list[dict[str, float | int]] = []
         for epoch in range(1, training_config.epochs + 1):
             logger.info(
                 f"Training epoch {epoch}/{training_config.epochs} "
@@ -204,6 +209,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     )
 
             final_loss = epoch_loss / len(train_instances)
+            loss_history.append(
+                {
+                    "epoch": epoch,
+                    "average_loss": final_loss,
+                }
+            )
             logger.info(
                 f"Finished epoch {epoch}/{training_config.epochs} "
                 f"with average_loss={final_loss:.6f}"
@@ -214,7 +225,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             built_retriever=built_retriever,
             configuration=configuration,
             training_config=training_config,
+            selected_device=device,
             final_loss=final_loss,
+            loss_history=loss_history,
             trained_instances=len(train_instances),
             model_run_directory=self._create_model_run_directory(
                 model_root=cache_root / "models",
@@ -228,6 +241,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
 
         return GnnAnswerRetrieverTrainingOutcome(
             final_loss=final_loss,
+            loss_history=loss_history,
             trained_instances=len(train_instances),
             model_artifact_path=model_artifact_path,
             model_config_path=model_artifact_path.with_name(self.model_config_filename),
@@ -366,7 +380,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         built_retriever: BuiltGnnAnswerRetriever,
         configuration: BuiltPipelineConfiguration,
         training_config: GnnAnswerRetrieverTrainingConfig,
+        selected_device: str,
         final_loss: float,
+        loss_history: list[dict[str, float | int]],
         trained_instances: int,
         model_run_directory: Path,
         torch,
@@ -374,19 +390,27 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         model_run_directory.mkdir(parents=True, exist_ok=False)
         model_artifact_path = model_run_directory / self.model_weights_filename
         model_config_path = model_run_directory / self.model_config_filename
+        model_run_name = model_run_directory.name
+        model_run_number = self._extract_run_number(model_run_name)
+        training_payload = training_config.model_dump(exclude={"run_name"})
+        training_payload["device"] = selected_device
+        training_payload["gnn_layer_count"] = built_retriever.gnn_layer_count
+        training_payload["hidden_dimension"] = built_retriever.hidden_dimension
+        training_payload["loss_function"] = "BCEWithLogitsLoss"
         torch.save(model.state_dict(), model_artifact_path)
         model_config_path.write_text(
             json.dumps(
                 {
                     "dataset_id": built_retriever.dataset_id,
+                    "run_name": model_run_name,
+                    "run_number": model_run_number,
                     "entity_embedding_model": built_retriever.entity_embedding_model,
                     "question_embedding_model": configuration.question_embedding_model,
                     "relation_embedding_model": configuration.relation_embedding_model,
                     "entity_embedding_dimension": built_retriever.entity_embedding_dimension,
-                    "hidden_dimension": built_retriever.hidden_dimension,
-                    "gnn_layer_count": built_retriever.gnn_layer_count,
                     "node_classifier": built_retriever.node_classifier,
-                    "training": training_config.model_dump(),
+                    "training": training_payload,
+                    "loss_history": loss_history,
                     "final_loss": final_loss,
                     "trained_instances": trained_instances,
                 },

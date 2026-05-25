@@ -74,6 +74,9 @@ class GeneratedAnswerForPrediction(BaseModel):
     a_entity: list[str] = Field(default_factory=list)
     answer_candidates: list[str] = Field(default_factory=list)
     reasoning_subgraph_triples: list[GraphTriple] = Field(default_factory=list)
+    reasoning_path_lengths: list[int] = Field(default_factory=list)
+    found_reasoning_paths: int = Field(default=0)
+    missing_reasoning_paths: int = Field(default=0)
     reasoning_paths_text: str = Field(default="")
     model_id: str = Field(..., description="LLM model used for answer generation.")
     answer: str = Field(default="", description="Generated final answer.")
@@ -82,6 +85,10 @@ class GeneratedAnswerForPrediction(BaseModel):
         description="Explanation of which reasoning paths supported the answer.",
     )
     raw_response: str = Field(default="", description="Raw LLM response text.")
+    prompt_tokens: int = Field(default=0, description="Prompt/input tokens used.")
+    completion_tokens: int = Field(default=0, description="Completion/output tokens used.")
+    total_tokens: int = Field(default=0, description="Total tokens used.")
+    estimated_cost_usd: float = Field(default=0.0, description="Estimated generation cost.")
     error_message: str | None = Field(
         default=None,
         description="Generation error when this instance failed.",
@@ -119,7 +126,6 @@ class SavedLlmInferenceRun(StepResult):
     total_instances: int = Field(..., description="Number of instances processed.")
     successful_answers: int = Field(..., description="Number of successful generations.")
     failed_answers: int = Field(..., description="Number of failed generations.")
-    reasoning_subgraphs_path: Path = Field(..., description="Saved subgraphs path.")
-    prompts_path: Path = Field(..., description="Saved prompts path.")
+    reasoning_path: Path = Field(..., description="Saved reasoning path.")
     answers_path: Path = Field(..., description="Saved answers path.")
-    summary_path: Path = Field(..., description="Saved summary path.")
+    inference_config_path: Path = Field(..., description="Saved inference config path.")

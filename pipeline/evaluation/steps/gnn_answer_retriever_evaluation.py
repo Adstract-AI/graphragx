@@ -15,13 +15,13 @@ from pipeline.evaluation.models import (
     GnnAnswerRetrieverEvaluationConfig,
     GnnAnswerRetrieverEvaluationResult,
 )
-from pipeline.exceptions import InvalidInteractiveConfigurationInputException
+from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.steps.gnn_answer_retriever_training import (
     TrainedGnnAnswerRetriever,
 )
-from pipeline.services.gnn_answer_retriever_evaluation import (
+from pipeline.preparation.services.gnn_answer_retriever_evaluation import (
     GnnAnswerRetrieverEvaluationService,
 )
 
@@ -123,11 +123,12 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             evaluated_instances=outcome.evaluated_instances,
             hits_at_1=outcome.hits_at_1,
             hits_at_1_count=outcome.hits_at_1_count,
-            hit_at_k=outcome.hit_at_k,
-            hit_at_k_count=outcome.hit_at_k_count,
+            hits_at_5=outcome.hits_at_5,
+            hits_at_5_count=outcome.hits_at_5_count,
+            hits_at_10=outcome.hits_at_10,
+            hits_at_10_count=outcome.hits_at_10_count,
             average_candidate_count=outcome.average_candidate_count,
             missing_gold_in_graph_count=outcome.missing_gold_in_graph_count,
             predictions_path=outcome.storage_result.predictions_path,
-            summary_metrics_path=outcome.storage_result.summary_metrics_path,
             evaluation_config_path=outcome.storage_result.evaluation_config_path,
         )

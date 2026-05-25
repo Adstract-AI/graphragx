@@ -5,8 +5,8 @@ from __future__ import annotations
 from helpers.constants import OPENAI_API_KEY_ENV_NAME
 from helpers.env_variables import OPENAI_API_KEY
 from helpers.logging_config import get_logger
-from pipeline.exceptions import OpenAiEmbeddingConfigurationException
-from pipeline.services.abstract import AbstractService
+from pipeline.preparation.exceptions import OpenAiEmbeddingConfigurationException
+from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
 

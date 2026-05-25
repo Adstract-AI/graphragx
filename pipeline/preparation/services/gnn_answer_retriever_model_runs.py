@@ -13,10 +13,10 @@ from helpers.constants import (
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
 )
 from helpers.logging_config import get_logger
-from pipeline.exceptions import GnnAnswerRetrieverModelRunException
+from pipeline.preparation.exceptions import GnnAnswerRetrieverModelRunException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
 
@@ -30,7 +30,9 @@ class SavedGnnAnswerRetrieverTrainingConfig(BaseModel):
     max_instances: int | None = None
     log_every: int
     device: str
-    run_name: str | None = None
+    gnn_layer_count: int | None = None
+    hidden_dimension: int | None = None
+    loss_function: str | None = None
 
 
 class SavedGnnAnswerRetrieverConfig(BaseModel):
@@ -41,12 +43,23 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
     entity_embedding_dimension: int
-    hidden_dimension: int
-    gnn_layer_count: int
+    hidden_dimension: int | None = None
+    gnn_layer_count: int | None = None
     node_classifier: str
     training: SavedGnnAnswerRetrieverTrainingConfig
+    run_name: str | None = None
+    run_number: int | None = None
+    loss_history: list[dict[str, float | int]] = Field(default_factory=list)
     final_loss: float
     trained_instances: int
+
+    @property
+    def resolved_hidden_dimension(self) -> int:
+        return self.hidden_dimension or self.training.hidden_dimension or 0
+
+    @property
+    def resolved_gnn_layer_count(self) -> int:
+        return self.gnn_layer_count or self.training.gnn_layer_count or 0
 
 
 class SavedGnnAnswerRetrieverRun(BaseModel):
@@ -81,6 +94,7 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
 
     weights_filename = GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME
     config_filename = GNN_ANSWER_RETRIEVER_CONFIG_FILENAME
+    legacy_config_filename = "gnn_answer_retriever_config.json"
 
     def resolve_run(
         self,
@@ -133,8 +147,8 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
 
         model = GnnAnswerRetriever(
             entity_embedding_dimension=saved_run.config.entity_embedding_dimension,
-            hidden_dimension=saved_run.config.hidden_dimension,
-            gnn_layer_count=saved_run.config.gnn_layer_count,
+            hidden_dimension=saved_run.config.resolved_hidden_dimension,
+            gnn_layer_count=saved_run.config.resolved_gnn_layer_count,
             node_classifier=saved_run.config.node_classifier,
         )
         try:
@@ -238,6 +252,10 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
     def _build_saved_run(self, run_directory: Path) -> SavedGnnAnswerRetrieverRun:
         weights_path = run_directory / self.weights_filename
         config_path = run_directory / self.config_filename
+        if not config_path.exists():
+            legacy_config_path = run_directory / self.legacy_config_filename
+            if legacy_config_path.exists():
+                config_path = legacy_config_path
         if not weights_path.exists():
             raise GnnAnswerRetrieverModelRunException(
                 f"Selected model run is missing weights: {weights_path}"

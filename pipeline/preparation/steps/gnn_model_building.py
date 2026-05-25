@@ -6,7 +6,7 @@ from pydantic import ConfigDict, Field
 
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
-from pipeline.exceptions import InvalidInteractiveConfigurationInputException
+from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.helpers.configuration_definitions import OPENAI_EMBEDDING_MODELS
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset

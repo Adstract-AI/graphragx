@@ -8,13 +8,13 @@ from pydantic import Field
 
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
-from pipeline.exceptions import UnsupportedDatasetSelectionException
+from pipeline.preparation.exceptions import UnsupportedDatasetSelectionException
 from pipeline.models import InitialStepResult
 from pipeline.preparation.helpers.dataset_definitions import (
     PIPELINE_DATASETS,
     WEBQSP_DATASET_ID,
 )
-from pipeline.services.selection import SelectionService
+from pipeline.preparation.services.selection import SelectionService
 
 logger = get_logger(__name__)
 

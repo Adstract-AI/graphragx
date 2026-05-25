@@ -1,0 +1,85 @@
+# Contributing
+
+Thank you for considering a contribution to `graphragX`.
+
+This project is an academic GraphRAG pipeline, so contributions should preserve reproducibility, clear saved artifacts, and the existing pipeline conventions.
+
+## Before You Start
+
+Read the main project documentation:
+
+- `README.md`
+- `metadata/`
+- `agents_metadata/guidlines/PROJECT_GUIDELINES.MD`
+- `agents_metadata/pipeline_overview/PIPELINE_OVERVIEW.md`
+
+The `metadata/` folder contains the human-facing project explanation, architecture material, and metric descriptions. The `agents_metadata/` folder contains instructions for AI coding agents and should be used as context when an agent contributes changes.
+
+## Development Setup
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Create a local environment file:
+
+```bash
+cp .env.example .env
+```
+
+Set the required API keys and optional W&B settings in `.env`.
+
+## Contribution Guidelines
+
+- Keep pipeline changes modular. Prefer adding or updating a focused step, service, or model instead of mixing responsibilities.
+- Add or update tests for metric logic, storage behavior, W&B payloads, and pipeline composition when those areas change.
+- Do not remove compatibility behavior unless the project explicitly decides to migrate old runs.
+- Keep documentation in sync when CLI flags, output files, or metric semantics change.
+
+## Working With Agents
+
+If you use an AI coding agent, give it the relevant files from `agents_metadata/` first. At minimum, include:
+
+- `agents_metadata/guidlines/PROJECT_GUIDELINES.MD`
+- `agents_metadata/guidlines/SERVICE_GUIDELINES.MD`
+- `agents_metadata/guidlines/ERROR_HANDLING_GUIDELINES.MD`
+- `agents_metadata/pipeline_overview/PIPELINE_OVERVIEW.md`
+
+The agent metadata explains the project architecture, conventions, error-handling expectations, and the intended pipeline flow. This helps agents make changes that match the existing codebase.
+
+## Testing
+
+Run focused tests for the area you changed. For example:
+
+```bash
+python -m pytest tests/evaluation/test_final_results_evaluation.py -q
+```
+
+For a broader sanity check around the current final pipeline behavior:
+
+```bash
+python -m pytest tests/test_main.py tests/evaluation/test_final_results_evaluation.py tests/evaluation/test_wandb_final_results.py -q
+```
+
+Some tests require optional heavy dependencies such as PyTorch. If a dependency is missing, install the project requirements or note clearly which tests could not be run.
+
+## Pull Request Checklist
+
+- The change is scoped and follows the current pipeline/service conventions.
+- Relevant tests were added or updated.
+- Existing focused tests pass.
+- README or metadata files were updated if behavior changed.
+- Generated data, model weights, local W&B files, and private environment files are not committed.
+
+## License
+
+By contributing, you agree that your contribution is provided under the MIT License.

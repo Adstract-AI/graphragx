@@ -15,12 +15,12 @@ from helpers.constants import (
 )
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
-from pipeline.exceptions import InvalidInteractiveConfigurationInputException
+from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
-from pipeline.services.gnn_answer_retriever_training import (
+from pipeline.preparation.services.gnn_answer_retriever_training import (
     GnnAnswerRetrieverTrainingConfig,
     GnnAnswerRetrieverTrainingService,
 )
@@ -55,6 +55,10 @@ class TrainedGnnAnswerRetriever(StepResult):
     )
     selected_device: str = Field(..., description="Resolved PyTorch training device.")
     final_loss: float = Field(..., description="Final average epoch loss.")
+    loss_history: list[dict[str, float | int]] = Field(
+        default_factory=list,
+        description="Average loss per training epoch.",
+    )
     trained_instances: int = Field(..., description="Number of instances trained on.")
     model: AnswerRetrieverModel = Field(..., description="Trained retriever model.")
     model_artifact_path: Path = Field(..., description="Saved model weights path.")
@@ -151,6 +155,7 @@ class TrainGnnAnswerRetrieverStep(
             training_run_name=self.training_config.run_name,
             selected_device=outcome.selected_device,
             final_loss=outcome.final_loss,
+            loss_history=outcome.loss_history,
             trained_instances=outcome.trained_instances,
             model=built_retriever.model,
             model_artifact_path=outcome.model_artifact_path,

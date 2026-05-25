@@ -8,6 +8,15 @@ from pipeline.evaluation.models.gnn_answer_retriever_evaluation import (
     GoldAnswerScore,
 )
 from pipeline.evaluation.models.llm_answer_generation import GeneratedFinalAnswer
+from pipeline.evaluation.models.final_results import (
+    ExplanationGroundingMetrics,
+    FinalAnswerMetrics,
+    FinalReasoningMetrics,
+    FinalResultsConfig,
+    FinalResultsEvaluationResult,
+    PerInstanceFinalResult,
+    RankingMetrics,
+)
 from pipeline.evaluation.models.llm_inference import (
     BuiltReasoningSamples,
     ExtractedReasoningPathsBatch,
@@ -35,6 +44,11 @@ __all__ = [
     "EvaluatedAnswerRetrievalInstance",
     "ExtractedReasoningPathsBatch",
     "ExtractedReasoningPaths",
+    "ExplanationGroundingMetrics",
+    "FinalAnswerMetrics",
+    "FinalReasoningMetrics",
+    "FinalResultsConfig",
+    "FinalResultsEvaluationResult",
     "GeneratedAnswerForPrediction",
     "GeneratedFinalAnswer",
     "GeneratedFinalAnswersBatch",
@@ -42,6 +56,8 @@ __all__ = [
     "GnnAnswerRetrieverEvaluationResult",
     "GoldAnswerScore",
     "GraphTriple",
+    "PerInstanceFinalResult",
+    "RankingMetrics",
     "ReasoningPathsForPrediction",
     "ReasoningPath",
     "ReasoningSampleForPrediction",

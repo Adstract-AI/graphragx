@@ -123,24 +123,27 @@ SUBGRAPH_CONSTRUCTION_ALGORITHMS: Final[dict[str, SubgraphConstructionDefinition
         display_name="Shortest Path",
         description="Build a question-specific subgraph using shortest paths between relevant nodes.",
     ),
-    "pcst": SubgraphConstructionDefinition(
-        algorithm_id="pcst",
-        display_name="Prize-Collecting Steiner Tree (PCST)",
-        description="Optimize a compact subgraph that balances node value and connection cost.",
-    ),
+    # Not Supported Yet
+    # "pcst": SubgraphConstructionDefinition(
+    #     algorithm_id="pcst",
+    #     display_name="Prize-Collecting Steiner Tree (PCST)",
+    #     description="Optimize a compact subgraph that balances node value and connection cost.",
+    # ),
 }
 
 CONTEXT_CONSTRUCTION_STRATEGIES: Final[dict[str, ContextConstructionDefinition]] = {
-    "textualized": ContextConstructionDefinition(
-        strategy_id="textualized",
-        display_name="Textualized",
-        description="Represent the subgraph as natural language descriptions for the LLM.",
-    ),
+
     "structured_triples": ContextConstructionDefinition(
         strategy_id="structured_triples",
         display_name="Structured Triples",
         description="Represent the subgraph as <Head, Relation, Tail> triples.",
     ),
+    # Not Supported Yet
+    # "textualized": ContextConstructionDefinition(
+    #     strategy_id="textualized",
+    #     display_name="Textualized",
+    #     description="Represent the subgraph as natural language descriptions for the LLM.",
+    # ),
 }
 
 GNN_LAYER_COUNT_OPTIONS: Final[dict[str, GnnLayerCountDefinition]] = {
@@ -199,19 +202,12 @@ OPENAI_EMBEDDING_MODELS: Final[dict[str, OpenAiEmbeddingModelDefinition]] = {
         display_name="text-embedding-3-large",
         dimensions=3072,
         description="Most capable OpenAI embedding model for text embeddings.",
-    ),
-    "text-embedding-ada-002": OpenAiEmbeddingModelDefinition(
-        model_id="text-embedding-ada-002",
-        display_name="text-embedding-ada-002",
-        dimensions=1536,
-        description="Older OpenAI embedding model kept as a compatibility option.",
-    ),
+    )
 }
 
-RECOMMENDED_MAIN_LLM_MODEL_ID: Final[str] = "gpt-4.1-mini"
-RECOMMENDED_ASSISTANT_LLM_MODEL_ID: Final[str] = "gpt-4.1-mini"
+RECOMMENDED_MAIN_LLM_MODEL_ID: Final[str] = "gpt-4.1-nano"
 RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID: Final[str] = "shortest_path"
-RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID: Final[str] = "textualized"
+RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID: Final[str] = "structured_triples"
 RECOMMENDED_GNN_LAYER_COUNT: Final[int] = 2
 RECOMMENDED_GNN_HIDDEN_DIMENSION: Final[int] = 256
 RECOMMENDED_NODE_CLASSIFIER_ID: Final[str] = "mlp"

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from helpers.logging_config import get_logger
-from pipeline.exceptions import (
+from pipeline.preparation.exceptions import (
     MalformedWebQSPExampleException,
     UnsupportedDatasetProcessorException,
 )
@@ -17,8 +17,8 @@ from pipeline.preparation.models.webqsp_local_graph import (
     WebQSPProcessedInstance,
     WebQSPVocabularyStore,
 )
-from pipeline.services.abstract import AbstractService
-from pipeline.services.webqsp_entity_name_mapping import WebQSPEntityNameMappingService
+from pipeline.services import AbstractService
+from pipeline.preparation.services.webqsp_entity_name_mapping import WebQSPEntityNameMappingService
 
 if TYPE_CHECKING:
     from pipeline.preparation.steps.dataset_loading import LoadedDataset

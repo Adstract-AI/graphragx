@@ -127,7 +127,8 @@ class GnnPredictionCandidateScoringStepTests(unittest.TestCase):
   ],
   "gold_answer_scores": [],
   "hit_at_1": true,
-  "hit_at_k": true,
+  "hit_at_5": true,
+  "hit_at_10": true,
   "missing_gold_in_graph": false
 }
 """.strip(),
@@ -485,7 +486,8 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                     ],
                     "gold_answer_scores": [],
                     "hit_at_1": True,
-                    "hit_at_k": True,
+                    "hit_at_5": True,
+                    "hit_at_10": True,
                     "missing_gold_in_graph": False,
                 }
             ),
@@ -517,12 +519,13 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 evaluated_instances=1,
                 hits_at_1=1.0,
                 hits_at_1_count=1,
-                hit_at_k=1.0,
-                hit_at_k_count=1,
+                hits_at_5=1.0,
+                hits_at_5_count=1,
+                hits_at_10=1.0,
+                hits_at_10_count=1,
                 average_candidate_count=1.0,
                 missing_gold_in_graph_count=0,
                 predictions_path=predictions_path,
-                summary_metrics_path=directory / "summary_metrics.json",
                 evaluation_config_path=directory / "evaluation_config.json",
             )
 
@@ -566,12 +569,13 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 evaluated_instances=1,
                 hits_at_1=1.0,
                 hits_at_1_count=1,
-                hit_at_k=1.0,
-                hit_at_k_count=1,
+                hits_at_5=1.0,
+                hits_at_5_count=1,
+                hits_at_10=1.0,
+                hits_at_10_count=1,
                 average_candidate_count=1.0,
                 missing_gold_in_graph_count=0,
                 predictions_path=predictions_path,
-                summary_metrics_path=directory / "summary_metrics.json",
                 evaluation_config_path=directory / "evaluation_config.json",
             )
             built_samples = BuildReasoningSamplesFromGnnEvaluationStep().execute(
@@ -593,17 +597,32 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 inference_run_name="test",
             ).execute(StepContext(result=answers_batch))
 
-            self.assertTrue(saved_run.reasoning_subgraphs_path.exists())
-            self.assertTrue(saved_run.prompts_path.exists())
+            self.assertTrue(saved_run.reasoning_path.exists())
             self.assertTrue(saved_run.answers_path.exists())
-            self.assertTrue(saved_run.summary_path.exists())
+            self.assertTrue(saved_run.inference_config_path.exists())
             self.assertEqual(saved_run.total_instances, 1)
             self.assertEqual(saved_run.successful_answers, 1)
             self.assertFalse((saved_run.inference_run_directory / "reasoning_paths.jsonl").exists())
-            prompts_text = saved_run.prompts_path.read_text(encoding="utf-8")
+            self.assertFalse((saved_run.inference_run_directory / "prompts.jsonl").exists())
+            self.assertFalse((saved_run.inference_run_directory / "reasoning_subgraphs.jsonl").exists())
+            self.assertFalse((saved_run.inference_run_directory / "summary.json").exists())
+            self.assertEqual(saved_run.reasoning_path.name, "reasoning.jsonl")
+            self.assertEqual(saved_run.inference_config_path.name, "inference_config.json")
+            reasoning_rows = [
+                json.loads(line)
+                for line in saved_run.reasoning_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(reasoning_rows), 1)
+            reasoning_row = reasoning_rows[0]
             answers_text = saved_run.answers_path.read_text(encoding="utf-8")
-            self.assertIn("reasoning_paths_text", prompts_text)
-            self.assertNotIn('"prompt"', prompts_text)
+            self.assertEqual(reasoning_row["q_entity"], ["Justin Bieber"])
+            self.assertIn("subgraph", reasoning_row)
+            self.assertNotIn("triples", reasoning_row)
+            self.assertEqual(reasoning_row["analytics"]["total_subgraph_triples"], 2)
+            self.assertEqual(reasoning_row["analytics"]["total_relations"], 2)
+            self.assertEqual(reasoning_row["analytics"]["total_distinct_nodes"], 3)
+            self.assertEqual(reasoning_row["analytics"]["max_length"], 2)
+            self.assertEqual(reasoning_row["analytics"]["min_length"], 2)
             self.assertIn("Jaxon Bieber", answers_text)
             self.assertIn("explanation", answers_text)
         print("[test_batch_inference_saves_expected_files] Passed.")
@@ -632,12 +651,13 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
                 evaluated_instances=1,
                 hits_at_1=1.0,
                 hits_at_1_count=1,
-                hit_at_k=1.0,
-                hit_at_k_count=1,
+                hits_at_5=1.0,
+                hits_at_5_count=1,
+                hits_at_10=1.0,
+                hits_at_10_count=1,
                 average_candidate_count=1.0,
                 missing_gold_in_graph_count=0,
                 predictions_path=predictions_path,
-                summary_metrics_path=directory / "summary_metrics.json",
                 evaluation_config_path=directory / "evaluation_config.json",
             )
             built_samples = BuildReasoningSamplesFromGnnEvaluationStep().execute(
@@ -663,12 +683,16 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
             ).execute(StepContext(result=paths_batch))
 
             answer_lines = saved_run.answers_path.read_text(encoding="utf-8").splitlines()
-            summary = json.loads(saved_run.summary_path.read_text(encoding="utf-8"))
+            reasoning_rows = saved_run.reasoning_path.read_text(encoding="utf-8").splitlines()
+            summary = json.loads(saved_run.inference_config_path.read_text(encoding="utf-8"))
             self.assertEqual(len(answer_lines), 2)
+            self.assertEqual(len(reasoning_rows), 2)
             self.assertEqual(len(fake_service.calls), 2)
             self.assertEqual(saved_run.total_instances, 2)
             self.assertEqual(saved_run.successful_answers, 2)
-            self.assertEqual(summary["total_instances"], 2)
+            self.assertEqual(summary["inference"]["total_requests"], 2)
+            self.assertEqual(summary["inference"]["total_tokens"], 0)
+            self.assertEqual(summary["inference"]["total_cost_usd"], 0.0)
             self.assertEqual(summary["successful_answers"], 2)
         print("[test_batched_inference_saves_each_batch] Passed.")
 

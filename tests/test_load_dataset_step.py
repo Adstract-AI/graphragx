@@ -26,7 +26,7 @@ from pipeline import (
     WebQSPVocabularyStore,
 )
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
-from pipeline.services import AbstractDatasetLoaderService
+from pipeline.preparation.services import AbstractDatasetLoaderService
 
 
 class FakeSplit:
@@ -106,7 +106,7 @@ class FakeTrainGnnAnswerRetrieverStep(TrainGnnAnswerRetrieverStep):
             trained_instances=0,
             model=context.result.model,
             model_artifact_path="/tmp/graphragx-test/gnn_answer_retriever.pt",
-            model_config_path="/tmp/graphragx-test/gnn_answer_retriever_config.json",
+            model_config_path="/tmp/graphragx-test/model_config.json",
             model_run_directory="/tmp/graphragx-test/1_test",
             model_run_name="1_test",
             model_run_number=1,
@@ -127,12 +127,13 @@ class FakeEvaluateGnnAnswerRetrieverStep(EvaluateGnnAnswerRetrieverStep):
             evaluated_instances=0,
             hits_at_1=0.0,
             hits_at_1_count=0,
-            hit_at_k=0.0,
-            hit_at_k_count=0,
+            hits_at_5=0.0,
+            hits_at_5_count=0,
+            hits_at_10=0.0,
+            hits_at_10_count=0,
             average_candidate_count=0.0,
             missing_gold_in_graph_count=0,
             predictions_path="/tmp/graphragx-test/evaluations/1_test/predictions.jsonl",
-            summary_metrics_path="/tmp/graphragx-test/evaluations/1_test/summary_metrics.json",
             evaluation_config_path="/tmp/graphragx-test/evaluations/1_test/evaluation_config.json",
         )
 
@@ -146,9 +147,8 @@ class LoadDatasetStepTests(unittest.TestCase):
             result=BuiltPipelineConfiguration(
                 dataset_id=dataset_id,
                 main_llm_model="gpt-5.4",
-                assistant_llm_model="gpt-5.4-mini",
                 subgraph_construction_algorithm="shortest_path",
-                context_construction_strategy="textualized",
+                context_construction_strategy="structured_triples",
                 gnn_layer_count=2,
                 gnn_hidden_dimension=256,
                 node_classifier="mlp",
@@ -223,15 +223,16 @@ class LoadDatasetStepTests(unittest.TestCase):
                 config=main.PipelineRuntimeConfig(
                     dataset="WebQSP",
                     main_llm_model="gpt-5.4",
-                    assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
-                    context_strategy="textualized",
+                    context_strategy="structured_triples",
                     gnn_layer_count=2,
                     gnn_hidden_dimension=256,
                     node_classifier="mlp",
                     question_embedding_model="text-embedding-3-small",
                     relation_embedding_model="text-embedding-3-small",
                     entity_embedding_model="text-embedding-3-small",
+                    no_llm_inference=True,
+                    no_wandb=True,
                 ),
             )
 
@@ -242,7 +243,7 @@ class LoadDatasetStepTests(unittest.TestCase):
 
 class HuggingFaceWebQSPDatasetLoaderServiceTests(unittest.TestCase):
     def test_missing_hugging_face_datasets_raises_dedicated_exception(self) -> None:
-        from pipeline.services.dataset_loader import HuggingFaceWebQSPDatasetLoaderService
+        from pipeline.preparation.services.dataset_loader import HuggingFaceWebQSPDatasetLoaderService
 
         service = HuggingFaceWebQSPDatasetLoaderService()
 
@@ -260,7 +261,7 @@ class HuggingFaceWebQSPDatasetLoaderServiceTests(unittest.TestCase):
                 service.load_dataset("WebQSP")
 
     def test_loader_failure_raises_dataset_loading_exception(self) -> None:
-        from pipeline.services.dataset_loader import HuggingFaceWebQSPDatasetLoaderService
+        from pipeline.preparation.services.dataset_loader import HuggingFaceWebQSPDatasetLoaderService
 
         service = HuggingFaceWebQSPDatasetLoaderService()
 

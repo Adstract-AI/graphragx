@@ -6,29 +6,23 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from helpers.constants import (
     GNN_ANSWER_RETRIEVER_EVALUATION_CONFIG_FILENAME,
     GNN_ANSWER_RETRIEVER_EVALUATION_PREDICTIONS_FILENAME,
-    GNN_ANSWER_RETRIEVER_EVALUATION_SUMMARY_FILENAME,
 )
+from helpers.path_serialization import make_project_paths_relative
 from pipeline.evaluation.models import EvaluatedAnswerRetrievalInstance
-from pipeline.exceptions import GnnAnswerRetrieverEvaluationException
-from pipeline.services.abstract import AbstractService
-
-JsonScalar = str | int | float | bool | None
-JsonObjectLevel1 = dict[str, JsonScalar]
-JsonObjectLevel2 = dict[str, JsonScalar | JsonObjectLevel1]
-JsonObjectLevel3 = dict[str, JsonScalar | JsonObjectLevel1 | JsonObjectLevel2]
-
+from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
+from pipeline.services import AbstractService
 
 class GnnAnswerRetrieverEvaluationStoragePayload(BaseModel):
     """Data persisted for one evaluation run."""
 
-    evaluation_config: JsonObjectLevel3 = Field(default_factory=dict)
-    summary_metrics: JsonObjectLevel1 = Field(default_factory=dict)
+    evaluation_config: dict[str, Any] = Field(default_factory=dict)
     predictions: list[EvaluatedAnswerRetrievalInstance] = Field(default_factory=list)
 
 
@@ -39,7 +33,6 @@ class GnnAnswerRetrieverEvaluationStorageResult(BaseModel):
     evaluation_run_name: str
     evaluation_run_number: int
     evaluation_config_path: Path
-    summary_metrics_path: Path
     predictions_path: Path
 
 
@@ -47,7 +40,6 @@ class GnnAnswerRetrieverEvaluationStorageService(AbstractService):
     """Persist numbered evaluation runs."""
 
     config_filename = GNN_ANSWER_RETRIEVER_EVALUATION_CONFIG_FILENAME
-    summary_filename = GNN_ANSWER_RETRIEVER_EVALUATION_SUMMARY_FILENAME
     predictions_filename = GNN_ANSWER_RETRIEVER_EVALUATION_PREDICTIONS_FILENAME
 
     def save_evaluation_run(
@@ -63,15 +55,20 @@ class GnnAnswerRetrieverEvaluationStorageService(AbstractService):
                 run_name=run_name,
             )
             evaluation_config_path = evaluation_run_directory / self.config_filename
-            summary_metrics_path = evaluation_run_directory / self.summary_filename
             predictions_path = evaluation_run_directory / self.predictions_filename
+            evaluation_run_name = evaluation_run_directory.name
+            evaluation_run_number = self._extract_run_number(evaluation_run_name)
+            evaluation_config = dict(payload.evaluation_config)
+            evaluation_config["run_name"] = evaluation_run_name
+            evaluation_config["run_number"] = evaluation_run_number
+            evaluation_config["evaluated_instances"] = len(payload.predictions)
 
             evaluation_config_path.write_text(
-                json.dumps(payload.evaluation_config, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
-            summary_metrics_path.write_text(
-                json.dumps(payload.summary_metrics, indent=2, sort_keys=True),
+                json.dumps(
+                    make_project_paths_relative(evaluation_config),
+                    indent=2,
+                    sort_keys=True,
+                ),
                 encoding="utf-8",
             )
             with predictions_path.open("w", encoding="utf-8") as predictions_file:
@@ -85,12 +82,9 @@ class GnnAnswerRetrieverEvaluationStorageService(AbstractService):
 
         return GnnAnswerRetrieverEvaluationStorageResult(
             evaluation_run_directory=evaluation_run_directory,
-            evaluation_run_name=evaluation_run_directory.name,
-            evaluation_run_number=self._extract_run_number(
-                evaluation_run_directory.name
-            ),
+            evaluation_run_name=evaluation_run_name,
+            evaluation_run_number=evaluation_run_number,
             evaluation_config_path=evaluation_config_path,
-            summary_metrics_path=summary_metrics_path,
             predictions_path=predictions_path,
         )
 
