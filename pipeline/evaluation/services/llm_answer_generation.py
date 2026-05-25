@@ -4,16 +4,30 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 from helpers.constants import OPENAI_API_KEY_ENV_NAME
 from helpers.env_variables import OPENAI_API_KEY
+from helpers.logging_config import get_logger
+from helpers.openai_rate_limit_logging import (
+    create_rate_limit_logging_http_client,
+    format_rate_limit_retry_message,
+    is_openai_rate_limit_error,
+    rate_limit_wait_seconds,
+)
 from pipeline.evaluation.exceptions import LlmAnswerGenerationException
 from pipeline.services import AbstractService
+
+logger = get_logger(__name__)
 
 
 class LangChainOpenAiAnswerGenerationService(AbstractService):
     """Generate final QA answers with a simple OpenAI chat model."""
+
+    max_rate_limit_retries = 8
+    default_rate_limit_wait_seconds = 30.0
+    max_rate_limit_wait_seconds = 120.0
 
     # USD per 1M tokens. Unknown models fall back to 0-cost accounting.
     model_token_prices = {
@@ -65,16 +79,20 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
             from langchain_core.messages import HumanMessage, SystemMessage
             from langchain_openai import ChatOpenAI
 
-            chat_model = ChatOpenAI(
-                model=model_id,
-                api_key=OPENAI_API_KEY,
-                temperature=0,
+            messages = [
+                SystemMessage(content=self.system_prompt),
+                HumanMessage(content=prompt),
+            ]
+            chat_model = self._create_chat_model(
+                chat_openai_type=ChatOpenAI,
+                model_id=model_id,
+                prompt=prompt,
             )
-            response = chat_model.invoke(
-                [
-                    SystemMessage(content=self.system_prompt),
-                    HumanMessage(content=prompt),
-                ]
+            response = self._invoke_with_visible_rate_limit_retries(
+                chat_model=chat_model,
+                messages=messages,
+                model_id=model_id,
+                prompt=prompt,
             )
         except Exception as error:
             raise LlmAnswerGenerationException(
@@ -99,6 +117,73 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
             "total_tokens": usage["total_tokens"],
             "estimated_cost_usd": estimated_cost,
         }
+
+    def _invoke_with_visible_rate_limit_retries(
+        self,
+        chat_model: Any,
+        messages: list[Any],
+        model_id: str,
+        prompt: str,
+    ) -> Any:
+        for attempt_number in range(1, self.max_rate_limit_retries + 1):
+            try:
+                return chat_model.invoke(messages)
+            except Exception as error:
+                if not is_openai_rate_limit_error(error):
+                    raise
+
+                wait_seconds = rate_limit_wait_seconds(
+                    error=error,
+                    attempt_number=attempt_number,
+                    default_wait_seconds=self.default_rate_limit_wait_seconds,
+                    max_wait_seconds=self.max_rate_limit_wait_seconds,
+                )
+                logger.warning(
+                    format_rate_limit_retry_message(
+                        operation="llm_answer_generation",
+                        model_id=model_id,
+                        item_count=len(prompt),
+                        attempt_number=attempt_number,
+                        max_attempts=self.max_rate_limit_retries,
+                        wait_seconds=wait_seconds,
+                        error=error,
+                    )
+                )
+                time.sleep(wait_seconds)
+
+        return chat_model.invoke(messages)
+
+    @staticmethod
+    def _create_chat_model(
+        chat_openai_type: Any,
+        model_id: str,
+        prompt: str,
+    ) -> Any:
+        http_client = create_rate_limit_logging_http_client(
+            logger=logger,
+            operation="llm_answer_generation",
+            model_id=model_id,
+            item_count=len(prompt),
+        )
+        try:
+            return chat_openai_type(
+                model=model_id,
+                api_key=OPENAI_API_KEY,
+                temperature=0,
+                max_retries=0,
+                http_client=http_client,
+            )
+        except TypeError:
+            logger.warning(
+                "Current LangChain ChatOpenAI does not support max_retries=0 "
+                "or custom http_client; OpenAI SDK retries/rate-limit headers may "
+                "remain hidden in logs."
+            )
+            return chat_openai_type(
+                model=model_id,
+                api_key=OPENAI_API_KEY,
+                temperature=0,
+            )
 
     @classmethod
     def extract_token_usage(cls, response: Any) -> dict[str, int]:

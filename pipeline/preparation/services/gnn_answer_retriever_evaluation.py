@@ -117,6 +117,14 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 f"match prepared dataset {prepared_dataset.dataset_id}."
             )
 
+        logger.info(
+            f"Loading embedding caches for GNN answer-retriever evaluation: "
+            f"model_run={loaded_model_run.run_name} "
+            f"cache_root={cache_root / 'embeddings'} "
+            f"entity_model={loaded_model_run.config.entity_embedding_model} "
+            f"relation_model={loaded_model_run.relation_embedding_model} "
+            f"question_model={loaded_model_run.question_embedding_model}"
+        )
         node_cache = self.embedding_cache_service.load_node_cache(
             cache_root=cache_root,
             model_id=loaded_model_run.config.entity_embedding_model,
@@ -131,6 +139,13 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             cache_root=cache_root,
             model_id=loaded_model_run.question_embedding_model,
             vocabulary=prepared_dataset.vocabulary_store.questions,
+        )
+        logger.info(
+            f"Loaded embedding caches for GNN answer-retriever evaluation: "
+            f"model_run={loaded_model_run.run_name} "
+            f"nodes={len(node_cache.embeddings)} "
+            f"relations={len(relation_cache.embeddings)} "
+            f"questions={len(question_cache.embeddings)}"
         )
 
         logger.info(
