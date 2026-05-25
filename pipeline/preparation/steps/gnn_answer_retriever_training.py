@@ -48,6 +48,14 @@ class TrainedGnnAnswerRetriever(StepResult):
         default=None,
         description="Optional maximum number of training instances used.",
     )
+    training_start_instance: int = Field(
+        default=0,
+        description="Inclusive training split index where training started.",
+    )
+    training_end_instance: int = Field(
+        ...,
+        description="Exclusive training split index where training stopped.",
+    )
     training_log_every: int = Field(..., description="Training progress log interval.")
     training_device: str = Field(..., description="Requested training device.")
     training_run_name: str | None = Field(
@@ -61,6 +69,18 @@ class TrainedGnnAnswerRetriever(StepResult):
         description="Average loss per training epoch.",
     )
     trained_instances: int = Field(..., description="Number of instances trained on.")
+    is_fine_tuned_model: bool = Field(
+        default=False,
+        description="Whether this model continued training from a saved run.",
+    )
+    continued_from_model_run_name: str | None = Field(
+        default=None,
+        description="Source model run name when continuation was used.",
+    )
+    continued_from_model_run_number: int | None = Field(
+        default=None,
+        description="Source model run number when continuation was used.",
+    )
     model: AnswerRetrieverModel = Field(..., description="Trained retriever model.")
     model_artifact_path: Path = Field(..., description="Saved model weights path.")
     model_config_path: Path = Field(..., description="Saved model config path.")
@@ -97,9 +117,12 @@ class TrainGnnAnswerRetrieverStep(
         training_learning_rate: float = DEFAULT_TRAINING_LEARNING_RATE,
         training_weight_decay: float = DEFAULT_TRAINING_WEIGHT_DECAY,
         training_max_instances: int | None = None,
+        training_start_instance: int = 0,
         training_log_every: int = DEFAULT_TRAINING_LOG_EVERY,
         training_device: str = DEFAULT_TRAINING_DEVICE,
         training_run_name: str | None = None,
+        continue_training_model_run_name: str | None = None,
+        continue_training_model_run_number: int | None = None,
         training_service: GnnAnswerRetrieverTrainingService | None = None,
         force_default: bool = False,
     ):
@@ -109,9 +132,12 @@ class TrainGnnAnswerRetrieverStep(
             learning_rate=training_learning_rate,
             weight_decay=training_weight_decay,
             max_instances=training_max_instances,
+            start_instance=training_start_instance,
             log_every=training_log_every,
             device=training_device,
             run_name=training_run_name,
+            continue_from_model_run_name=continue_training_model_run_name,
+            continue_from_model_run_number=continue_training_model_run_number,
         )
         self.training_service = training_service or GnnAnswerRetrieverTrainingService(
             embedding_cache_service=WebQSPEmbeddingCacheService()
@@ -130,8 +156,11 @@ class TrainGnnAnswerRetrieverStep(
         logger.info(
             f"Starting TrainGnnAnswerRetrieverStep: dataset={built_retriever.dataset_id} "
             f"epochs={self.training_config.epochs} "
+            f"start_instance={self.training_config.start_instance} "
             f"max_instances={self.training_config.max_instances} "
-            f"run_name={self.training_config.run_name}"
+            f"run_name={self.training_config.run_name} "
+            f"continue_from_name={self.training_config.continue_from_model_run_name} "
+            f"continue_from_number={self.training_config.continue_from_model_run_number}"
         )
         outcome = self.training_service.train(
             built_retriever=built_retriever,
@@ -145,14 +174,16 @@ class TrainGnnAnswerRetrieverStep(
             f"trained_instances={outcome.trained_instances}"
         )
         return TrainedGnnAnswerRetriever(
-            dataset_id=built_retriever.dataset_id,
-            hidden_dimension=built_retriever.hidden_dimension,
-            gnn_layer_count=built_retriever.gnn_layer_count,
-            node_classifier=built_retriever.node_classifier,
+            dataset_id=outcome.dataset_id,
+            hidden_dimension=outcome.hidden_dimension,
+            gnn_layer_count=outcome.gnn_layer_count,
+            node_classifier=outcome.node_classifier,
             training_epochs=self.training_config.epochs,
             training_learning_rate=self.training_config.learning_rate,
             training_weight_decay=self.training_config.weight_decay,
             training_max_instances=self.training_config.max_instances,
+            training_start_instance=outcome.training_start_instance,
+            training_end_instance=outcome.training_end_instance,
             training_log_every=self.training_config.log_every,
             training_device=self.training_config.device,
             training_run_name=self.training_config.run_name,
@@ -160,7 +191,10 @@ class TrainGnnAnswerRetrieverStep(
             final_loss=outcome.final_loss,
             loss_history=outcome.loss_history,
             trained_instances=outcome.trained_instances,
-            model=built_retriever.model,
+            is_fine_tuned_model=outcome.is_fine_tuned_model,
+            continued_from_model_run_name=outcome.continued_from_model_run_name,
+            continued_from_model_run_number=outcome.continued_from_model_run_number,
+            model=outcome.model,
             model_artifact_path=outcome.model_artifact_path,
             model_config_path=outcome.model_config_path,
             model_run_directory=outcome.model_run_directory,

@@ -113,9 +113,12 @@ python main.py --evaluation-only --evaluation-model-run-number 12 --default
 | `--training-learning-rate TRAINING_LEARNING_RATE` | Learning rate for GNN training. |
 | `--training-weight-decay TRAINING_WEIGHT_DECAY` | Weight decay for GNN training. |
 | `--training-max-instances TRAINING_MAX_INSTANCES` | Optional limit for how many WebQSP training instances to use. If omitted, the full train split is used. |
+| `--training-start-instance TRAINING_START_INSTANCE` | Zero-based train split index where training starts. With `--training-max-instances 100 --training-start-instance 101`, the slice is `[101:201]`. |
 | `--training-log-every TRAINING_LOG_EVERY` | How often training progress is logged, measured in processed instances. |
 | `--training-device {auto,cpu,cuda,mps}` | Device used for GNN training. `auto` selects the best available supported device. |
 | `--training-run-name TRAINING_RUN_NAME` | Optional label for the saved training run folder. |
+| `--continue-training-model-run-name CONTINUE_TRAINING_MODEL_RUN_NAME` | Continue training from a saved GNN model run folder name or suffix. Valid in full and train-only runs. |
+| `--continue-training-model-run-number CONTINUE_TRAINING_MODEL_RUN_NUMBER` | Continue training from a saved GNN model run numeric prefix. Valid in full and train-only runs. |
 
 ### GNN Evaluation
 
