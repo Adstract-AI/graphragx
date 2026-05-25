@@ -1,0 +1,6 @@
+pydantic
+datasets
+torch
+langchain-openai
+python-dotenv
+wandb

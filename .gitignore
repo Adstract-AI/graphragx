@@ -71,3 +71,5 @@ wheels/
 
 skills/
 deprecated/
+data/*
+wandb/
