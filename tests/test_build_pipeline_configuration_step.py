@@ -4,7 +4,6 @@ import unittest
 
 from pipeline import (
     BuildPipelineConfigurationStep,
-    InvalidAssistantLlmSelectionException,
     InvalidContextConstructionSelectionException,
     InvalidEntityEmbeddingModelSelectionException,
     InvalidGnnLayerCountSelectionException,
@@ -33,7 +32,6 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
     def test_constructor_only_path_succeeds(self) -> None:
         step = BuildPipelineConfigurationStep(
             main_llm_model="gpt-5.4",
-            assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
             context_strategy="structured_triples",
             gnn_layer_count=2,
@@ -48,7 +46,6 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
 
         self.assertEqual(result.dataset_id, "WebQSP")
         self.assertEqual(result.main_llm_model, "gpt-5.4")
-        self.assertEqual(result.assistant_llm_model, "gpt-5.4-mini")
         self.assertEqual(result.subgraph_construction_algorithm, "shortest_path")
         self.assertEqual(result.context_construction_strategy, "structured_triples")
         self.assertEqual(result.gnn_layer_count, 2)
@@ -58,7 +55,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.entity_embedding_model, "text-embedding-3-small")
 
     def test_mixed_path_prompts_only_missing_fields(self) -> None:
-        answers = iter(["2", "1"])
+        answers = iter(["1"])
         prompts: list[str] = []
 
         def fake_input(prompt: str) -> str:
@@ -80,15 +77,14 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         result = step.execute(self.make_dataset_context())
 
         self.assertEqual(result.main_llm_model, "gpt-5.4")
-        self.assertEqual(result.assistant_llm_model, "gpt-5.4-mini")
         self.assertEqual(result.subgraph_construction_algorithm, "shortest_path")
         self.assertEqual(result.context_construction_strategy, "structured_triples")
         self.assertEqual(result.gnn_layer_count, 2)
         self.assertEqual(result.node_classifier, "mlp")
-        self.assertEqual(len(prompts), 2)
+        self.assertEqual(len(prompts), 1)
 
     def test_fully_interactive_path_works(self) -> None:
-        answers = iter(["1", "2", "1", "1", "2", "1", "1", "1", "1", "1"])
+        answers = iter(["1", "2", "1", "1", "1", "1", "1", "1", "1"])
 
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
         result = step.execute(self.make_dataset_context())
@@ -97,7 +93,6 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.gnn_hidden_dimension, 256)
         self.assertEqual(result.node_classifier, "mlp")
         self.assertEqual(result.main_llm_model, "gpt-5.4")
-        self.assertEqual(result.assistant_llm_model, "gpt-5.4-mini")
         self.assertEqual(result.subgraph_construction_algorithm, "shortest_path")
         self.assertEqual(result.context_construction_strategy, "structured_triples")
         self.assertEqual(result.question_embedding_model, "text-embedding-3-small")
@@ -107,7 +102,6 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
     def test_invalid_main_llm_constructor_value_raises(self) -> None:
         step = BuildPipelineConfigurationStep(
             main_llm_model="invalid-model",
-            assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
             context_strategy="structured_triples",
             gnn_layer_count=2,
@@ -121,27 +115,9 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         with self.assertRaises(InvalidMainLlmSelectionException):
             step.execute(self.make_dataset_context())
 
-    def test_invalid_assistant_llm_constructor_value_raises(self) -> None:
-        step = BuildPipelineConfigurationStep(
-            main_llm_model="gpt-5.4",
-            assistant_llm_model="invalid-model",
-            subgraph_algorithm="shortest_path",
-            context_strategy="structured_triples",
-            gnn_layer_count=2,
-            gnn_hidden_dimension=256,
-            node_classifier="mlp",
-            question_embedding_model="text-embedding-3-small",
-            relation_embedding_model="text-embedding-3-small",
-            entity_embedding_model="text-embedding-3-small",
-        )
-
-        with self.assertRaises(InvalidAssistantLlmSelectionException):
-            step.execute(self.make_dataset_context())
-
     def test_invalid_subgraph_constructor_value_raises(self) -> None:
         step = BuildPipelineConfigurationStep(
             main_llm_model="gpt-5.4",
-            assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="invalid",
             context_strategy="structured_triples",
             gnn_layer_count=2,
@@ -158,7 +134,6 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
     def test_invalid_context_strategy_constructor_value_raises(self) -> None:
         step = BuildPipelineConfigurationStep(
             main_llm_model="gpt-5.4",
-            assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
             context_strategy="invalid",
             gnn_layer_count=2,
@@ -175,7 +150,6 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
     def test_invalid_gnn_layer_count_constructor_value_raises(self) -> None:
         step = BuildPipelineConfigurationStep(
             main_llm_model="gpt-5.4",
-            assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
             context_strategy="structured_triples",
             gnn_layer_count=9,
@@ -192,7 +166,6 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
     def test_invalid_node_classifier_constructor_value_raises(self) -> None:
         step = BuildPipelineConfigurationStep(
             main_llm_model="gpt-5.4",
-            assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
             context_strategy="structured_triples",
             gnn_layer_count=2,
@@ -209,7 +182,6 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
     def test_invalid_embedding_model_constructor_value_raises(self) -> None:
         step = BuildPipelineConfigurationStep(
             main_llm_model="gpt-5.4",
-            assistant_llm_model="gpt-5.4-mini",
             subgraph_algorithm="shortest_path",
             context_strategy="structured_triples",
             gnn_layer_count=2,
@@ -224,7 +196,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             step.execute(self.make_dataset_context())
 
     def test_interactive_invalid_numeric_input_reprompts(self) -> None:
-        answers = iter(["abc", "1", "2", "1", "1", "2", "1", "1", "1", "1", "1"])
+        answers = iter(["abc", "1", "2", "1", "1", "1", "1", "1", "1", "1"])
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
 
         result = step.execute(self.make_dataset_context())
@@ -232,7 +204,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.gnn_layer_count, 2)
 
     def test_interactive_out_of_range_input_reprompts(self) -> None:
-        answers = iter(["99", "1", "2", "1", "1", "2", "1", "1", "1", "1", "1"])
+        answers = iter(["99", "1", "2", "1", "1", "1", "1", "1", "1", "1"])
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
 
         result = step.execute(self.make_dataset_context())
@@ -244,7 +216,6 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             preparation_steps=[
                 BuildPipelineConfigurationStep(
                     main_llm_model="gpt-5.4",
-                    assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
                     context_strategy="structured_triples",
                     gnn_layer_count=2,

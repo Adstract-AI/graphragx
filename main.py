@@ -39,7 +39,6 @@ from pipeline import (
     PipelineException,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
-    RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
     RECOMMENDED_GNN_HIDDEN_DIMENSION,
@@ -59,7 +58,6 @@ class PipelineRuntimeConfig(BaseModel):
     run_mode: Literal["full", "train-only", "evaluation-only"] = "full"
     dataset: str | None = None
     main_llm_model: str | None = None
-    assistant_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
     gnn_layer_count: int | None = None
@@ -82,10 +80,10 @@ class PipelineRuntimeConfig(BaseModel):
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
     evaluation_run_name: str | None = None
     evaluation_max_instances: int | None = None
-    with_llm_inference: bool = False
+    no_llm_inference: bool = False
     inference_run_name: str | None = None
     llm_inference_batch_size: int = 10
-    with_wandb: bool = False
+    no_wandb: bool = False
     wandb_project: str | None = None
     wandb_entity: str | None = None
     wandb_mode: str | None = None
@@ -101,8 +99,6 @@ class PipelineRuntimeConfig(BaseModel):
             update={
                 "dataset": self.dataset or WEBQSP_DATASET_ID,
                 "main_llm_model": self.main_llm_model or RECOMMENDED_MAIN_LLM_MODEL_ID,
-                "assistant_llm_model": self.assistant_llm_model
-                or RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
                 "subgraph_algorithm": self.subgraph_algorithm
                 or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
                 "context_strategy": self.context_strategy
@@ -125,10 +121,10 @@ class PipelineRuntimeConfig(BaseModel):
 
 def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     """Build the current runnable graphragX pipeline."""
-    if config.with_wandb and not config.with_llm_inference:
+    if config.no_llm_inference and not config.no_wandb:
         raise PipelineException(
-            "WandB logging requires --with-llm-inference because it logs final "
-            "LLM reasoning results."
+            "WandB logging requires LLM inference. Use --no-wandb together with "
+            "--no-llm-inference when skipping final LLM reasoning results."
         )
 
     resolved_config = config.with_defaulted_user_inputs()
@@ -138,7 +134,6 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         ),
         BuildPipelineConfigurationStep(
             main_llm_model=resolved_config.main_llm_model,
-            assistant_llm_model=resolved_config.assistant_llm_model,
             subgraph_algorithm=resolved_config.subgraph_algorithm,
             context_strategy=resolved_config.context_strategy,
             gnn_layer_count=resolved_config.gnn_layer_count,
@@ -174,7 +169,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             evaluation_max_instances=resolved_config.evaluation_max_instances,
         ),
     ]
-    if resolved_config.with_llm_inference:
+    if not resolved_config.no_llm_inference:
         evaluation_steps.extend(
             [
                 BuildReasoningSamplesFromGnnEvaluationStep(),
@@ -187,7 +182,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 ComputeFinalResultsStep(),
             ]
         )
-        if resolved_config.with_wandb:
+        if not resolved_config.no_wandb:
             evaluation_steps.append(
                 LogFinalResultsToWandbStep(
                     project=resolved_config.wandb_project,
@@ -289,11 +284,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--main-llm-model",
         default=None,
         help="Optional main LLM model id for non-interactive configuration.",
-    )
-    parser.add_argument(
-        "--assistant-llm-model",
-        default=None,
-        help="Optional assistant LLM model id for non-interactive configuration.",
     )
     parser.add_argument(
         "--subgraph-algorithm",
@@ -421,9 +411,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional maximum number of WebQSP test instances to evaluate.",
     )
     parser.add_argument(
-        "--with-llm-inference",
+        "--no-llm-inference",
+        dest="no_llm_inference",
         action="store_true",
-        help="Continue after GNN candidate retrieval with paths, LLM answers, and saved inference outputs.",
+        help="Stop after GNN candidate retrieval and skip final LLM inference/results.",
     )
     parser.add_argument(
         "--inference-run-name",
@@ -437,9 +428,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of samples to generate and save per LLM inference batch.",
     )
     parser.add_argument(
-        "--with-wandb",
+        "--no-wandb",
+        dest="no_wandb",
         action="store_true",
-        help="Upload final LLM inference results to WandB after local result files are saved.",
+        help="Skip WandB upload after local final result files are saved.",
     )
     parser.add_argument(
         "--wandb-project",
@@ -482,7 +474,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_mode=args.run_mode,
         dataset=args.dataset,
         main_llm_model=args.main_llm_model,
-        assistant_llm_model=args.assistant_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,
         gnn_layer_count=args.gnn_layers,
@@ -505,10 +496,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_limit=args.candidate_limit,
         evaluation_run_name=args.evaluation_run_name,
         evaluation_max_instances=args.evaluation_max_instances,
-        with_llm_inference=args.with_llm_inference,
+        no_llm_inference=args.no_llm_inference,
         inference_run_name=args.inference_run_name,
         llm_inference_batch_size=args.llm_inference_batch_size,
-        with_wandb=args.with_wandb,
+        no_wandb=args.no_wandb,
         wandb_project=args.wandb_project,
         wandb_entity=args.wandb_entity,
         wandb_mode=args.wandb_mode,

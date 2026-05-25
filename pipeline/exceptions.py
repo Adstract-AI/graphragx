@@ -21,10 +21,6 @@ class InvalidMainLlmSelectionException(PipelineException):
     """Raised when an invalid main LLM option is provided."""
 
 
-class InvalidAssistantLlmSelectionException(PipelineException):
-    """Raised when an invalid assistant LLM option is provided."""
-
-
 class InvalidSubgraphConstructionSelectionException(PipelineException):
     """Raised when an invalid subgraph construction option is provided."""
 

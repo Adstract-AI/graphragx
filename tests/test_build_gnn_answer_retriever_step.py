@@ -61,7 +61,6 @@ class BuildGnnAnswerRetrieverStepTests(unittest.TestCase):
         return BuiltPipelineConfiguration(
             dataset_id="WebQSP",
             main_llm_model="gpt-5.4",
-            assistant_llm_model="gpt-5.4-mini",
             subgraph_construction_algorithm="shortest_path",
             context_construction_strategy="structured_triples",
             gnn_layer_count=2,

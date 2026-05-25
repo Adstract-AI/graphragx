@@ -7,7 +7,6 @@ from pydantic import Field, BaseModel
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.exceptions import (
-    InvalidAssistantLlmSelectionException,
     InvalidContextConstructionSelectionException,
     InvalidEntityEmbeddingModelSelectionException,
     InvalidGnnHiddenDimensionSelectionException,
@@ -26,7 +25,6 @@ from pipeline.preparation.helpers.configuration_definitions import (
     GNN_LAYER_COUNT_OPTIONS,
     NODE_CLASSIFIERS,
     OPENAI_EMBEDDING_MODELS,
-    RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
     RECOMMENDED_GNN_HIDDEN_DIMENSION,
@@ -48,7 +46,6 @@ class PipelineConfigurationInput(BaseModel):
     """Optional programmatic input for pipeline configuration building."""
 
     main_llm_model: str | None = Field(default=None)
-    assistant_llm_model: str | None = Field(default=None)
     subgraph_construction_algorithm: str | None = Field(default=None)
     context_construction_strategy: str | None = Field(default=None)
     gnn_layer_count: int | None = Field(default=None)
@@ -64,7 +61,6 @@ class BuiltPipelineConfiguration(StepResult):
 
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     main_llm_model: str = Field(..., description="Selected main LLM model id.")
-    assistant_llm_model: str = Field(..., description="Selected assistant LLM model id.")
     subgraph_construction_algorithm: str = Field(
         ..., description="Selected subgraph construction algorithm id."
     )
@@ -96,7 +92,6 @@ class BuildPipelineConfigurationStep(
     def __init__(
         self,
         main_llm_model: str | None = None,
-        assistant_llm_model: str | None = None,
         subgraph_algorithm: str | None = None,
         context_strategy: str | None = None,
         gnn_layer_count: int | None = None,
@@ -111,7 +106,6 @@ class BuildPipelineConfigurationStep(
         super().__init__(force_default=force_default)
         self.configuration_input = PipelineConfigurationInput(
             main_llm_model=main_llm_model,
-            assistant_llm_model=assistant_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
             gnn_layer_count=gnn_layer_count,
@@ -182,16 +176,6 @@ class BuildPipelineConfigurationStep(
             value_getter=lambda item: item.model_id,
             label_getter=lambda item: item.display_name,
         )
-        assistant_llm_model = self.selection_service.resolve_choice(
-            provided_value=self.configuration_input.assistant_llm_model,
-            options=SHARED_LLM_MODELS,
-            prompt_title="Assistant LLM Model",
-            prompt_help="Select the support model used for intermediate reasoning tasks.",
-            recommended_id=RECOMMENDED_ASSISTANT_LLM_MODEL_ID,
-            invalid_exception_type=InvalidAssistantLlmSelectionException,
-            value_getter=lambda item: item.model_id,
-            label_getter=lambda item: item.display_name,
-        )
         subgraph_algorithm = self.selection_service.resolve_choice(
             provided_value=self.configuration_input.subgraph_construction_algorithm,
             options=SUBGRAPH_CONSTRUCTION_ALGORITHMS,
@@ -254,7 +238,6 @@ class BuildPipelineConfigurationStep(
         return BuiltPipelineConfiguration(
             dataset_id=selected_dataset.dataset_id,
             main_llm_model=main_llm_model,
-            assistant_llm_model=assistant_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
             gnn_layer_count=int(selected_gnn_layer_count),

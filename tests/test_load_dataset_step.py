@@ -147,7 +147,6 @@ class LoadDatasetStepTests(unittest.TestCase):
             result=BuiltPipelineConfiguration(
                 dataset_id=dataset_id,
                 main_llm_model="gpt-5.4",
-                assistant_llm_model="gpt-5.4-mini",
                 subgraph_construction_algorithm="shortest_path",
                 context_construction_strategy="structured_triples",
                 gnn_layer_count=2,
@@ -224,7 +223,6 @@ class LoadDatasetStepTests(unittest.TestCase):
                 config=main.PipelineRuntimeConfig(
                     dataset="WebQSP",
                     main_llm_model="gpt-5.4",
-                    assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
                     context_strategy="structured_triples",
                     gnn_layer_count=2,
@@ -233,6 +231,8 @@ class LoadDatasetStepTests(unittest.TestCase):
                     question_embedding_model="text-embedding-3-small",
                     relation_embedding_model="text-embedding-3-small",
                     entity_embedding_model="text-embedding-3-small",
+                    no_llm_inference=True,
+                    no_wandb=True,
                 ),
             )
 

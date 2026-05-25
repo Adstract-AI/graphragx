@@ -179,7 +179,6 @@ class MainEntrypointTests(unittest.TestCase):
                 config=main.PipelineRuntimeConfig(
                     dataset="WebQSP",
                     main_llm_model="gpt-5.4",
-                    assistant_llm_model="gpt-5.4-mini",
                     subgraph_algorithm="shortest_path",
                     context_strategy="structured_triples",
                     gnn_layer_count=2,
@@ -188,6 +187,8 @@ class MainEntrypointTests(unittest.TestCase):
                     question_embedding_model="text-embedding-3-small",
                     relation_embedding_model="text-embedding-3-small",
                     entity_embedding_model="text-embedding-3-small",
+                    no_llm_inference=True,
+                    no_wandb=True,
                 ),
             )
 
@@ -206,8 +207,6 @@ class MainEntrypointTests(unittest.TestCase):
                     "WebQSP",
                     "--main-llm-model",
                     "gpt-5.4",
-                    "--assistant-llm-model",
-                    "gpt-5.4-mini",
                     "--subgraph-algorithm",
                     "shortest_path",
                     "--context-strategy",
@@ -224,6 +223,8 @@ class MainEntrypointTests(unittest.TestCase):
                     "text-embedding-3-small",
                     "--entity-embedding-model",
                     "text-embedding-3-small",
+                    "--no-llm-inference",
+                    "--no-wandb",
                 ]
             )
 
@@ -244,8 +245,6 @@ class MainEntrypointTests(unittest.TestCase):
                     "WN18RR",
                     "--main-llm-model",
                     "gpt-5.4",
-                    "--assistant-llm-model",
-                    "gpt-5.4-mini",
                     "--subgraph-algorithm",
                     "shortest_path",
                     "--context-strategy",
@@ -262,6 +261,8 @@ class MainEntrypointTests(unittest.TestCase):
                     "text-embedding-3-small",
                     "--entity-embedding-model",
                     "text-embedding-3-small",
+                    "--no-llm-inference",
+                    "--no-wandb",
                 ]
             )
 
@@ -276,12 +277,12 @@ class MainEntrypointTests(unittest.TestCase):
     def test_main_interactively_prompts_missing_configuration_flags(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
             "builtins.input",
-            side_effect=["1", "2", "1", "1", "2", "1", "1", "1", "1", "1"],
+            side_effect=["1", "2", "1", "1", "1", "1", "1", "1", "1"],
         ), patch(
             "sys.stdout",
             new_callable=StringIO,
         ) as stdout:
-            exit_code = main.main(["--dataset", "WebQSP"])
+            exit_code = main.main(["--dataset", "WebQSP", "--no-llm-inference", "--no-wandb"])
 
         payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
@@ -296,7 +297,7 @@ class MainEntrypointTests(unittest.TestCase):
             "sys.stdout",
             new_callable=StringIO,
         ) as stdout:
-            exit_code = main.main(["--default"])
+            exit_code = main.main(["--default", "--no-llm-inference", "--no-wandb"])
 
         payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
@@ -304,13 +305,43 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(payload["final_result"]["dataset_id"], "WebQSP")
         self.assertEqual(payload["final_result"]["model_run_number"], 1)
 
+    def test_main_no_arguments_does_not_force_default_configuration_values(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            exit_code = main.main([])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured_configs), 1)
+        self.assertFalse(captured_configs[0].use_default_config_values)
+        self.assertFalse(captured_configs[0].no_llm_inference)
+        self.assertFalse(captured_configs[0].no_wandb)
+        self.assertIsNone(captured_configs[0].training_max_instances)
+        self.assertIsNone(captured_configs[0].evaluation_max_instances)
+
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
             "builtins.input",
             side_effect=AssertionError("input should not be called"),
         ):
             result = main.run_pipeline(
-                config=main.PipelineRuntimeConfig(use_default_config_values=True),
+                config=main.PipelineRuntimeConfig(
+                    use_default_config_values=True,
+                    no_llm_inference=True,
+                    no_wandb=True,
+                ),
             )
 
         self.assertTrue(result.success)
@@ -328,9 +359,9 @@ class MainEntrypointTests(unittest.TestCase):
             pipeline.preparation_steps[0].requested_dataset,
         )
 
-    def test_llm_inference_flag_appends_post_retrieval_steps_only(self) -> None:
+    def test_default_pipeline_appends_final_results_and_wandb_steps(self) -> None:
         pipeline = main.build_pipeline(
-            config=main.PipelineRuntimeConfig(with_llm_inference=True),
+            config=main.PipelineRuntimeConfig(),
         )
 
         self.assertIsInstance(pipeline.evaluation_steps[0], EvaluateGnnAnswerRetrieverStep)
@@ -344,32 +375,42 @@ class MainEntrypointTests(unittest.TestCase):
             GenerateAndSaveFinalAnswersBatchesStep,
         )
         self.assertIsInstance(pipeline.evaluation_steps[4], ComputeFinalResultsStep)
-        self.assertEqual(len(pipeline.evaluation_steps), 5)
-
-    def test_wandb_flag_appends_after_final_results_only_when_requested(self) -> None:
-        pipeline = main.build_pipeline(
-            config=main.PipelineRuntimeConfig(
-                with_llm_inference=True,
-                with_wandb=True,
-                wandb_project="project",
-                wandb_mode="disabled",
-            ),
-        )
-
-        self.assertIsInstance(pipeline.evaluation_steps[4], ComputeFinalResultsStep)
         self.assertIsInstance(
             pipeline.evaluation_steps[5],
             LogFinalResultsToWandbStep,
         )
         self.assertEqual(len(pipeline.evaluation_steps), 6)
 
+    def test_no_wandb_keeps_final_results_without_wandb_step(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                no_wandb=True,
+                wandb_project="project",
+                wandb_mode="disabled",
+            ),
+        )
+
+        self.assertIsInstance(pipeline.evaluation_steps[4], ComputeFinalResultsStep)
+        self.assertEqual(len(pipeline.evaluation_steps), 5)
+
+    def test_no_llm_inference_skips_post_retrieval_steps_when_wandb_is_also_disabled(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                no_llm_inference=True,
+                no_wandb=True,
+            ),
+        )
+
+        self.assertIsInstance(pipeline.evaluation_steps[0], EvaluateGnnAnswerRetrieverStep)
+        self.assertEqual(len(pipeline.evaluation_steps), 1)
+
     def test_wandb_requires_llm_inference(self) -> None:
         with self.assertRaisesRegex(
             main.PipelineException,
-            "requires --with-llm-inference",
+            "requires LLM inference",
         ):
             main.build_pipeline(
-                config=main.PipelineRuntimeConfig(with_wandb=True),
+                config=main.PipelineRuntimeConfig(no_llm_inference=True),
             )
 
 

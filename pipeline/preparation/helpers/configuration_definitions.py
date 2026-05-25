@@ -206,7 +206,6 @@ OPENAI_EMBEDDING_MODELS: Final[dict[str, OpenAiEmbeddingModelDefinition]] = {
 }
 
 RECOMMENDED_MAIN_LLM_MODEL_ID: Final[str] = "gpt-4.1-nano"
-RECOMMENDED_ASSISTANT_LLM_MODEL_ID: Final[str] = "gpt-4.1-nano"
 RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID: Final[str] = "shortest_path"
 RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID: Final[str] = "structured_triples"
 RECOMMENDED_GNN_LAYER_COUNT: Final[int] = 2
