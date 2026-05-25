@@ -5,9 +5,12 @@ from __future__ import annotations
 import time
 from typing import Iterable
 
+from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext
 from pipeline.context_builder import StepContextBuilder
 from pipeline.models import PipelineExecutionResult
+
+logger = get_logger(__name__)
 
 
 class Pipeline:
@@ -104,6 +107,11 @@ class Pipeline:
 
         try:
             for index, step in enumerate(steps):
+                self._log_step_start(
+                    step=step,
+                    step_number=index + 1,
+                    total_steps=total_steps,
+                )
                 last_result = step.execute(current_context)
                 steps_executed += 1
                 next_step = steps[index + 1] if index + 1 < total_steps else None
@@ -128,3 +136,19 @@ class Pipeline:
                 total_steps=total_steps,
                 final_result=last_result,
             )
+
+    @staticmethod
+    def _log_step_start(
+        step: AbstractStep,
+        step_number: int,
+        total_steps: int,
+    ) -> None:
+        step_name = step.__class__.__name__
+        banner = f" STARTING STEP {step_number}/{total_steps}: {step_name} "
+        border = "═" * max(len(banner), 72)
+        logger.info(
+            "\n\n\033[95m%s\n%s\n%s\033[0m",
+            border,
+            banner.center(len(border)),
+            border,
+        )

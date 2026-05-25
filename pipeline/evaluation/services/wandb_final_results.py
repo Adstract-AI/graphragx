@@ -11,6 +11,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from helpers.logging_config import get_logger
+from helpers.path_serialization import project_absolute_path
 from pipeline.evaluation.models import FinalResultsEvaluationResult
 from pipeline.services.abstract import AbstractService
 
@@ -410,7 +411,7 @@ class WandbFinalResultsLoggingService(AbstractService):
         answers_path = self._result_artifact_path(results_config, "answers_path")
         if not isinstance(answers_path, str):
             return {}
-        path = Path(answers_path)
+        path = project_absolute_path(answers_path)
         if not path.exists():
             return {}
         return {
@@ -449,7 +450,7 @@ class WandbFinalResultsLoggingService(AbstractService):
     ) -> dict[str, Any]:
         model_config_path_value = self._result_config_path(results_config, "model_config_path")
         if isinstance(model_config_path_value, str):
-            model_config_path = Path(model_config_path_value)
+            model_config_path = project_absolute_path(model_config_path_value)
             if model_config_path.exists():
                 return self._load_json_object(model_config_path)
 
@@ -460,7 +461,7 @@ class WandbFinalResultsLoggingService(AbstractService):
                 "model.config",
                 "gnn_answer_retriever_config.json",
             ]:
-                model_config_path = Path(model_run_directory) / filename
+                model_config_path = project_absolute_path(model_run_directory) / filename
                 if model_config_path.exists():
                     return self._load_json_object(model_config_path)
 
@@ -519,7 +520,9 @@ class WandbFinalResultsLoggingService(AbstractService):
         )
         if isinstance(evaluation_config_path, str):
             try:
-                evaluation_config = cls._load_json_object(Path(evaluation_config_path))
+                evaluation_config = cls._load_json_object(
+                    project_absolute_path(evaluation_config_path)
+                )
                 model_config = evaluation_config.get("model_config", {})
                 if (
                     isinstance(model_config, dict)
@@ -545,7 +548,7 @@ class WandbFinalResultsLoggingService(AbstractService):
                 artifact.add_file(str(path), name=f"results/{path.name}")
 
         for value in cls._build_source_paths(results_config).values():
-            path = Path(value)
+            path = project_absolute_path(value)
             if path.exists() and path.is_file():
                 artifact.add_file(str(path), name=f"sources/{path.name}")
 
@@ -578,7 +581,7 @@ class WandbFinalResultsLoggingService(AbstractService):
     def _load_optional_json_object(cls, value: Any) -> dict[str, Any]:
         if not isinstance(value, str):
             return {}
-        path = Path(value)
+        path = project_absolute_path(value)
         if not path.exists():
             return {}
         return cls._load_json_object(path)

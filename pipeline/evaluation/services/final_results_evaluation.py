@@ -18,6 +18,7 @@ from helpers.constants import (
     FINAL_RESULTS_REASONING_METRICS_FILENAME,
     FINAL_RESULTS_RETRIEVAL_METRICS_FILENAME,
 )
+from helpers.path_serialization import make_project_paths_relative
 from pipeline.evaluation.exceptions import FinalResultsEvaluationException
 from pipeline.evaluation.models import (
     EvaluatedAnswerRetrievalInstance,
@@ -395,7 +396,11 @@ class FinalResultsEvaluationService(AbstractService):
                 }
             )
             results_config_path.write_text(
-                json.dumps(results_config.model_dump(mode="json"), indent=2, sort_keys=True),
+                json.dumps(
+                    make_project_paths_relative(results_config.model_dump(mode="json")),
+                    indent=2,
+                    sort_keys=True,
+                ),
                 encoding="utf-8",
             )
             retrieval_metrics_path.write_text(

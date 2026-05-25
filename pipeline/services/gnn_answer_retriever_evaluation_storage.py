@@ -14,6 +14,7 @@ from helpers.constants import (
     GNN_ANSWER_RETRIEVER_EVALUATION_CONFIG_FILENAME,
     GNN_ANSWER_RETRIEVER_EVALUATION_PREDICTIONS_FILENAME,
 )
+from helpers.path_serialization import make_project_paths_relative
 from pipeline.evaluation.models import EvaluatedAnswerRetrievalInstance
 from pipeline.exceptions import GnnAnswerRetrieverEvaluationException
 from pipeline.services.abstract import AbstractService
@@ -63,7 +64,11 @@ class GnnAnswerRetrieverEvaluationStorageService(AbstractService):
             evaluation_config["evaluated_instances"] = len(payload.predictions)
 
             evaluation_config_path.write_text(
-                json.dumps(evaluation_config, indent=2, sort_keys=True),
+                json.dumps(
+                    make_project_paths_relative(evaluation_config),
+                    indent=2,
+                    sort_keys=True,
+                ),
                 encoding="utf-8",
             )
             with predictions_path.open("w", encoding="utf-8") as predictions_file:

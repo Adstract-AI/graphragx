@@ -16,6 +16,7 @@ from helpers.constants import (
     LLM_INFERENCE_CONFIG_FILENAME,
     LLM_INFERENCE_REASONING_FILENAME,
 )
+from helpers.path_serialization import make_project_paths_relative
 from pipeline.evaluation.models import (
     GeneratedAnswerForPrediction,
     GeneratedFinalAnswersBatch,
@@ -151,7 +152,12 @@ class LlmInferenceStorageService(AbstractService):
         try:
             run.inference_config_path.write_text(
                 json.dumps(
-                    self._build_summary(run, LlmInferenceStoragePayload(answers=answers)),
+                    make_project_paths_relative(
+                        self._build_summary(
+                            run,
+                            LlmInferenceStoragePayload(answers=answers),
+                        )
+                    ),
                     indent=2,
                     sort_keys=True,
                 ),
