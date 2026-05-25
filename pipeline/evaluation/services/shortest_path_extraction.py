@@ -11,7 +11,7 @@ from pipeline.evaluation.models import (
     GraphTriple,
     ReasoningPath,
 )
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 
 class ShortestPathExtractionService(AbstractService):

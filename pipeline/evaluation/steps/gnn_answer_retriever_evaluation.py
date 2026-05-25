@@ -15,13 +15,13 @@ from pipeline.evaluation.models import (
     GnnAnswerRetrieverEvaluationConfig,
     GnnAnswerRetrieverEvaluationResult,
 )
-from pipeline.exceptions import InvalidInteractiveConfigurationInputException
+from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.steps.gnn_answer_retriever_training import (
     TrainedGnnAnswerRetriever,
 )
-from pipeline.services.gnn_answer_retriever_evaluation import (
+from pipeline.preparation.services.gnn_answer_retriever_evaluation import (
     GnnAnswerRetrieverEvaluationService,
 )
 

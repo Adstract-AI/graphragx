@@ -1,6 +1,6 @@
 """Tests for GNN evaluation storage payload shapes."""
 
-from pipeline.services.gnn_answer_retriever_evaluation_storage import (
+from pipeline.preparation.services.gnn_answer_retriever_evaluation_storage import (
     GnnAnswerRetrieverEvaluationStoragePayload,
 )
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from helpers.constants import WEBQSP_ENTITY_NAMES_MAPPING_PATH
 from helpers.logging_config import get_logger
 from pipeline.preparation.models.webqsp_local_graph import WebQSPEntityMappingSummary
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
 

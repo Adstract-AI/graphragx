@@ -20,14 +20,14 @@ from helpers.constants import (
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
 )
 from helpers.logging_config import get_logger
-from pipeline.exceptions import GnnAnswerRetrieverTrainingException
+from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
     WebQSPProcessedInstance,
 )
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
-from pipeline.services.abstract import AbstractService
-from pipeline.services.embedding_cache import (
+from pipeline.services import AbstractService
+from pipeline.preparation.services.embedding_cache import (
     TextEmbeddingCache,
     WebQSPEmbeddingCacheService,
 )

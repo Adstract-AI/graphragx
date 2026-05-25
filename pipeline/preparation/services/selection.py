@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeVar
 
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 SelectionOption = TypeVar("SelectionOption")
 

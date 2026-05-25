@@ -11,23 +11,23 @@ from pipeline.evaluation.models import (
     GnnAnswerRetrieverEvaluationConfig,
     GoldAnswerScore,
 )
-from pipeline.exceptions import GnnAnswerRetrieverEvaluationException
+from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
     WebQSPProcessedInstance,
 )
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
-from pipeline.services.abstract import AbstractService
-from pipeline.services.embedding_cache import (
+from pipeline.services import AbstractService
+from pipeline.preparation.services.embedding_cache import (
     TextEmbeddingCache,
     WebQSPEmbeddingCacheService,
 )
-from pipeline.services.gnn_answer_retriever_evaluation_storage import (
+from pipeline.preparation.services.gnn_answer_retriever_evaluation_storage import (
     GnnAnswerRetrieverEvaluationStoragePayload,
     GnnAnswerRetrieverEvaluationStorageResult,
     GnnAnswerRetrieverEvaluationStorageService,
 )
-from pipeline.services.gnn_answer_retriever_model_runs import (
+from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
     GnnAnswerRetrieverModelRunService,
     LoadedGnnAnswerRetrieverRun,
 )

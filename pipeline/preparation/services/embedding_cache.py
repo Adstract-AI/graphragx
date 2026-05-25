@@ -15,8 +15,8 @@ from helpers.constants import (
     WEBQSP_RELATION_EMBEDDINGS_FILENAME,
 )
 from helpers.logging_config import get_logger
-from pipeline.services.abstract import AbstractService
-from pipeline.services.openai_text_embedding import LangChainOpenAiTextEmbeddingService
+from pipeline.services import AbstractService
+from pipeline.preparation.services.openai_text_embedding import LangChainOpenAiTextEmbeddingService
 
 logger = get_logger(__name__)
 

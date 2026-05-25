@@ -24,7 +24,7 @@ from pipeline import (
     WebQSPVocabularyStore,
 )
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
-from pipeline.services import AbstractDatasetLoaderService
+from pipeline.preparation.services import AbstractDatasetLoaderService
 
 
 class FakeSplit:

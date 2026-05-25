@@ -26,7 +26,7 @@ from pipeline import (
     WebQSPVocabularyStore,
 )
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
-from pipeline.services import AbstractDatasetLoaderService
+from pipeline.preparation.services import AbstractDatasetLoaderService
 
 
 class FakeSplit:
@@ -243,7 +243,7 @@ class LoadDatasetStepTests(unittest.TestCase):
 
 class HuggingFaceWebQSPDatasetLoaderServiceTests(unittest.TestCase):
     def test_missing_hugging_face_datasets_raises_dedicated_exception(self) -> None:
-        from pipeline.services.dataset_loader import HuggingFaceWebQSPDatasetLoaderService
+        from pipeline.preparation.services.dataset_loader import HuggingFaceWebQSPDatasetLoaderService
 
         service = HuggingFaceWebQSPDatasetLoaderService()
 
@@ -261,7 +261,7 @@ class HuggingFaceWebQSPDatasetLoaderServiceTests(unittest.TestCase):
                 service.load_dataset("WebQSP")
 
     def test_loader_failure_raises_dataset_loading_exception(self) -> None:
-        from pipeline.services.dataset_loader import HuggingFaceWebQSPDatasetLoaderService
+        from pipeline.preparation.services.dataset_loader import HuggingFaceWebQSPDatasetLoaderService
 
         service = HuggingFaceWebQSPDatasetLoaderService()
 

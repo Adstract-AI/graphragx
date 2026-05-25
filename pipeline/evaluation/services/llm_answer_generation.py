@@ -9,7 +9,7 @@ from typing import Any
 from helpers.constants import OPENAI_API_KEY_ENV_NAME
 from helpers.env_variables import OPENAI_API_KEY
 from pipeline.evaluation.exceptions import LlmAnswerGenerationException
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 
 class LangChainOpenAiAnswerGenerationService(AbstractService):

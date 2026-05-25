@@ -6,7 +6,7 @@ from pydantic import Field, BaseModel
 
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
-from pipeline.exceptions import (
+from pipeline.preparation.exceptions import (
     InvalidContextConstructionSelectionException,
     InvalidEntityEmbeddingModelSelectionException,
     InvalidGnnHiddenDimensionSelectionException,
@@ -18,7 +18,7 @@ from pipeline.exceptions import (
     InvalidRelationEmbeddingModelSelectionException,
     InvalidSubgraphConstructionSelectionException,
 )
-from pipeline.services.selection import SelectionService
+from pipeline.preparation.services.selection import SelectionService
 from pipeline.preparation.helpers.configuration_definitions import (
     CONTEXT_CONSTRUCTION_STRATEGIES,
     GNN_HIDDEN_DIMENSION_OPTIONS,

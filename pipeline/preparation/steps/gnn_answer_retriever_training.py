@@ -15,12 +15,12 @@ from helpers.constants import (
 )
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
-from pipeline.exceptions import InvalidInteractiveConfigurationInputException
+from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
-from pipeline.services.gnn_answer_retriever_training import (
+from pipeline.preparation.services.gnn_answer_retriever_training import (
     GnnAnswerRetrieverTrainingConfig,
     GnnAnswerRetrieverTrainingService,
 )

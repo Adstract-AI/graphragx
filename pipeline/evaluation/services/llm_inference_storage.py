@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from helpers.logging_config import get_logger
 from helpers.constants import (
@@ -22,7 +22,7 @@ from pipeline.evaluation.models import (
     GeneratedFinalAnswersBatch,
 )
 from pipeline.exceptions import PipelineException
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
 

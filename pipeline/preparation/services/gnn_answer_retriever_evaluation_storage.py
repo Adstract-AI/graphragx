@@ -16,8 +16,8 @@ from helpers.constants import (
 )
 from helpers.path_serialization import make_project_paths_relative
 from pipeline.evaluation.models import EvaluatedAnswerRetrievalInstance
-from pipeline.exceptions import GnnAnswerRetrieverEvaluationException
-from pipeline.services.abstract import AbstractService
+from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
+from pipeline.services import AbstractService
 
 class GnnAnswerRetrieverEvaluationStoragePayload(BaseModel):
     """Data persisted for one evaluation run."""

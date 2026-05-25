@@ -31,7 +31,7 @@ from pipeline.evaluation.models import (
     SavedLlmInferenceRun,
 )
 from pipeline.evaluation.models.final_results import ExplanationGroundingMetrics
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 
 class FinalResultsStorageResult(BaseModel):

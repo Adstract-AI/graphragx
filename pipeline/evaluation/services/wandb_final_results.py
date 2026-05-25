@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from helpers.logging_config import get_logger
 from helpers.path_serialization import project_absolute_path
 from pipeline.evaluation.models import FinalResultsEvaluationResult
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
 

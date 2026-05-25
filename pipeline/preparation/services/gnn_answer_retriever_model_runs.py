@@ -13,10 +13,10 @@ from helpers.constants import (
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
 )
 from helpers.logging_config import get_logger
-from pipeline.exceptions import GnnAnswerRetrieverModelRunException
+from pipeline.preparation.exceptions import GnnAnswerRetrieverModelRunException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
-from pipeline.services.abstract import AbstractService
+from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
 
