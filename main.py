@@ -11,6 +11,7 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_EVALUATION_LOG_EVERY,
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
@@ -81,6 +82,7 @@ class PipelineRuntimeConfig(BaseModel):
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
     evaluation_run_name: str | None = None
     evaluation_max_instances: int | None = None
+    evaluation_log_every: int = DEFAULT_EVALUATION_LOG_EVERY
     no_llm_inference: bool = False
     inference_run_name: str | None = None
     llm_inference_batch_size: int = 10
@@ -168,6 +170,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             candidate_limit=resolved_config.candidate_limit,
             evaluation_run_name=resolved_config.evaluation_run_name,
             evaluation_max_instances=resolved_config.evaluation_max_instances,
+            evaluation_log_every=resolved_config.evaluation_log_every,
         ),
     ]
     if not resolved_config.no_llm_inference:
@@ -503,6 +506,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional maximum number of WebQSP test instances to evaluate.",
     )
     parser.add_argument(
+        "--evaluation-log-every",
+        type=int,
+        default=DEFAULT_EVALUATION_LOG_EVERY,
+        help="Log GNN evaluation progress after this many evaluated instances.",
+    )
+    parser.add_argument(
         "--no-llm-inference",
         dest="no_llm_inference",
         action="store_true",
@@ -588,6 +597,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_limit=args.candidate_limit,
         evaluation_run_name=args.evaluation_run_name,
         evaluation_max_instances=args.evaluation_max_instances,
+        evaluation_log_every=args.evaluation_log_every,
         no_llm_inference=args.no_llm_inference,
         inference_run_name=args.inference_run_name,
         llm_inference_batch_size=args.llm_inference_batch_size,

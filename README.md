@@ -128,6 +128,7 @@ python main.py --evaluation-only --evaluation-model-run-number 12 --default
 | `--candidate-limit CANDIDATE_LIMIT` | Maximum number of selected answer candidates after threshold and top-k selection. `--limit` is an alias. |
 | `--evaluation-run-name EVALUATION_RUN_NAME` | Optional label for the saved evaluation run folder. |
 | `--evaluation-max-instances EVALUATION_MAX_INSTANCES` | Optional limit for how many WebQSP test instances to evaluate. If omitted, the full test split is used. |
+| `--evaluation-log-every EVALUATION_LOG_EVERY` | How often GNN evaluation progress is logged, measured in evaluated instances. |
 
 ### LLM Inference And Results
 

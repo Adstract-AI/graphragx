@@ -165,6 +165,11 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             relation_cache=relation_cache,
             question_cache=question_cache,
         )
+        logger.info(
+            f"Beginning GNN answer-retriever instance evaluation: "
+            f"model_run={loaded_model_run.run_name} instances={len(test_instances)} "
+            f"log_every={evaluation_config.log_every}"
+        )
 
         predictions: list[EvaluatedAnswerRetrievalInstance] = []
         hits_at_1_count = 0
@@ -213,6 +218,23 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 hits_at_10_count += int(prediction.hit_at_10)
                 missing_gold_in_graph_count += int(prediction.missing_gold_in_graph)
                 total_candidate_count += len(prediction.answer_candidates)
+                processed_count = instance_index + 1
+                if (
+                    evaluation_config.log_every > 0
+                    and (
+                        processed_count % evaluation_config.log_every == 0
+                        or processed_count == len(test_instances)
+                    )
+                ):
+                    logger.info(
+                        f"GNN answer-retriever evaluation progress: "
+                        f"{processed_count}/{len(test_instances)} instances "
+                        f"hits_at_1={hits_at_1_count / processed_count:.4f} "
+                        f"hits_at_5={hits_at_5_count / processed_count:.4f} "
+                        f"hits_at_10={hits_at_10_count / processed_count:.4f} "
+                        f"average_candidate_count="
+                        f"{total_candidate_count / processed_count:.2f}"
+                    )
 
         evaluated_instances = len(predictions)
         hits_at_1 = hits_at_1_count / evaluated_instances

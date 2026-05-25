@@ -62,5 +62,5 @@ def get_logger(name: str) -> logging.Logger:
 
 def _quiet_noisy_dependency_loggers() -> None:
     """Suppress successful low-level HTTP logs from chatty client libraries."""
-    for logger_name in ["httpx", "httpcore", "qdrant_client", "_client"]:
+    for logger_name in ["httpx", "httpcore", "qdrant_client"]:
         logging.getLogger(logger_name).setLevel(logging.WARNING)

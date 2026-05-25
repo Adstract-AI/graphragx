@@ -10,6 +10,7 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_EVALUATION_LOG_EVERY,
 )
 from pipeline.abstract import StepResult
 
@@ -24,6 +25,7 @@ class GnnAnswerRetrieverEvaluationConfig(BaseModel):
     candidate_limit: int = Field(default=DEFAULT_CANDIDATE_LIMIT)
     run_name: str | None = Field(default=None)
     max_instances: int | None = Field(default=None)
+    log_every: int = Field(default=DEFAULT_EVALUATION_LOG_EVERY)
 
 
 class AnswerCandidateScore(BaseModel):

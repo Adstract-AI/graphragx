@@ -305,6 +305,29 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertFalse(captured_configs[0].no_wandb)
         self.assertIsNone(captured_configs[0].training_max_instances)
         self.assertIsNone(captured_configs[0].evaluation_max_instances)
+        self.assertEqual(captured_configs[0].evaluation_log_every, 10)
+
+    def test_evaluation_log_every_flag_is_parsed(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            exit_code = main.main(["--evaluation-log-every", "25"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured_configs), 1)
+        self.assertEqual(captured_configs[0].evaluation_log_every, 25)
 
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
@@ -355,6 +378,15 @@ class MainEntrypointTests(unittest.TestCase):
             LogFinalResultsToWandbStep,
         )
         self.assertEqual(len(pipeline.evaluation_steps), 6)
+
+    def test_evaluation_log_every_is_wired_into_evaluation_step(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(evaluation_log_every=25),
+        )
+
+        evaluation_step = pipeline.evaluation_steps[0]
+        self.assertIsInstance(evaluation_step, EvaluateGnnAnswerRetrieverStep)
+        self.assertEqual(evaluation_step.evaluation_config.log_every, 25)
 
     def test_no_wandb_keeps_final_results_without_wandb_step(self) -> None:
         pipeline = main.build_pipeline(
