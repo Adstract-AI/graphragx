@@ -11,6 +11,7 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_EMBEDDING_CACHE_SAVE_EVERY_BATCHES,
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
@@ -74,6 +75,7 @@ class PipelineRuntimeConfig(BaseModel):
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
     training_device: str = DEFAULT_TRAINING_DEVICE
     training_run_name: str | None = None
+    embedding_cache_save_every_batches: int = DEFAULT_EMBEDDING_CACHE_SAVE_EVERY_BATCHES
     evaluation_model_run_name: str | None = None
     evaluation_model_run_number: int | None = None
     answer_threshold: float = DEFAULT_ANSWER_THRESHOLD
@@ -157,6 +159,9 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             training_log_every=resolved_config.training_log_every,
             training_device=resolved_config.training_device,
             training_run_name=resolved_config.training_run_name,
+            embedding_cache_save_every_batches=(
+                resolved_config.embedding_cache_save_every_batches
+            ),
         ),
     ]
     evaluation_steps = [
@@ -168,6 +173,9 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             candidate_limit=resolved_config.candidate_limit,
             evaluation_run_name=resolved_config.evaluation_run_name,
             evaluation_max_instances=resolved_config.evaluation_max_instances,
+            embedding_cache_save_every_batches=(
+                resolved_config.embedding_cache_save_every_batches
+            ),
         ),
     ]
     if not resolved_config.no_llm_inference:
@@ -461,6 +469,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional label for the versioned training run folder.",
     )
     parser.add_argument(
+        "--embedding-cache-save-every-batches",
+        type=int,
+        default=DEFAULT_EMBEDDING_CACHE_SAVE_EVERY_BATCHES,
+        help=(
+            "Save embedding cache checkpoints after this many OpenAI embedding "
+            "batches. The final batch is always saved."
+        ),
+    )
+    parser.add_argument(
         "--evaluation-model-run-name",
         default=None,
         help="Saved model run folder name or suffix to evaluate.",
@@ -581,6 +598,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_log_every=args.training_log_every,
         training_device=args.training_device,
         training_run_name=args.training_run_name,
+        embedding_cache_save_every_batches=args.embedding_cache_save_every_batches,
         evaluation_model_run_name=args.evaluation_model_run_name,
         evaluation_model_run_number=args.evaluation_model_run_number,
         answer_threshold=args.answer_threshold,

@@ -136,11 +136,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             relation_cache=relation_cache,
             question_cache=question_cache,
         )
-        self.embedding_cache_service.save_cache(node_cache)
-        self.embedding_cache_service.save_cache(relation_cache)
-        self.embedding_cache_service.save_cache(question_cache)
         logger.info(
-            f"Saved embedding caches: nodes={len(node_cache.embeddings)} "
+            f"Embedding caches ready: nodes={len(node_cache.embeddings)} "
             f"relations={len(relation_cache.embeddings)} "
             f"questions={len(question_cache.embeddings)}"
         )

@@ -108,6 +108,7 @@ python main.py --evaluation-only --evaluation-model-run-number 12 --default
 | `--training-log-every TRAINING_LOG_EVERY` | How often training progress is logged, measured in processed instances. |
 | `--training-device {auto,cpu,cuda,mps}` | Device used for GNN training. `auto` selects the best available supported device. |
 | `--training-run-name TRAINING_RUN_NAME` | Optional label for the saved training run folder. |
+| `--embedding-cache-save-every-batches EMBEDDING_CACHE_SAVE_EVERY_BATCHES` | Saves the embedding cache after this many OpenAI embedding batches during training/evaluation cache fills. Defaults to `20`; the final batch is always saved. |
 
 ### GNN Evaluation
 

@@ -305,6 +305,29 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertFalse(captured_configs[0].no_wandb)
         self.assertIsNone(captured_configs[0].training_max_instances)
         self.assertIsNone(captured_configs[0].evaluation_max_instances)
+        self.assertEqual(captured_configs[0].embedding_cache_save_every_batches, 20)
+
+    def test_embedding_cache_save_interval_flag_is_parsed(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            exit_code = main.main(["--embedding-cache-save-every-batches", "7"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured_configs), 1)
+        self.assertEqual(captured_configs[0].embedding_cache_save_every_batches, 7)
 
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
@@ -355,6 +378,26 @@ class MainEntrypointTests(unittest.TestCase):
             LogFinalResultsToWandbStep,
         )
         self.assertEqual(len(pipeline.evaluation_steps), 6)
+
+    def test_embedding_cache_save_interval_is_wired_into_training_and_evaluation(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                embedding_cache_save_every_batches=7,
+            ),
+        )
+
+        training_step = pipeline.preparation_steps[5]
+        evaluation_step = pipeline.evaluation_steps[0]
+        self.assertIsInstance(training_step, TrainGnnAnswerRetrieverStep)
+        self.assertIsInstance(evaluation_step, EvaluateGnnAnswerRetrieverStep)
+        self.assertEqual(
+            training_step.training_service.embedding_cache_service.save_every_batches,
+            7,
+        )
+        self.assertEqual(
+            evaluation_step.evaluation_service.embedding_cache_service.save_every_batches,
+            7,
+        )
 
     def test_no_wandb_keeps_final_results_without_wandb_step(self) -> None:
         pipeline = main.build_pipeline(

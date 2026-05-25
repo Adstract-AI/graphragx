@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from helpers.constants import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
+    DEFAULT_EMBEDDING_CACHE_SAVE_EVERY_BATCHES,
     WEBQSP_NODE_EMBEDDINGS_FILENAME,
     WEBQSP_QUESTION_EMBEDDINGS_FILENAME,
     WEBQSP_RELATION_EMBEDDINGS_FILENAME,
@@ -44,17 +45,24 @@ class WebQSPEmbeddingCacheService(AbstractService):
     relations_filename = WEBQSP_RELATION_EMBEDDINGS_FILENAME
     questions_filename = WEBQSP_QUESTION_EMBEDDINGS_FILENAME
     default_batch_size = DEFAULT_EMBEDDING_BATCH_SIZE
+    default_save_every_batches = DEFAULT_EMBEDDING_CACHE_SAVE_EVERY_BATCHES
 
     def __init__(
         self,
         embedding_service: LangChainOpenAiTextEmbeddingService | None = None,
         batch_size: int = default_batch_size,
+        save_every_batches: int = default_save_every_batches,
     ):
         self.embedding_service = embedding_service or LangChainOpenAiTextEmbeddingService()
         if batch_size <= 0:
             raise ValueError("Embedding cache batch size must be greater than zero.")
+        if save_every_batches <= 0:
+            raise ValueError(
+                "Embedding cache save interval must be greater than zero."
+            )
 
         self.batch_size = batch_size
+        self.save_every_batches = save_every_batches
 
     def load_node_cache(
         self,
@@ -125,7 +133,9 @@ class WebQSPEmbeddingCacheService(AbstractService):
             f"Embedding cache fill for {cache.cache_kind}/{cache.model_id}: "
             f"requested={len(list(dict.fromkeys(texts)))} "
             f"cached={len(cache.embeddings)} missing={len(missing_texts)} "
-            f"batch_size={self.batch_size} preview={self._preview_texts(missing_texts)}"
+            f"batch_size={self.batch_size} "
+            f"save_every_batches={self.save_every_batches} "
+            f"preview={self._preview_texts(missing_texts)}"
         )
         for batch_index, start_index in enumerate(
             range(0, len(missing_texts), self.batch_size),
@@ -155,12 +165,25 @@ class WebQSPEmbeddingCacheService(AbstractService):
                 text_id = self._get_or_add_text_id(cache, original_text)
                 cache.embeddings[text_id] = embedded_inputs[embedding_input]
 
-            self.save_cache(cache)
-            logger.info(
-                f"Saved {cache.cache_kind}/{cache.model_id} embedding cache after "
-                f"batch {batch_index}/{total_batches}: "
-                f"cached={len(cache.embeddings)} path={cache.embedding_path}"
+            should_save = (
+                batch_index % self.save_every_batches == 0
+                or batch_index == total_batches
             )
+            if should_save:
+                self.save_cache(cache)
+                logger.info(
+                    f"Saved {cache.cache_kind}/{cache.model_id} embedding cache after "
+                    f"batch {batch_index}/{total_batches}: "
+                    f"cached={len(cache.embeddings)} path={cache.embedding_path}"
+                )
+            else:
+                logger.info(
+                    f"Deferred {cache.cache_kind}/{cache.model_id} embedding cache "
+                    f"save after batch {batch_index}/{total_batches}: "
+                    f"next_checkpoint_batch="
+                    f"{self._next_checkpoint_batch(batch_index, total_batches)} "
+                    f"cached={len(cache.embeddings)}"
+                )
 
     def embedding_for_text(
         self,
@@ -258,6 +281,12 @@ class WebQSPEmbeddingCacheService(AbstractService):
             cache.vocabulary[text] = len(cache.vocabulary)
 
         return cache.vocabulary[text]
+
+    def _next_checkpoint_batch(self, batch_index: int, total_batches: int) -> int:
+        next_interval_batch = (
+            (batch_index // self.save_every_batches) + 1
+        ) * self.save_every_batches
+        return min(next_interval_batch, total_batches)
 
     @staticmethod
     def _preview_texts(texts: list[str]) -> list[str]:
