@@ -368,14 +368,6 @@ class WandbFinalResultsLoggingService(AbstractService):
                 "dataset_id": results_config.get("dataset_id"),
                 "model_id": results_config.get("model_id"),
                 "gnn_id": results_config.get("gnn_id"),
-                "model_run_name": model_run_name,
-                "model_run_number": model_run_number,
-                "evaluation_run_name": evaluation_run_name,
-                "evaluation_run_number": evaluation_run_number,
-                "inference_run_name": inference_run_name,
-                "inference_run_number": inference_run_number,
-                "results_run_name": final_result.results_run_name,
-                "results_run_number": final_result.results_run_number,
                 "runs": {
                     "model": {
                         "name": model_run_name,
@@ -399,7 +391,6 @@ class WandbFinalResultsLoggingService(AbstractService):
                     "evaluation": evaluation_config.get("evaluation", {}),
                     "inference": inference_payload,
                 },
-                "selected_device": evaluation_config.get("selected_device"),
                 "source_paths": source_paths,
             }
         )
@@ -487,11 +478,14 @@ class WandbFinalResultsLoggingService(AbstractService):
             collection = results_config.get(collection_key)
             if isinstance(collection, dict):
                 for key, value in collection.items():
-                    if isinstance(value, str):
+                    if isinstance(value, str) and cls._is_path_key(key):
                         paths[key] = value
                     elif isinstance(value, dict):
                         for nested_key, nested_value in value.items():
-                            if isinstance(nested_value, str):
+                            if (
+                                isinstance(nested_value, str)
+                                and cls._is_path_key(nested_key)
+                            ):
                                 paths[f"{key}_{nested_key}"] = nested_value
         for key in sorted(path_keys):
             value = results_config.get(key)
@@ -499,21 +493,46 @@ class WandbFinalResultsLoggingService(AbstractService):
                 paths[key] = value
         return paths
 
+    @staticmethod
+    def _is_path_key(key: str) -> bool:
+        return key.endswith("_path") or key.endswith("_directory")
+
     @classmethod
     def _build_tags(cls, results_config: dict[str, Any]) -> list[str]:
         tags = ["graphragx"]
-        for key in [
-            "dataset_id",
-            "model_id",
-            "model_run_name",
-            "evaluation_run_name",
-            "inference_run_name",
-        ]:
+        for key in ["dataset_id", "model_id"]:
             value = results_config.get(key)
             if value:
                 tags.append(str(value))
         if results_config.get("gnn_id"):
             tags.append(str(results_config["gnn_id"]))
+
+        model_config_path = cls._result_config_path(results_config, "model_config_path")
+        if isinstance(model_config_path, str):
+            try:
+                model_config = cls._load_json_object(project_absolute_path(model_config_path))
+                for key in [
+                    "entity_embedding_model",
+                    "question_embedding_model",
+                    "relation_embedding_model",
+                ]:
+                    embedding_model_id = model_config.get(key)
+                    if embedding_model_id:
+                        tags.append(str(embedding_model_id))
+                if model_config.get("trained_instances") is not None:
+                    tags.append(f"trained_instances:{model_config['trained_instances']}")
+            except (OSError, ValueError, json.JSONDecodeError):
+                pass
+
+        runs = results_config.get("runs")
+        if isinstance(runs, dict):
+            for stage, run_payload in runs.items():
+                if not isinstance(run_payload, dict):
+                    continue
+                run_number = run_payload.get("number")
+                if run_number is not None:
+                    tags.append(f"{stage}_run_number:{run_number}")
+
         evaluation_config_path = cls._result_config_path(
             results_config,
             "evaluation_config_path",
@@ -532,9 +551,28 @@ class WandbFinalResultsLoggingService(AbstractService):
                 model_run = evaluation_config.get("model_run", {})
                 if isinstance(model_run, dict) and model_run.get("number") is not None:
                     tags.append(f"model_run_number:{model_run['number']}")
+                if evaluation_config.get("run_number") is not None:
+                    tags.append(f"evaluation_run_number:{evaluation_config['run_number']}")
+                if evaluation_config.get("evaluated_instances") is not None:
+                    tags.append(
+                        f"evaluated_instances:{evaluation_config['evaluated_instances']}"
+                    )
             except (OSError, ValueError, json.JSONDecodeError):
                 pass
-        return tags
+        inference_config_path = cls._result_config_path(
+            results_config,
+            "inference_config_path",
+        )
+        if isinstance(inference_config_path, str):
+            try:
+                inference_config = cls._load_json_object(
+                    project_absolute_path(inference_config_path)
+                )
+                if inference_config.get("run_number") is not None:
+                    tags.append(f"inference_run_number:{inference_config['run_number']}")
+            except (OSError, ValueError, json.JSONDecodeError):
+                pass
+        return list(dict.fromkeys(tags))
 
     @classmethod
     def _add_artifact_files(

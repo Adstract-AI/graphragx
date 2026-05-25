@@ -46,6 +46,10 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             "dataset_id": "webqsp",
             "run_name": "7_model",
             "run_number": 7,
+            "entity_embedding_model": "text-embedding-3-small",
+            "question_embedding_model": "text-embedding-3-small",
+            "relation_embedding_model": "text-embedding-3-small",
+            "trained_instances": 123,
             "loss_history": [
                 {"epoch": 1, "average_loss": 0.8},
                 {"epoch": 2, "average_loss": 0.4},
@@ -260,9 +264,32 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert table_rows[0][3] == "Earth"
     assert table_rows[0][4] == "Earth"
     assert table_rows[0][5] == "Moon -> orbits -> Earth"
-    assert wandb_config["model_run_number"] == 7
+    assert set(wandb_config) == {
+        "configs",
+        "dataset_id",
+        "gnn_id",
+        "model_id",
+        "runs",
+        "source_paths",
+    }
     assert wandb_config["runs"]["model"]["number"] == 7
-    assert wandb_config["evaluation_run_number"] == 1
+    assert wandb_config["runs"]["evaluation"]["number"] == 1
+    assert set(wandb_config["source_paths"]) == {
+        "model_config_path",
+        "evaluation_config_path",
+        "inference_config_path",
+        "results_config_path",
+        "training_model_config_path",
+        "training_weights_path",
+        "evaluation_evaluation_config_path",
+        "evaluation_predictions_path",
+        "inference_inference_config_path",
+        "inference_answers_path",
+        "inference_reasoning_path",
+    }
+    assert "training_name" not in wandb_config["source_paths"]
+    assert "evaluation_name" not in wandb_config["source_paths"]
+    assert "inference_name" not in wandb_config["source_paths"]
     assert wandb_config["configs"]["model"]["training"]["epochs"] == 3
     assert (
         wandb_config["configs"]["model"]["training"]["loss_function"]
@@ -349,9 +376,19 @@ def test_wandb_logging_success_with_fake_module(
     assert captured["init"]["entity"] == "entity"
     assert captured["init"]["mode"] == "disabled"
     assert captured["init"]["name"] == "1_test"
-    assert captured["init"]["config"]["model_run_number"] == 7
+    assert captured["init"]["config"]["runs"]["model"]["number"] == 7
     assert captured["init"]["config"]["configs"]["model"]["training"]["epochs"] == 3
     assert "model_run_number:7" in captured["init"]["tags"]
+    assert "evaluation_run_number:1" in captured["init"]["tags"]
+    assert "inference_run_number:1" in captured["init"]["tags"]
+    assert "results_run_number:1" not in captured["init"]["tags"]
+    assert "trained_instances:123" in captured["init"]["tags"]
+    assert "evaluated_instances:1" in captured["init"]["tags"]
+    assert "text-embedding-3-small" in captured["init"]["tags"]
+    assert "2-256-gnn" in captured["init"]["tags"]
+    assert "7_model" not in captured["init"]["tags"]
+    assert "1_eval" not in captured["init"]["tags"]
+    assert "1_inference" not in captured["init"]["tags"]
     run_summary_payload = captured["logs"][0]["payload"]
     assert run_summary_payload["Run_Summary/retrieval_hits_at_1"] == 0.5
     assert "Run_Summary/retrieval_hits_at_5" not in run_summary_payload
