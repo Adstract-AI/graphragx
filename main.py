@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel
@@ -18,7 +17,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_LOG_EVERY,
     DEFAULT_TRAINING_WEIGHT_DECAY,
 )
-from helpers.logging_config import setup_logger
+from helpers.logging_config import get_logger, setup_logger
 from pipeline import (
     BuildGnnAnswerRetrieverStep,
     BuildPipelineConfigurationStep,
@@ -50,6 +49,8 @@ from pipeline.preparation.helpers.configuration_definitions import (
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
 )
 from pipeline.preparation.helpers.dataset_definitions import WEBQSP_DATASET_ID
+
+logger = get_logger(__name__)
 
 
 class PipelineRuntimeConfig(BaseModel):
@@ -247,6 +248,97 @@ def serialize_execution_result(result: PipelineExecutionResult) -> dict[str, Any
     payload = result.model_dump()
     payload["final_result"] = _serialize_value(result.final_result)
     return payload
+
+
+def _format_summary_value(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
+
+
+def _summary_line(label: str, value: Any) -> str:
+    return f"  {label}: {_format_summary_value(value)}"
+
+
+def _build_success_summary_lines(result: PipelineExecutionResult) -> list[str]:
+    final_result = result.final_result
+    lines = [
+        _summary_line("steps", f"{result.steps_executed}/{result.total_steps}"),
+        _summary_line("execution_time_ms", result.execution_time_ms),
+    ]
+    if final_result is None:
+        return lines
+
+    summary_fields = [
+        "results_run_name",
+        "evaluated_instances",
+        "hit_rate",
+        "f1",
+        "ndcg_at_10",
+        "grounded_explanation_rate",
+        "wandb_status",
+        "wandb_run_url",
+    ]
+    for field_name in summary_fields:
+        if hasattr(final_result, field_name):
+            lines.append(_summary_line(field_name, getattr(final_result, field_name)))
+
+    if hasattr(final_result, "wandb_error_message"):
+        error_message = getattr(final_result, "wandb_error_message")
+        if error_message:
+            lines.append(_summary_line("wandb_error_message", error_message))
+
+    return lines
+
+
+def _log_summary_banner(title: str, lines: list[str], color: str) -> None:
+    content_width = max(
+        [len(title), *(len(line) for line in lines)],
+        default=len(title),
+    )
+    border = "═" * max(content_width + 4, 72)
+    body = "\n".join(lines)
+    logger.info(
+        "\n\n%s%s\n%s\n%s\n%s",
+        color,
+        border,
+        title.center(len(border)),
+        body,
+        f"{border}\033[0m",
+    )
+
+
+def log_success_summary(result: PipelineExecutionResult) -> None:
+    """Log a compact human-readable successful run summary."""
+    _log_summary_banner(
+        title="RUN SUMMARY",
+        lines=_build_success_summary_lines(result),
+        color="\033[92m",
+    )
+
+
+def log_error_summary(
+    error_message: str,
+    exception_type: str,
+    result: PipelineExecutionResult | None = None,
+) -> None:
+    """Log a compact human-readable failure summary."""
+    lines = [
+        _summary_line("success", False),
+        _summary_line("exception_type", exception_type),
+        _summary_line("error_message", error_message),
+    ]
+    if result is not None:
+        lines.insert(1, _summary_line("steps", f"{result.steps_executed}/{result.total_steps}"))
+        lines.insert(2, _summary_line("execution_time_ms", result.execution_time_ms))
+
+    _log_summary_banner(
+        title="PIPELINE FAILED",
+        lines=lines,
+        color="\033[91m",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -510,16 +602,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         result = run_pipeline(config=runtime_config)
     except Exception as error:
-        error_payload = {
-            "success": False,
-            "error_message": str(error),
-            "exception_type": error.__class__.__name__,
-        }
-        print(json.dumps(error_payload, indent=2))
+        log_error_summary(
+            error_message=str(error),
+            exception_type=error.__class__.__name__,
+        )
         return 1
 
-    print(json.dumps(serialize_execution_result(result), indent=2, default=str))
-    return 0 if result.success else 1
+    if result.success:
+        log_success_summary(result)
+        return 0
+
+    log_error_summary(
+        error_message=result.error_message or "Unknown pipeline failure.",
+        exception_type=result.exception_type or "PipelineExecutionError",
+        result=result,
+    )
+    return 1
 
 
 if __name__ == "__main__":

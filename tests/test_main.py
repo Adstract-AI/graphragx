@@ -1,6 +1,5 @@
 """Tests for the graphragX entry point."""
 
-import json
 import unittest
 from io import StringIO
 from unittest.mock import patch
@@ -126,17 +125,6 @@ class FakeEvaluateGnnAnswerRetrieverStep(EvaluateGnnAnswerRetrieverStep):
 
 class MainEntrypointTests(unittest.TestCase):
     @staticmethod
-    def _extract_json_payload(raw_output: str) -> dict:
-        json_start = raw_output.rfind("{")
-        while json_start != -1:
-            try:
-                return json.loads(raw_output[json_start:])
-            except json.JSONDecodeError:
-                json_start = raw_output.rfind("{", 0, json_start)
-
-        raise AssertionError("No JSON payload found in output.")
-
-    @staticmethod
     def _patch_dataset_loading_step():
         return patch(
             "main.LoadDatasetStep",
@@ -196,7 +184,7 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(result.final_result.dataset_id, "WebQSP")
         self.assertEqual(result.final_result.model_run_number, 1)
 
-    def test_main_prints_success_payload_for_full_run(self) -> None:
+    def test_main_logs_success_summary_without_printing_full_payload(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
             "sys.stdout",
             new_callable=StringIO,
@@ -228,11 +216,8 @@ class MainEntrypointTests(unittest.TestCase):
                 ]
             )
 
-        payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["final_result"]["dataset_id"], "WebQSP")
-        self.assertEqual(payload["final_result"]["model_run_number"], 1)
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_main_returns_error_for_unsupported_dataset(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
@@ -266,13 +251,8 @@ class MainEntrypointTests(unittest.TestCase):
                 ]
             )
 
-        payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 1)
-        self.assertFalse(payload["success"])
-        self.assertEqual(
-            payload["exception_type"],
-            "UnsupportedDatasetSelectionException",
-        )
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_main_interactively_prompts_missing_configuration_flags(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
@@ -284,10 +264,8 @@ class MainEntrypointTests(unittest.TestCase):
         ) as stdout:
             exit_code = main.main(["--dataset", "WebQSP", "--no-llm-inference", "--no-wandb"])
 
-        payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["final_result"]["model_run_number"], 1)
+        self.assertNotIn('"success"', stdout.getvalue())
 
     def test_main_default_flag_runs_without_prompting(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
@@ -299,11 +277,8 @@ class MainEntrypointTests(unittest.TestCase):
         ) as stdout:
             exit_code = main.main(["--default", "--no-llm-inference", "--no-wandb"])
 
-        payload = self._extract_json_payload(stdout.getvalue())
         self.assertEqual(exit_code, 0)
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["final_result"]["dataset_id"], "WebQSP")
-        self.assertEqual(payload["final_result"]["model_run_number"], 1)
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_main_no_arguments_does_not_force_default_configuration_values(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []

@@ -34,19 +34,25 @@ class Pipeline:
 
     def prepare(self, initial_context: StepContext) -> PipelineExecutionResult:
         """Run the preparation phase."""
-        return self._run_steps(
+        result = self._run_steps(
             self.preparation_steps,
             initial_context,
             reset_result_bank=True,
         )
+        if result.success:
+            self._log_pipeline_success(result)
+        return result
 
     def evaluate(self, initial_context: StepContext) -> PipelineExecutionResult:
         """Run the evaluation phase."""
-        return self._run_steps(
+        result = self._run_steps(
             self.evaluation_steps,
             initial_context,
             reset_result_bank=True,
         )
+        if result.success:
+            self._log_pipeline_success(result)
+        return result
 
     def run(self, initial_context: StepContext) -> PipelineExecutionResult:
         """Run the full pipeline by executing preparation and then evaluation."""
@@ -82,12 +88,14 @@ class Pipeline:
             + (evaluation_result.execution_time_ms or 0.0)
         )
 
-        return PipelineExecutionResult.success_result(
+        result = PipelineExecutionResult.success_result(
             final_result=evaluation_result.final_result,
             execution_time_ms=total_execution_time_ms,
             steps_executed=total_steps_executed,
             total_steps=total_steps,
         )
+        self._log_pipeline_success(result)
+        return result
 
     def _run_steps(
         self,
@@ -150,5 +158,21 @@ class Pipeline:
             "\n\n\033[95m%s\n%s\n%s\033[0m",
             border,
             banner.center(len(border)),
+            border,
+        )
+
+    @staticmethod
+    def _log_pipeline_success(result: PipelineExecutionResult) -> None:
+        execution_time_ms = result.execution_time_ms or 0.0
+        message = (
+            f" PIPELINE SUCCESSFULLY FINISHED "
+            f"({result.steps_executed}/{result.total_steps} steps, "
+            f"{execution_time_ms:.2f} ms) "
+        )
+        border = "═" * max(len(message), 72)
+        logger.info(
+            "\n\n\033[92m%s\n%s\n%s\033[0m",
+            border,
+            message.center(len(border)),
             border,
         )
