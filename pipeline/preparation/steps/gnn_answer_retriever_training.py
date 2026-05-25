@@ -7,7 +7,6 @@ from pathlib import Path
 from pydantic import ConfigDict, Field
 
 from helpers.constants import (
-    DEFAULT_EMBEDDING_CACHE_SAVE_EVERY_BATCHES,
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
@@ -101,9 +100,6 @@ class TrainGnnAnswerRetrieverStep(
         training_log_every: int = DEFAULT_TRAINING_LOG_EVERY,
         training_device: str = DEFAULT_TRAINING_DEVICE,
         training_run_name: str | None = None,
-        embedding_cache_save_every_batches: int = (
-            DEFAULT_EMBEDDING_CACHE_SAVE_EVERY_BATCHES
-        ),
         training_service: GnnAnswerRetrieverTrainingService | None = None,
         force_default: bool = False,
     ):
@@ -118,9 +114,7 @@ class TrainGnnAnswerRetrieverStep(
             run_name=training_run_name,
         )
         self.training_service = training_service or GnnAnswerRetrieverTrainingService(
-            embedding_cache_service=WebQSPEmbeddingCacheService(
-                save_every_batches=embedding_cache_save_every_batches,
-            )
+            embedding_cache_service=WebQSPEmbeddingCacheService()
         )
 
     def execute_default(

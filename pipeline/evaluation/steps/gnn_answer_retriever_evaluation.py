@@ -8,7 +8,6 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
-    DEFAULT_EMBEDDING_CACHE_SAVE_EVERY_BATCHES,
 )
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
@@ -55,9 +54,6 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         evaluation_run_name: str | None = None,
         evaluation_max_instances: int | None = None,
-        embedding_cache_save_every_batches: int = (
-            DEFAULT_EMBEDDING_CACHE_SAVE_EVERY_BATCHES
-        ),
         evaluation_service: GnnAnswerRetrieverEvaluationService | None = None,
         force_default: bool = False,
     ):
@@ -74,9 +70,7 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
         self.evaluation_service = (
             evaluation_service
             or GnnAnswerRetrieverEvaluationService(
-                embedding_cache_service=WebQSPEmbeddingCacheService(
-                    save_every_batches=embedding_cache_save_every_batches,
-                )
+                embedding_cache_service=WebQSPEmbeddingCacheService()
             )
         )
 

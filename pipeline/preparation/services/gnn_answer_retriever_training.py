@@ -113,21 +113,25 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             cache_root=cache_root,
             model_id=configuration.entity_embedding_model,
             vocabulary=prepared_dataset.vocabulary_store.nodes,
+            dataset_id=prepared_dataset.dataset_id,
         )
         relation_cache = self.embedding_cache_service.load_relation_cache(
             cache_root=cache_root,
             model_id=configuration.relation_embedding_model,
             vocabulary=prepared_dataset.vocabulary_store.relations,
+            dataset_id=prepared_dataset.dataset_id,
         )
         question_cache = self.embedding_cache_service.load_question_cache(
             cache_root=cache_root,
             model_id=configuration.question_embedding_model,
             vocabulary=prepared_dataset.vocabulary_store.questions,
+            dataset_id=prepared_dataset.dataset_id,
         )
         logger.info(
-            f"Loaded embedding caches: nodes={len(node_cache.embeddings)} "
-            f"relations={len(relation_cache.embeddings)} "
-            f"questions={len(question_cache.embeddings)}"
+            f"Loaded Qdrant embedding cache handles: "
+            f"nodes_collection={node_cache.collection_name} "
+            f"relations_collection={relation_cache.collection_name} "
+            f"questions_collection={question_cache.collection_name}"
         )
 
         self._populate_embedding_caches(
@@ -137,9 +141,10 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             question_cache=question_cache,
         )
         logger.info(
-            f"Embedding caches ready: nodes={len(node_cache.embeddings)} "
-            f"relations={len(relation_cache.embeddings)} "
-            f"questions={len(question_cache.embeddings)}"
+            f"Qdrant embedding caches ready: "
+            f"node_vocab={len(node_cache.vocabulary)} "
+            f"relation_vocab={len(relation_cache.vocabulary)} "
+            f"question_vocab={len(question_cache.vocabulary)}"
         )
 
         model = built_retriever.model
@@ -303,10 +308,10 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         device: str,
     ):
         return torch.tensor(
-            [
-                self.embedding_cache_service.embedding_for_text(node_cache, node)
-                for node in instance.nodes
-            ],
+            self.embedding_cache_service.embeddings_for_texts(
+                cache=node_cache,
+                texts=instance.nodes,
+            ),
             dtype=torch.float,
             device=device,
         )
@@ -324,21 +329,18 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             return torch.empty(0, dtype=torch.float, device=device)
 
         question_embedding = torch.tensor(
-            self.embedding_cache_service.embedding_for_text(
-                question_cache,
-                instance.question,
+            self.embedding_cache_service.embeddings_for_texts(
+                cache=question_cache,
+                texts=[instance.question],
             ),
             dtype=torch.float,
             device=device,
-        )
+        )[0]
         relation_embeddings = torch.tensor(
-            [
-                self.embedding_cache_service.embedding_for_text(
-                    relation_cache,
-                    relation,
-                )
-                for relation in instance.edge_relations
-            ],
+            self.embedding_cache_service.embeddings_for_texts(
+                cache=relation_cache,
+                texts=instance.edge_relations,
+            ),
             dtype=torch.float,
             device=device,
         )

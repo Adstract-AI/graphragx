@@ -30,6 +30,14 @@ Fill in at least:
 OPENAI_API_KEY=your_openai_key
 ```
 
+Start Qdrant before running any training or evaluation step that uses embeddings:
+
+```bash
+docker compose up -d qdrant
+```
+
+By default the pipeline connects to `http://localhost:6333` and stores embeddings in Qdrant collections prefixed with `graphragx_embeddings`.
+
 W&B logging is enabled by default for full runs. For first-time W&B usage, run:
 
 ```bash
@@ -108,7 +116,6 @@ python main.py --evaluation-only --evaluation-model-run-number 12 --default
 | `--training-log-every TRAINING_LOG_EVERY` | How often training progress is logged, measured in processed instances. |
 | `--training-device {auto,cpu,cuda,mps}` | Device used for GNN training. `auto` selects the best available supported device. |
 | `--training-run-name TRAINING_RUN_NAME` | Optional label for the saved training run folder. |
-| `--embedding-cache-save-every-batches EMBEDDING_CACHE_SAVE_EVERY_BATCHES` | Saves the embedding cache after this many OpenAI embedding batches during training/evaluation cache fills. Defaults to `20`; the final batch is always saved. |
 
 ### GNN Evaluation
 
