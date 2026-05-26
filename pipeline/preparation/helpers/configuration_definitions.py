@@ -100,6 +100,16 @@ SHARED_LLM_MODELS: Final[dict[str, LlmModelDefinition]] = {
         display_name="GPT-5.4 Nano",
         description="Fast lightweight shared model option.",
     ),
+    "gpt-5-mini": LlmModelDefinition(
+        model_id="gpt-5-mini",
+        display_name="GPT-5 Mini",
+        description="Faster, cost-efficient GPT-5 model for well-defined tasks.",
+    ),
+    "gpt-5-nano": LlmModelDefinition(
+        model_id="gpt-5-nano",
+        display_name="GPT-5 Nano",
+        description="Fastest and cheapest GPT-5 model option.",
+    ),
     "gpt-4.1": LlmModelDefinition(
         model_id="gpt-4.1",
         display_name="GPT-4.1",

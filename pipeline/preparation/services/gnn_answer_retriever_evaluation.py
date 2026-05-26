@@ -55,6 +55,14 @@ class GnnAnswerRetrieverEvaluationOutcome(BaseModel):
     hits_at_5_count: int = Field(..., description="Hits@5 count.")
     hits_at_10: float = Field(..., description="Hits@10 rate.")
     hits_at_10_count: int = Field(..., description="Hits@10 count.")
+    hits_at_candidate_limit: float = Field(
+        ...,
+        description="Hits at configured candidate limit rate.",
+    )
+    hits_at_candidate_limit_count: int = Field(
+        ...,
+        description="Hits at configured candidate limit count.",
+    )
     average_candidate_count: float = Field(
         ...,
         description="Average number of selected candidate nodes.",
@@ -117,20 +125,38 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 f"match prepared dataset {prepared_dataset.dataset_id}."
             )
 
+        logger.info(
+            f"Loading embedding caches for GNN answer-retriever evaluation: "
+            f"model_run={loaded_model_run.run_name} "
+            f"cache_root={cache_root / 'embeddings'} "
+            f"entity_model={loaded_model_run.config.entity_embedding_model} "
+            f"relation_model={loaded_model_run.relation_embedding_model} "
+            f"question_model={loaded_model_run.question_embedding_model}"
+        )
         node_cache = self.embedding_cache_service.load_node_cache(
             cache_root=cache_root,
             model_id=loaded_model_run.config.entity_embedding_model,
             vocabulary=prepared_dataset.vocabulary_store.nodes,
+            dataset_id=prepared_dataset.dataset_id,
         )
         relation_cache = self.embedding_cache_service.load_relation_cache(
             cache_root=cache_root,
             model_id=loaded_model_run.relation_embedding_model,
             vocabulary=prepared_dataset.vocabulary_store.relations,
+            dataset_id=prepared_dataset.dataset_id,
         )
         question_cache = self.embedding_cache_service.load_question_cache(
             cache_root=cache_root,
             model_id=loaded_model_run.question_embedding_model,
             vocabulary=prepared_dataset.vocabulary_store.questions,
+            dataset_id=prepared_dataset.dataset_id,
+        )
+        logger.info(
+            f"Loaded embedding caches for GNN answer-retriever evaluation: "
+            f"model_run={loaded_model_run.run_name} "
+            f"nodes_collection={node_cache.collection_name} "
+            f"relations_collection={relation_cache.collection_name} "
+            f"questions_collection={question_cache.collection_name}"
         )
 
         logger.info(
@@ -147,11 +173,17 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             relation_cache=relation_cache,
             question_cache=question_cache,
         )
+        logger.info(
+            f"Beginning GNN answer-retriever instance evaluation: "
+            f"model_run={loaded_model_run.run_name} instances={len(test_instances)} "
+            f"log_every={evaluation_config.log_every}"
+        )
 
         predictions: list[EvaluatedAnswerRetrievalInstance] = []
         hits_at_1_count = 0
         hits_at_5_count = 0
         hits_at_10_count = 0
+        hits_at_candidate_limit_count = 0
         missing_gold_in_graph_count = 0
         total_candidate_count = 0
 
@@ -193,13 +225,36 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 hits_at_1_count += int(prediction.hit_at_1)
                 hits_at_5_count += int(prediction.hit_at_5)
                 hits_at_10_count += int(prediction.hit_at_10)
+                hits_at_candidate_limit_count += int(
+                    prediction.hit_at_candidate_limit
+                )
                 missing_gold_in_graph_count += int(prediction.missing_gold_in_graph)
                 total_candidate_count += len(prediction.answer_candidates)
+                processed_count = instance_index + 1
+                if (
+                    evaluation_config.log_every > 0
+                    and (
+                        processed_count % evaluation_config.log_every == 0
+                        or processed_count == len(test_instances)
+                    )
+                ):
+                    logger.info(
+                        f"GNN answer-retriever evaluation progress: "
+                        f"{processed_count}/{len(test_instances)} instances "
+                        f"hits_at_1={hits_at_1_count / processed_count:.4f} "
+                        f"hits_at_5={hits_at_5_count / processed_count:.4f} "
+                        f"hits_at_10={hits_at_10_count / processed_count:.4f} "
+                        f"hits_at_candidate_limit="
+                        f"{hits_at_candidate_limit_count / processed_count:.4f} "
+                        f"average_candidate_count="
+                        f"{total_candidate_count / processed_count:.2f}"
+                    )
 
         evaluated_instances = len(predictions)
         hits_at_1 = hits_at_1_count / evaluated_instances
         hits_at_5 = hits_at_5_count / evaluated_instances
         hits_at_10 = hits_at_10_count / evaluated_instances
+        hits_at_candidate_limit = hits_at_candidate_limit_count / evaluated_instances
         average_candidate_count = total_candidate_count / evaluated_instances
         storage_result = self.storage_service.save_evaluation_run(
             evaluation_root=cache_root / "evaluations",
@@ -219,6 +274,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             f"run={storage_result.evaluation_run_name} "
             f"hits_at_1={hits_at_1:.4f} hits_at_5={hits_at_5:.4f} "
             f"hits_at_10={hits_at_10:.4f} "
+            f"hits_at_candidate_limit={hits_at_candidate_limit:.4f} "
             f"average_candidate_count={average_candidate_count:.2f}"
         )
         return GnnAnswerRetrieverEvaluationOutcome(
@@ -231,6 +287,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             hits_at_5_count=hits_at_5_count,
             hits_at_10=hits_at_10,
             hits_at_10_count=hits_at_10_count,
+            hits_at_candidate_limit=hits_at_candidate_limit,
+            hits_at_candidate_limit_count=hits_at_candidate_limit_count,
             average_candidate_count=average_candidate_count,
             missing_gold_in_graph_count=missing_gold_in_graph_count,
         )
@@ -305,10 +363,10 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         device: str,
     ):
         return torch.tensor(
-            [
-                self.embedding_cache_service.embedding_for_text(node_cache, node)
-                for node in instance.nodes
-            ],
+            self.embedding_cache_service.embeddings_for_texts(
+                cache=node_cache,
+                texts=instance.nodes,
+            ),
             dtype=torch.float,
             device=device,
         )
@@ -326,21 +384,18 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             return torch.empty(0, dtype=torch.float, device=device)
 
         question_embedding = torch.tensor(
-            self.embedding_cache_service.embedding_for_text(
-                question_cache,
-                instance.question,
+            self.embedding_cache_service.embeddings_for_texts(
+                cache=question_cache,
+                texts=[instance.question],
             ),
             dtype=torch.float,
             device=device,
-        )
+        )[0]
         relation_embeddings = torch.tensor(
-            [
-                self.embedding_cache_service.embedding_for_text(
-                    relation_cache,
-                    relation,
-                )
-                for relation in instance.edge_relations
-            ],
+            self.embedding_cache_service.embeddings_for_texts(
+                cache=relation_cache,
+                texts=instance.edge_relations,
+            ),
             dtype=torch.float,
             device=device,
         )
@@ -409,6 +464,9 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         hit_at_1 = instance.nodes[top_node_id] in gold_answers
         hit_at_5 = any(candidate.is_gold_answer for candidate in answer_candidates[:5])
         hit_at_10 = any(candidate.is_gold_answer for candidate in answer_candidates[:10])
+        hit_at_candidate_limit = any(
+            candidate.is_gold_answer for candidate in answer_candidates
+        )
         missing_gold_in_graph = not any(score.present_in_graph for score in gold_answer_scores)
 
         return EvaluatedAnswerRetrievalInstance(
@@ -421,6 +479,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             hit_at_1=hit_at_1,
             hit_at_5=hit_at_5,
             hit_at_10=hit_at_10,
+            hit_at_candidate_limit=hit_at_candidate_limit,
             missing_gold_in_graph=missing_gold_in_graph,
         )
 

@@ -4,3 +4,4 @@ torch
 langchain-openai
 python-dotenv
 wandb
+qdrant-client

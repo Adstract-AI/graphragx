@@ -11,6 +11,7 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_EVALUATION_LOG_EVERY,
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
@@ -71,9 +72,12 @@ class PipelineRuntimeConfig(BaseModel):
     training_learning_rate: float = DEFAULT_TRAINING_LEARNING_RATE
     training_weight_decay: float = DEFAULT_TRAINING_WEIGHT_DECAY
     training_max_instances: int | None = None
+    training_start_instance: int = 0
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
     training_device: str = DEFAULT_TRAINING_DEVICE
     training_run_name: str | None = None
+    continue_training_model_run_name: str | None = None
+    continue_training_model_run_number: int | None = None
     evaluation_model_run_name: str | None = None
     evaluation_model_run_number: int | None = None
     answer_threshold: float = DEFAULT_ANSWER_THRESHOLD
@@ -81,6 +85,7 @@ class PipelineRuntimeConfig(BaseModel):
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
     evaluation_run_name: str | None = None
     evaluation_max_instances: int | None = None
+    evaluation_log_every: int = DEFAULT_EVALUATION_LOG_EVERY
     no_llm_inference: bool = False
     inference_run_name: str | None = None
     llm_inference_batch_size: int = 10
@@ -127,6 +132,17 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             "WandB logging requires LLM inference. Use --no-wandb together with "
             "--no-llm-inference when skipping final LLM reasoning results."
         )
+    if config.training_start_instance < 0:
+        raise PipelineException(
+            "--training-start-instance must be greater than or equal to 0."
+        )
+    if config.run_mode == "evaluation-only" and (
+        config.continue_training_model_run_name is not None
+        or config.continue_training_model_run_number is not None
+    ):
+        raise PipelineException(
+            "Training continuation flags are not valid in evaluation-only mode."
+        )
 
     resolved_config = config.with_defaulted_user_inputs()
     setup_steps = [
@@ -154,9 +170,16 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             training_learning_rate=resolved_config.training_learning_rate,
             training_weight_decay=resolved_config.training_weight_decay,
             training_max_instances=resolved_config.training_max_instances,
+            training_start_instance=resolved_config.training_start_instance,
             training_log_every=resolved_config.training_log_every,
             training_device=resolved_config.training_device,
             training_run_name=resolved_config.training_run_name,
+            continue_training_model_run_name=(
+                resolved_config.continue_training_model_run_name
+            ),
+            continue_training_model_run_number=(
+                resolved_config.continue_training_model_run_number
+            ),
         ),
     ]
     evaluation_steps = [
@@ -168,6 +191,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             candidate_limit=resolved_config.candidate_limit,
             evaluation_run_name=resolved_config.evaluation_run_name,
             evaluation_max_instances=resolved_config.evaluation_max_instances,
+            evaluation_log_every=resolved_config.evaluation_log_every,
         ),
     ]
     if not resolved_config.no_llm_inference:
@@ -444,6 +468,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional maximum number of WebQSP training instances to use.",
     )
     parser.add_argument(
+        "--training-start-instance",
+        type=int,
+        default=0,
+        help="Zero-based train split index where GNN training should start.",
+    )
+    parser.add_argument(
         "--training-log-every",
         type=int,
         default=DEFAULT_TRAINING_LOG_EVERY,
@@ -459,6 +489,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--training-run-name",
         default=None,
         help="Optional label for the versioned training run folder.",
+    )
+    parser.add_argument(
+        "--continue-training-model-run-name",
+        default=None,
+        help="Saved model run folder name or suffix to continue training from.",
+    )
+    parser.add_argument(
+        "--continue-training-model-run-number",
+        type=int,
+        default=None,
+        help="Saved model run numeric prefix to continue training from.",
     )
     parser.add_argument(
         "--evaluation-model-run-name",
@@ -501,6 +542,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Optional maximum number of WebQSP test instances to evaluate.",
+    )
+    parser.add_argument(
+        "--evaluation-log-every",
+        type=int,
+        default=DEFAULT_EVALUATION_LOG_EVERY,
+        help="Log GNN evaluation progress after this many evaluated instances.",
     )
     parser.add_argument(
         "--no-llm-inference",
@@ -578,9 +625,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_learning_rate=args.training_learning_rate,
         training_weight_decay=args.training_weight_decay,
         training_max_instances=args.training_max_instances,
+        training_start_instance=args.training_start_instance,
         training_log_every=args.training_log_every,
         training_device=args.training_device,
         training_run_name=args.training_run_name,
+        continue_training_model_run_name=args.continue_training_model_run_name,
+        continue_training_model_run_number=args.continue_training_model_run_number,
         evaluation_model_run_name=args.evaluation_model_run_name,
         evaluation_model_run_number=args.evaluation_model_run_number,
         answer_threshold=args.answer_threshold,
@@ -588,6 +638,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_limit=args.candidate_limit,
         evaluation_run_name=args.evaluation_run_name,
         evaluation_max_instances=args.evaluation_max_instances,
+        evaluation_log_every=args.evaluation_log_every,
         no_llm_inference=args.no_llm_inference,
         inference_run_name=args.inference_run_name,
         llm_inference_batch_size=args.llm_inference_batch_size,

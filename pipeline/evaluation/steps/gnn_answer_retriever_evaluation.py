@@ -8,6 +8,7 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_EVALUATION_LOG_EVERY,
 )
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
@@ -24,6 +25,7 @@ from pipeline.preparation.steps.gnn_answer_retriever_training import (
 from pipeline.preparation.services.gnn_answer_retriever_evaluation import (
     GnnAnswerRetrieverEvaluationService,
 )
+from pipeline.preparation.services.embedding_cache import WebQSPEmbeddingCacheService
 
 logger = get_logger(__name__)
 
@@ -53,6 +55,7 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         evaluation_run_name: str | None = None,
         evaluation_max_instances: int | None = None,
+        evaluation_log_every: int = DEFAULT_EVALUATION_LOG_EVERY,
         evaluation_service: GnnAnswerRetrieverEvaluationService | None = None,
         force_default: bool = False,
     ):
@@ -65,9 +68,13 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             candidate_limit=candidate_limit,
             run_name=evaluation_run_name,
             max_instances=evaluation_max_instances,
+            log_every=evaluation_log_every,
         )
         self.evaluation_service = (
-            evaluation_service or GnnAnswerRetrieverEvaluationService()
+            evaluation_service
+            or GnnAnswerRetrieverEvaluationService(
+                embedding_cache_service=WebQSPEmbeddingCacheService()
+            )
         )
 
     def execute_default(
@@ -100,7 +107,8 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             f"requested_model_run_number={evaluation_config.model_run_number} "
             f"threshold={evaluation_config.answer_threshold} "
             f"candidate_top_k={evaluation_config.candidate_top_k} "
-            f"candidate_limit={evaluation_config.candidate_limit}"
+            f"candidate_limit={evaluation_config.candidate_limit} "
+            f"log_every={evaluation_config.log_every}"
         )
         outcome = self.evaluation_service.evaluate(
             prepared_dataset=context.prepared_dataset,
@@ -127,6 +135,8 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             hits_at_5_count=outcome.hits_at_5_count,
             hits_at_10=outcome.hits_at_10,
             hits_at_10_count=outcome.hits_at_10_count,
+            hits_at_candidate_limit=outcome.hits_at_candidate_limit,
+            hits_at_candidate_limit_count=outcome.hits_at_candidate_limit_count,
             average_candidate_count=outcome.average_candidate_count,
             missing_gold_in_graph_count=outcome.missing_gold_in_graph_count,
             predictions_path=outcome.storage_result.predictions_path,

@@ -43,6 +43,7 @@ def setup_logger() -> None:
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.setLevel(GRAPHRAGX_LOG_LEVEL)
+    _quiet_noisy_dependency_loggers()
 
     handler = logging.StreamHandler()
     handler.setLevel(GRAPHRAGX_LOG_LEVEL)
@@ -57,3 +58,9 @@ def setup_logger() -> None:
 def get_logger(name: str) -> logging.Logger:
     """Return a project logger configured through the shared setup."""
     return logging.getLogger(name)
+
+
+def _quiet_noisy_dependency_loggers() -> None:
+    """Suppress successful low-level HTTP logs from chatty client libraries."""
+    for logger_name in ["httpx", "httpcore", "qdrant_client"]:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)

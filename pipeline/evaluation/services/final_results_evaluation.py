@@ -186,6 +186,19 @@ class FinalResultsEvaluationService(AbstractService):
             for prediction in predictions
             if FinalResultsEvaluationService._retrieval_hits_at_k(prediction, 10)
         )
+        candidate_limit = FinalResultsEvaluationService._extract_candidate_limit(
+            FinalResultsEvaluationService._load_json_object(
+                gnn_evaluation_result.evaluation_config_path
+            )
+        )
+        hits_at_candidate_limit_count = sum(
+            1
+            for prediction in predictions
+            if FinalResultsEvaluationService._retrieval_hits_at_k(
+                prediction,
+                candidate_limit,
+            )
+        )
         total_candidate_count = sum(
             len(prediction.answer_candidates)
             for prediction in predictions
@@ -215,6 +228,12 @@ class FinalResultsEvaluationService(AbstractService):
                 evaluated_instances,
             ),
             "hits_at_10_count": hits_at_10_count,
+            "hits_at_candidate_limit": FinalResultsEvaluationService._safe_divide(
+                hits_at_candidate_limit_count,
+                evaluated_instances,
+            ),
+            "hits_at_candidate_limit_count": hits_at_candidate_limit_count,
+            "candidate_limit": candidate_limit,
             "average_candidate_count": FinalResultsEvaluationService._safe_divide(
                 total_candidate_count,
                 evaluated_instances,

@@ -54,6 +54,25 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.relation_embedding_model, "text-embedding-3-small")
         self.assertEqual(result.entity_embedding_model, "text-embedding-3-small")
 
+    def test_gpt_5_mini_and_nano_are_supported_main_llm_models(self) -> None:
+        for model_id in ("gpt-5-mini", "gpt-5-nano"):
+            with self.subTest(model_id=model_id):
+                step = BuildPipelineConfigurationStep(
+                    main_llm_model=model_id,
+                    subgraph_algorithm="shortest_path",
+                    context_strategy="structured_triples",
+                    gnn_layer_count=2,
+                    gnn_hidden_dimension=256,
+                    node_classifier="mlp",
+                    question_embedding_model="text-embedding-3-small",
+                    relation_embedding_model="text-embedding-3-small",
+                    entity_embedding_model="text-embedding-3-small",
+                )
+
+                result = step.execute(self.make_dataset_context())
+
+                self.assertEqual(result.main_llm_model, model_id)
+
     def test_mixed_path_prompts_only_missing_fields(self) -> None:
         answers = iter(["1"])
         prompts: list[str] = []

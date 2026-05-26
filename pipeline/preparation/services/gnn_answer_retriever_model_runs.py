@@ -28,6 +28,7 @@ class SavedGnnAnswerRetrieverTrainingConfig(BaseModel):
     learning_rate: float
     weight_decay: float
     max_instances: int | None = None
+    start_instance: int = 0
     log_every: int
     device: str
     gnn_layer_count: int | None = None
@@ -49,6 +50,12 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     training: SavedGnnAnswerRetrieverTrainingConfig
     run_name: str | None = None
     run_number: int | None = None
+    is_fine_tuned_model: bool = False
+    continued_from_model_run_name: str | None = None
+    continued_from_model_run_number: int | None = None
+    training_start_instance: int = 0
+    training_end_instance: int | None = None
+    trained_instance_range: dict[str, int] | None = None
     loss_history: list[dict[str, float | int]] = Field(default_factory=list)
     final_loss: float
     trained_instances: int

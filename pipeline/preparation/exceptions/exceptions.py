@@ -78,6 +78,10 @@ class OpenAiEmbeddingConfigurationException(PipelineException):
     """Raised when OpenAI embedding configuration is incomplete."""
 
 
+class QdrantEmbeddingStoreException(PipelineException):
+    """Raised when the Qdrant embedding store is unavailable or inconsistent."""
+
+
 class GnnAnswerRetrieverTrainingException(PipelineException):
     """Raised when GNN answer-retriever training fails."""
 
