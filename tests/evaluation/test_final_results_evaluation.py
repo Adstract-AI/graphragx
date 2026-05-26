@@ -56,6 +56,7 @@ def _prediction(candidates: list[AnswerCandidateScore]) -> EvaluatedAnswerRetrie
         hit_at_1=bool(candidates and candidates[0].is_gold_answer),
         hit_at_5=any(candidate.is_gold_answer for candidate in candidates[:5]),
         hit_at_10=any(candidate.is_gold_answer for candidate in candidates[:10]),
+        hit_at_candidate_limit=any(candidate.is_gold_answer for candidate in candidates),
         missing_gold_in_graph=not any(candidate.is_gold_answer for candidate in candidates),
     )
 
@@ -356,6 +357,8 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     assert retrieval_metrics["hits_at_1"] == 0.5
     assert retrieval_metrics["hits_at_5"] == 1.0
     assert retrieval_metrics["hits_at_10"] == 1.0
+    assert retrieval_metrics["hits_at_candidate_limit"] == 1.0
+    assert retrieval_metrics["candidate_limit"] == 5
     assert retrieval_metrics["average_candidate_count"] == 2.0
 
     metrics = json.loads(outcome.storage_result.reasoning_metrics_path.read_text())

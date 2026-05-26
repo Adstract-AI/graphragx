@@ -180,6 +180,9 @@ class WandbFinalResultsLoggingService(AbstractService):
             "retrieval_hits_at_1": retrieval_metrics.get("hits_at_1"),
             "retrieval_hits_at_5": retrieval_metrics.get("hits_at_5"),
             "retrieval_hits_at_10": retrieval_metrics.get("hits_at_10"),
+            "retrieval_hits_at_candidate_limit": retrieval_metrics.get(
+                "hits_at_candidate_limit"
+            ),
             "retrieval_average_candidate_count": retrieval_metrics.get(
                 "average_candidate_count"
             ),
@@ -243,6 +246,7 @@ class WandbFinalResultsLoggingService(AbstractService):
         run_summary_keys = {
             "retrieval_hits_at_1": "retrieval_hits_at_1",
             "retrieval_hits_at_10": "retrieval_hits_at_10",
+            "retrieval_hits_at_candidate_limit": "retrieval_hits_at_candidate_limit",
             "answer_hit_rate": "answer_hit_rate",
             "answer_f1": "answer_f1",
             "ranking_ndcg_at_10": "ranking_ndcg_at_10",

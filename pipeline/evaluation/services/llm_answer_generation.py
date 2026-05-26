@@ -31,6 +31,8 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
 
     # USD per 1M tokens. Unknown models fall back to 0-cost accounting.
     model_token_prices = {
+        "gpt-5-mini": {"input": 0.25, "output": 2.0},
+        "gpt-5-nano": {"input": 0.05, "output": 0.4},
         "gpt-4.1": {"input": 2.0, "output": 8.0},
         "gpt-4.1-mini": {"input": 0.4, "output": 1.6},
         "gpt-4.1-nano": {"input": 0.1, "output": 0.4},

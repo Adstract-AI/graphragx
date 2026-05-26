@@ -81,6 +81,10 @@ class EvaluatedAnswerRetrievalInstance(BaseModel):
         default=False,
         description="Whether any top-10 selected answer candidate is gold.",
     )
+    hit_at_candidate_limit: bool = Field(
+        default=False,
+        description="Whether any selected answer candidate is gold.",
+    )
     missing_gold_in_graph: bool = Field(
         ...,
         description="Whether no gold answer appears in the local graph.",
@@ -109,6 +113,14 @@ class GnnAnswerRetrieverEvaluationResult(StepResult):
     hits_at_5_count: int = Field(default=0, description="Hits@5 count.")
     hits_at_10: float = Field(default=0.0, description="Hits@10 rate.")
     hits_at_10_count: int = Field(default=0, description="Hits@10 count.")
+    hits_at_candidate_limit: float = Field(
+        default=0.0,
+        description="Hits at configured candidate limit rate.",
+    )
+    hits_at_candidate_limit_count: int = Field(
+        default=0,
+        description="Hits at configured candidate limit count.",
+    )
     average_candidate_count: float = Field(
         ...,
         description="Average number of selected candidates.",

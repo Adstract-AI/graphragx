@@ -135,6 +135,8 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             hits_at_5_count=outcome.hits_at_5_count,
             hits_at_10=outcome.hits_at_10,
             hits_at_10_count=outcome.hits_at_10_count,
+            hits_at_candidate_limit=outcome.hits_at_candidate_limit,
+            hits_at_candidate_limit_count=outcome.hits_at_candidate_limit_count,
             average_candidate_count=outcome.average_candidate_count,
             missing_gold_in_graph_count=outcome.missing_gold_in_graph_count,
             predictions_path=outcome.storage_result.predictions_path,
