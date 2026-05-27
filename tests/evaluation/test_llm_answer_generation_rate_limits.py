@@ -28,6 +28,13 @@ class FakeChatModel:
         return "ok"
 
 
+class CapturingChatOpenAI:
+    captured_kwargs = None
+
+    def __init__(self, **kwargs):
+        self.__class__.captured_kwargs = kwargs
+
+
 class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
     def test_rate_limit_is_logged_and_retried(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
@@ -55,6 +62,50 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
                 for message in logs.output
             )
         )
+
+    def test_deepseek_chat_model_uses_deepseek_key_and_base_url(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+
+        model = service._create_chat_model(
+            chat_openai_type=CapturingChatOpenAI,
+            model_id="deepseek-v4-flash",
+            prompt="question",
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.com",
+        )
+
+        self.assertIsInstance(model, CapturingChatOpenAI)
+        self.assertEqual(
+            CapturingChatOpenAI.captured_kwargs["model"],
+            "deepseek-v4-flash",
+        )
+        self.assertEqual(CapturingChatOpenAI.captured_kwargs["api_key"], "deepseek-key")
+        self.assertEqual(
+            CapturingChatOpenAI.captured_kwargs["base_url"],
+            "https://api.deepseek.com",
+        )
+
+    def test_deepseek_missing_api_key_mentions_deepseek_env_name(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+
+        with patch(
+            "pipeline.evaluation.services.llm_answer_generation.DEEPSEEK_API_KEY",
+            None,
+        ), self.assertRaisesRegex(Exception, "DEEPSEEK_API_KEY"):
+            service.generate_answer_with_explanation(
+                question="q",
+                reasoning_paths_text="paths",
+                model_id="deepseek-v4-pro",
+            )
+
+    def test_deepseek_cost_estimation_uses_deepseek_prices(self) -> None:
+        cost = LangChainOpenAiAnswerGenerationService.estimate_cost_usd(
+            model_id="deepseek-v4-pro",
+            prompt_tokens=1_000_000,
+            completion_tokens=1_000_000,
+        )
+
+        self.assertEqual(cost, 1.305)
 
 
 if __name__ == "__main__":

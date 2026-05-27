@@ -110,6 +110,16 @@ SHARED_LLM_MODELS: Final[dict[str, LlmModelDefinition]] = {
         display_name="GPT-5 Nano",
         description="Fastest and cheapest GPT-5 model option.",
     ),
+    "deepseek-v4-flash": LlmModelDefinition(
+        model_id="deepseek-v4-flash",
+        display_name="DeepSeek-V4-Flash",
+        description="Fast DeepSeek V4 model served through the DeepSeek API.",
+    ),
+    "deepseek-v4-pro": LlmModelDefinition(
+        model_id="deepseek-v4-pro",
+        display_name="DeepSeek-V4-Pro",
+        description="Higher-capability DeepSeek V4 model served through the DeepSeek API.",
+    ),
     "gpt-4.1": LlmModelDefinition(
         model_id="gpt-4.1",
         display_name="GPT-4.1",
