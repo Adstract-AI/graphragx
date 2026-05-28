@@ -99,9 +99,17 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
                 dataset_id="WebQSP",
                 entity_embedding_model="text-embedding-3-small",
                 entity_embedding_dimension=1536,
+                question_embedding_dimension=1536,
+                relation_embedding_dimension=1536,
                 hidden_dimension=256,
                 gnn_layer_count=2,
                 node_classifier="mlp",
+                use_edge_mlp=False,
+                question_aware_classifier=False,
+                use_reverse_edges=True,
+                add_layer_normalization=True,
+                edge_mlp_hidden_dim=64,
+                dropout=0.25,
                 model=FakeAnswerRetrieverModel(),
             )
 
@@ -135,6 +143,14 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
         self.assertEqual(config["trained_instance_range"], {"start": 5, "end": 15})
         self.assertEqual(config["trained_instances"], 10)
         self.assertEqual(config["training"]["device"], "cpu")
+        self.assertFalse(config["use_edge_mlp"])
+        self.assertFalse(config["question_aware_classifier"])
+        self.assertTrue(config["use_reverse_edges"])
+        self.assertTrue(config["add_layer_normalization"])
+        self.assertEqual(config["edge_mlp_hidden_dim"], 64)
+        self.assertEqual(config["dropout"], 0.25)
+        self.assertTrue(config["training"]["use_reverse_edges"])
+        self.assertTrue(config["training"]["add_layer_normalization"])
 
     def test_save_model_config_marks_continued_training(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -182,9 +198,17 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
                     dataset_id="WebQSP",
                     entity_embedding_model="text-embedding-3-small",
                     entity_embedding_dimension=1536,
+                    question_embedding_dimension=1536,
+                    relation_embedding_dimension=1536,
                     hidden_dimension=256,
                     gnn_layer_count=2,
                     node_classifier="mlp",
+                    use_edge_mlp=False,
+                    question_aware_classifier=False,
+                    use_reverse_edges=False,
+                    add_layer_normalization=False,
+                    edge_mlp_hidden_dim=256,
+                    dropout=0.1,
                     model=FakeAnswerRetrieverModel(),
                 ),
                 continued_run=continued_run,

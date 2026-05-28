@@ -41,6 +41,7 @@ class WebQSPLocalGraphProcessorService(AbstractService):
         self,
         loaded_dataset: LoadedDataset,
         processing_version: str,
+        use_reverse_edges: bool,
         cache_directory: Path,
     ) -> PreparedWebQSPGraphDataset:
         """Process WebQSP train, validation, and test splits."""
@@ -55,12 +56,14 @@ class WebQSPLocalGraphProcessorService(AbstractService):
         train_instances = self._process_split(
             rows=loaded_dataset.hugging_face_dataset["train"],
             vocabulary_store=vocabulary_store,
+            use_reverse_edges=use_reverse_edges,
         )
         test_rows = self._combined_test_rows(loaded_dataset.hugging_face_dataset)
         logger.info(f"Processing WebQSP validation+test split into local graph instances")
         test_instances = self._process_split(
             rows=test_rows,
             vocabulary_store=vocabulary_store,
+            use_reverse_edges=use_reverse_edges,
         )
         entity_mapping_summary = self.entity_name_mapping_service.build_summary()
         logger.info(
@@ -82,6 +85,7 @@ class WebQSPLocalGraphProcessorService(AbstractService):
         return PreparedWebQSPGraphDataset(
             dataset_id=loaded_dataset.dataset_id,
             processing_version=processing_version,
+            use_reverse_edges=use_reverse_edges,
             train_instances=train_instances,
             test_instances=test_instances,
             vocabulary_store=vocabulary_store,
@@ -93,10 +97,15 @@ class WebQSPLocalGraphProcessorService(AbstractService):
         self,
         rows: Iterable[Mapping[str, Any]],
         vocabulary_store: WebQSPVocabularyStore,
+        use_reverse_edges: bool,
     ) -> list[WebQSPProcessedInstance]:
         """Process every row from one logical split."""
         return [
-            self.process_row(row=row, vocabulary_store=vocabulary_store)
+            self.process_row(
+                row=row,
+                vocabulary_store=vocabulary_store,
+                use_reverse_edges=use_reverse_edges,
+            )
             for row in rows
         ]
 
@@ -104,6 +113,7 @@ class WebQSPLocalGraphProcessorService(AbstractService):
         self,
         row: Mapping[str, Any],
         vocabulary_store: WebQSPVocabularyStore,
+        use_reverse_edges: bool = False,
     ) -> WebQSPProcessedInstance:
         """Convert one WebQSP row into a processed graph instance."""
         self._validate_row(row)
@@ -134,6 +144,15 @@ class WebQSPLocalGraphProcessorService(AbstractService):
             edge_sources.append(head_id)
             edge_targets.append(tail_id)
             edge_relations.append(relation)
+            if use_reverse_edges:
+                reverse_relation = self._reverse_relation(relation)
+                self._get_or_add_vocabulary_item(
+                    reverse_relation,
+                    vocabulary_store.relations,
+                )
+                edge_sources.append(tail_id)
+                edge_targets.append(head_id)
+                edge_relations.append(reverse_relation)
 
         import torch
 
@@ -157,6 +176,11 @@ class WebQSPLocalGraphProcessorService(AbstractService):
             edge_relations=edge_relations,
             node_labels=node_labels,
         )
+
+    @staticmethod
+    def _reverse_relation(relation: str) -> str:
+        """Return the stable readable reverse relation identifier."""
+        return f"reverse__{relation}"
 
     def _resolve_entities(self, entities: list[str]) -> list[str]:
         """Resolve entity IDs to readable names while preserving list order."""

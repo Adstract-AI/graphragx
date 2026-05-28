@@ -119,6 +119,12 @@ python main.py --evaluation-only --evaluation-model-run-number 12 --default
 | `--training-run-name TRAINING_RUN_NAME` | Optional label for the saved training run folder. |
 | `--continue-training-model-run-name CONTINUE_TRAINING_MODEL_RUN_NAME` | Continue training from a saved GNN model run folder name or suffix. Valid in full and train-only runs. |
 | `--continue-training-model-run-number CONTINUE_TRAINING_MODEL_RUN_NUMBER` | Continue training from a saved GNN model run numeric prefix. Valid in full and train-only runs. |
+| `--use-edge-mlp` | Use a trainable question-relation MLP instead of fixed cosine edge weights. |
+| `--question-aware-classifier` | Classify nodes from `h_v`, projected question embedding, and their element-wise product. |
+| `--use-reverse-edges` | Materialize reverse edges in prepared WebQSP graphs and use a separate processed cache variant. |
+| `--add-layer-normalization` | Apply residual connection plus LayerNorm after each GNN layer. |
+| `--edge-mlp-hidden-dim EDGE_MLP_HIDDEN_DIM` | Hidden dimension for the edge MLP. Defaults to the selected GNN hidden dimension. |
+| `--dropout DROPOUT` | Dropout used by upgraded GNN components. Default: `0.1`. |
 
 ### GNN Evaluation
 

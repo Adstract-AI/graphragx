@@ -196,18 +196,35 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     torch=torch,
                     device=device,
                 )
-                edge_weight = self._build_edge_weight_tensor(
+                question_features = self._build_question_feature_tensor(
                     instance=instance,
                     question_cache=question_cache,
+                    torch=torch,
+                    device=device,
+                )
+                relation_features = self._build_relation_feature_tensor(
+                    instance=instance,
                     relation_cache=relation_cache,
                     torch=torch,
-                    torch_functional=torch_functional,
                     device=device,
+                )
+                edge_weight = (
+                    None
+                    if loaded_model_run.config.use_edge_mlp
+                    else self._build_edge_weight_tensor(
+                        relation_features=relation_features,
+                        question_features=question_features,
+                        torch=torch,
+                        torch_functional=torch_functional,
+                        device=device,
+                    )
                 )
                 logits = model(
                     entity_features=entity_features,
                     edge_index=instance.edge_index.to(device),
                     edge_weight=edge_weight,
+                    question_features=question_features,
+                    relation_features=relation_features,
                 )
                 probabilities = torch.sigmoid(logits)
                 prediction = self._build_prediction(
@@ -373,36 +390,56 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
 
     def _build_edge_weight_tensor(
         self,
-        instance: WebQSPProcessedInstance,
-        question_cache: TextEmbeddingCache,
-        relation_cache: TextEmbeddingCache,
+        relation_features,
+        question_features,
         torch,
         torch_functional,
         device: str,
     ):
-        if not instance.edge_relations:
+        if relation_features.shape[0] == 0:
             return torch.empty(0, dtype=torch.float, device=device)
+        return torch_functional.cosine_similarity(
+            question_features.reshape(1, -1),
+            relation_features,
+            dim=1,
+        )
 
-        question_embedding = torch.tensor(
+    def _build_question_feature_tensor(
+        self,
+        instance: WebQSPProcessedInstance,
+        question_cache: TextEmbeddingCache,
+        torch,
+        device: str,
+    ):
+        return torch.tensor(
             self.embedding_cache_service.embeddings_for_texts(
                 cache=question_cache,
                 texts=[instance.question],
-            ),
+            )[0],
             dtype=torch.float,
             device=device,
-        )[0]
-        relation_embeddings = torch.tensor(
+        )
+
+    def _build_relation_feature_tensor(
+        self,
+        instance: WebQSPProcessedInstance,
+        relation_cache: TextEmbeddingCache,
+        torch,
+        device: str,
+    ):
+        if not instance.edge_relations:
+            return torch.empty(
+                (0, relation_cache.vector_size),
+                dtype=torch.float,
+                device=device,
+            )
+        return torch.tensor(
             self.embedding_cache_service.embeddings_for_texts(
                 cache=relation_cache,
                 texts=instance.edge_relations,
             ),
             dtype=torch.float,
             device=device,
-        )
-        return torch_functional.cosine_similarity(
-            question_embedding.reshape(1, -1),
-            relation_embeddings,
-            dim=1,
         )
 
     def _build_prediction(

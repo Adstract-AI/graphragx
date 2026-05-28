@@ -65,6 +65,12 @@ class PipelineRuntimeConfig(BaseModel):
     gnn_layer_count: int | None = None
     gnn_hidden_dimension: int | None = None
     node_classifier: str | None = None
+    use_edge_mlp: bool = False
+    question_aware_classifier: bool = False
+    use_reverse_edges: bool = False
+    add_layer_normalization: bool = False
+    edge_mlp_hidden_dim: int | None = None
+    dropout: float = 0.1
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
     entity_embedding_model: str | None = None
@@ -136,6 +142,10 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         raise PipelineException(
             "--training-start-instance must be greater than or equal to 0."
         )
+    if config.edge_mlp_hidden_dim is not None and config.edge_mlp_hidden_dim <= 0:
+        raise PipelineException("--edge-mlp-hidden-dim must be greater than zero.")
+    if config.dropout < 0 or config.dropout >= 1:
+        raise PipelineException("--dropout must be greater than or equal to 0 and less than 1.")
     if config.run_mode == "evaluation-only" and (
         config.continue_training_model_run_name is not None
         or config.continue_training_model_run_number is not None
@@ -156,6 +166,12 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             gnn_layer_count=resolved_config.gnn_layer_count,
             gnn_hidden_dimension=resolved_config.gnn_hidden_dimension,
             node_classifier=resolved_config.node_classifier,
+            use_edge_mlp=resolved_config.use_edge_mlp,
+            question_aware_classifier=resolved_config.question_aware_classifier,
+            use_reverse_edges=resolved_config.use_reverse_edges,
+            add_layer_normalization=resolved_config.add_layer_normalization,
+            edge_mlp_hidden_dim=resolved_config.edge_mlp_hidden_dim,
+            dropout=resolved_config.dropout,
             question_embedding_model=resolved_config.question_embedding_model,
             relation_embedding_model=resolved_config.relation_embedding_model,
             entity_embedding_model=resolved_config.entity_embedding_model,
@@ -429,6 +445,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional node classifier id for non-interactive configuration.",
     )
     parser.add_argument(
+        "--use-edge-mlp",
+        action="store_true",
+        help="Use a trainable question-relation MLP to score edge weights.",
+    )
+    parser.add_argument(
+        "--question-aware-classifier",
+        action="store_true",
+        help="Make answer-node classification depend on node and question embeddings.",
+    )
+    parser.add_argument(
+        "--use-reverse-edges",
+        action="store_true",
+        help="Materialize reverse edges in prepared WebQSP graphs.",
+    )
+    parser.add_argument(
+        "--add-layer-normalization",
+        action="store_true",
+        help="Apply residual connection plus LayerNorm after each GNN layer.",
+    )
+    parser.add_argument(
+        "--edge-mlp-hidden-dim",
+        type=int,
+        default=None,
+        help="Hidden dimension for the trainable edge MLP. Defaults to GNN hidden dimension.",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.1,
+        help="Dropout used by upgraded GNN components.",
+    )
+    parser.add_argument(
         "--question-embedding-model",
         default=None,
         help="Optional OpenAI embedding model id for question text.",
@@ -618,6 +666,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         gnn_layer_count=args.gnn_layers,
         gnn_hidden_dimension=args.gnn_hidden_dim,
         node_classifier=args.node_classifier,
+        use_edge_mlp=args.use_edge_mlp,
+        question_aware_classifier=args.question_aware_classifier,
+        use_reverse_edges=args.use_reverse_edges,
+        add_layer_normalization=args.add_layer_normalization,
+        edge_mlp_hidden_dim=args.edge_mlp_hidden_dim,
+        dropout=args.dropout,
         question_embedding_model=args.question_embedding_model,
         relation_embedding_model=args.relation_embedding_model,
         entity_embedding_model=args.entity_embedding_model,
