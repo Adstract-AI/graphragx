@@ -28,6 +28,8 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
     max_rate_limit_retries = 8
     default_rate_limit_wait_seconds = 30.0
     max_rate_limit_wait_seconds = 120.0
+    request_timeout_seconds = 45.0
+    slow_request_warning_seconds = 30.0
     deepseek_model_ids = {"deepseek-v4-flash", "deepseek-v4-pro"}
 
     # USD per 1M tokens. Unknown models fall back to 0-cost accounting.
@@ -96,12 +98,20 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                 api_key=api_key,
                 base_url=base_url,
             )
+            started_at = time.monotonic()
             response = self._invoke_with_visible_rate_limit_retries(
                 chat_model=chat_model,
                 messages=messages,
                 model_id=model_id,
                 prompt=prompt,
             )
+            elapsed_seconds = time.monotonic() - started_at
+            if elapsed_seconds >= self.slow_request_warning_seconds:
+                logger.warning(
+                    f"Slow LLM answer generation call: model={model_id} "
+                    f"elapsed_seconds={elapsed_seconds:.2f} "
+                    f"prompt_chars={len(prompt)}"
+                )
         except Exception as error:
             raise LlmAnswerGenerationException(
                 f"LLM answer generation failed: {error}"
@@ -180,14 +190,25 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
             "api_key": api_key,
             "temperature": 0,
             "max_retries": 0,
+            "timeout": LangChainOpenAiAnswerGenerationService.request_timeout_seconds,
             "http_client": http_client,
         }
+        if base_url is None:
+            model_kwargs["model_kwargs"] = {
+                "response_format": {"type": "json_object"}
+            }
         if base_url is not None:
             model_kwargs["base_url"] = base_url
 
         try:
             return chat_openai_type(**model_kwargs)
         except TypeError:
+            try:
+                fallback_kwargs = dict(model_kwargs)
+                fallback_kwargs.pop("model_kwargs", None)
+                return chat_openai_type(**fallback_kwargs)
+            except TypeError:
+                pass
             if base_url is not None:
                 try:
                     fallback_kwargs = dict(model_kwargs)
@@ -205,10 +226,21 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                 "model": model_id,
                 "api_key": api_key,
                 "temperature": 0,
+                "timeout": LangChainOpenAiAnswerGenerationService.request_timeout_seconds,
             }
             if base_url is not None:
                 fallback_kwargs["base_url"] = base_url
-            return chat_openai_type(**fallback_kwargs)
+            else:
+                fallback_kwargs["model_kwargs"] = {
+                    "response_format": {"type": "json_object"}
+                }
+            try:
+                return chat_openai_type(**fallback_kwargs)
+            except TypeError:
+                legacy_kwargs = dict(fallback_kwargs)
+                legacy_kwargs.pop("timeout", None)
+                legacy_kwargs.pop("model_kwargs", None)
+                return chat_openai_type(**legacy_kwargs)
 
     @classmethod
     def _model_api_settings(cls, model_id: str) -> tuple[str | None, str, str | None]:

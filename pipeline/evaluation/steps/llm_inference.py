@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from pydantic import Field
@@ -299,6 +300,7 @@ class GenerateFinalAnswersBatchStep(
         explanation = ""
         raw_response = ""
         error_message = None
+        started_at = time.monotonic()
         try:
             result = self.answer_generation_service.generate_answer_with_explanation(
                 question=extracted_paths.sample.question,
@@ -318,10 +320,24 @@ class GenerateFinalAnswersBatchStep(
             completion_tokens = 0
             total_tokens = 0
             estimated_cost_usd = 0.0
+            elapsed_seconds = time.monotonic() - started_at
             logger.warning(
                 f"LLM answer generation failed: instance_index={item.instance_index} "
-                f"error={error_message}"
+                f"elapsed_seconds={elapsed_seconds:.2f} error={error_message}"
             )
+        else:
+            elapsed_seconds = time.monotonic() - started_at
+            slow_warning_seconds = getattr(
+                self.answer_generation_service,
+                "slow_request_warning_seconds",
+                30.0,
+            )
+            if elapsed_seconds >= slow_warning_seconds:
+                logger.warning(
+                    f"Slow LLM answer generation instance: "
+                    f"instance_index={item.instance_index} "
+                    f"elapsed_seconds={elapsed_seconds:.2f}"
+                )
 
         return GeneratedAnswerForPrediction(
             instance_index=item.instance_index,

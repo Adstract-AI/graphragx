@@ -84,6 +84,25 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
             CapturingChatOpenAI.captured_kwargs["base_url"],
             "https://api.deepseek.com",
         )
+        self.assertEqual(CapturingChatOpenAI.captured_kwargs["timeout"], 45.0)
+        self.assertNotIn("model_kwargs", CapturingChatOpenAI.captured_kwargs)
+
+    def test_openai_chat_model_uses_timeout_and_json_response_format(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+
+        model = service._create_chat_model(
+            chat_openai_type=CapturingChatOpenAI,
+            model_id="gpt-4.1-nano",
+            prompt="question",
+            api_key="openai-key",
+        )
+
+        self.assertIsInstance(model, CapturingChatOpenAI)
+        self.assertEqual(CapturingChatOpenAI.captured_kwargs["timeout"], 45.0)
+        self.assertEqual(
+            CapturingChatOpenAI.captured_kwargs["model_kwargs"],
+            {"response_format": {"type": "json_object"}},
+        )
 
     def test_deepseek_missing_api_key_mentions_deepseek_env_name(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
