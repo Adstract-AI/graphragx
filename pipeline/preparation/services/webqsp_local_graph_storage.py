@@ -33,22 +33,31 @@ class WebQSPLocalGraphStorageService(AbstractService):
     relations_filename = "relations.json"
     questions_filename = WEBQSP_QUESTION_VOCABULARY_FILENAME
 
-    def get_cache_directory(self, dataset_id: str) -> Path:
+    def get_cache_directory(
+        self,
+        dataset_id: str,
+        use_reverse_edges: bool = False,
+    ) -> Path:
         """Return the processed cache directory for a supported dataset."""
         if dataset_id != WEBQSP_DATASET_ID:
             raise UnsupportedDatasetProcessorException(
                 f"Unsupported processed dataset cache for dataset: {dataset_id}"
             )
 
-        return DATASET_LOADERS[dataset_id].cache_root / "processed"
+        directory_name = "processed_reverse_edges" if use_reverse_edges else "processed"
+        return DATASET_LOADERS[dataset_id].cache_root / directory_name
 
     def load_if_available(
         self,
         dataset_id: str,
         processing_version: str,
+        use_reverse_edges: bool = False,
     ) -> PreparedWebQSPGraphDataset | None:
         """Load cached processed artifacts when cache metadata is valid."""
-        cache_directory = self.get_cache_directory(dataset_id)
+        cache_directory = self.get_cache_directory(
+            dataset_id,
+            use_reverse_edges=use_reverse_edges,
+        )
         metadata_path = cache_directory / self.metadata_filename
         train_instances_path = cache_directory / self.train_instances_filename
         test_instances_path = cache_directory / self.test_instances_filename
@@ -73,6 +82,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
                 metadata=metadata,
                 dataset_id=dataset_id,
                 processing_version=processing_version,
+                use_reverse_edges=use_reverse_edges,
             ):
                 return None
 
@@ -93,6 +103,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
             return PreparedWebQSPGraphDataset(
                 dataset_id=dataset_id,
                 processing_version=processing_version,
+                use_reverse_edges=use_reverse_edges,
                 train_instances=train_instances,
                 test_instances=test_instances,
                 vocabulary_store=vocabulary_store,
@@ -144,11 +155,13 @@ class WebQSPLocalGraphStorageService(AbstractService):
         metadata: dict,
         dataset_id: str,
         processing_version: str,
+        use_reverse_edges: bool,
     ) -> bool:
         """Return whether metadata matches the requested processed dataset."""
         return (
             metadata.get("dataset_id") == dataset_id
             and metadata.get("processing_version") == processing_version
+            and bool(metadata.get("use_reverse_edges", False)) == use_reverse_edges
             and isinstance(metadata.get("train_size"), int)
             and isinstance(metadata.get("test_size"), int)
         )
@@ -159,6 +172,7 @@ class WebQSPLocalGraphStorageService(AbstractService):
         return {
             "dataset_id": dataset.dataset_id,
             "processing_version": dataset.processing_version,
+            "use_reverse_edges": dataset.use_reverse_edges,
             "train_size": dataset.train_size,
             "test_size": dataset.test_size,
             "node_count": len(dataset.vocabulary_store.nodes),

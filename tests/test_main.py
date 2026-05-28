@@ -53,9 +53,17 @@ class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
             dataset_id=context.result.dataset_id,
             entity_embedding_model="text-embedding-3-small",
             entity_embedding_dimension=1536,
+            question_embedding_dimension=1536,
+            relation_embedding_dimension=1536,
             hidden_dimension=256,
             gnn_layer_count=2,
             node_classifier="mlp",
+            use_edge_mlp=False,
+            question_aware_classifier=False,
+            use_reverse_edges=False,
+            add_layer_normalization=False,
+            edge_mlp_hidden_dim=256,
+            dropout=0.1,
             model=FakeAnswerRetrieverModel(),
         )
 
@@ -350,6 +358,44 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(captured_configs[0].continue_training_model_run_name, "12_old")
         self.assertEqual(captured_configs[0].continue_training_model_run_number, 12)
 
+    def test_gnn_architecture_upgrade_flags_are_parsed(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            exit_code = main.main(
+                [
+                    "--use-edge-mlp",
+                    "--question-aware-classifier",
+                    "--use-reverse-edges",
+                    "--add-layer-normalization",
+                    "--edge-mlp-hidden-dim",
+                    "64",
+                    "--dropout",
+                    "0.25",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured_configs), 1)
+        self.assertTrue(captured_configs[0].use_edge_mlp)
+        self.assertTrue(captured_configs[0].question_aware_classifier)
+        self.assertTrue(captured_configs[0].use_reverse_edges)
+        self.assertTrue(captured_configs[0].add_layer_normalization)
+        self.assertEqual(captured_configs[0].edge_mlp_hidden_dim, 64)
+        self.assertEqual(captured_configs[0].dropout, 0.25)
+
     def test_evaluation_log_every_flag_is_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
 
@@ -453,6 +499,26 @@ class MainEntrypointTests(unittest.TestCase):
             training_step.training_config.continue_from_model_run_number,
             12,
         )
+
+    def test_gnn_architecture_flags_are_wired_into_configuration_step(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                use_edge_mlp=True,
+                question_aware_classifier=True,
+                use_reverse_edges=True,
+                add_layer_normalization=True,
+                edge_mlp_hidden_dim=64,
+                dropout=0.25,
+            ),
+        )
+
+        configuration_step = pipeline.preparation_steps[1]
+        self.assertTrue(configuration_step.configuration_input.use_edge_mlp)
+        self.assertTrue(configuration_step.configuration_input.question_aware_classifier)
+        self.assertTrue(configuration_step.configuration_input.use_reverse_edges)
+        self.assertTrue(configuration_step.configuration_input.add_layer_normalization)
+        self.assertEqual(configuration_step.configuration_input.edge_mlp_hidden_dim, 64)
+        self.assertEqual(configuration_step.configuration_input.dropout, 0.25)
 
     def test_negative_training_start_instance_fails_early(self) -> None:
         with self.assertRaisesRegex(

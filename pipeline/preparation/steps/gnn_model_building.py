@@ -35,6 +35,20 @@ class BuiltGnnAnswerRetriever(StepResult):
     )
     gnn_layer_count: int = Field(..., description="Number of weighted GNN layers.")
     node_classifier: str = Field(..., description="Node classifier architecture id.")
+    question_embedding_dimension: int = Field(
+        ...,
+        description="Question text embedding dimension before projection.",
+    )
+    relation_embedding_dimension: int = Field(
+        ...,
+        description="Relation text embedding dimension before projection.",
+    )
+    use_edge_mlp: bool = Field(default=False)
+    question_aware_classifier: bool = Field(default=False)
+    use_reverse_edges: bool = Field(default=False)
+    add_layer_normalization: bool = Field(default=False)
+    edge_mlp_hidden_dim: int = Field(..., description="Hidden dimension for edge MLP.")
+    dropout: float = Field(default=0.1)
     model: AnswerRetrieverModel = Field(
         ...,
         description="Constructed PyTorch answer-retriever model.",
@@ -77,19 +91,39 @@ class BuildGnnAnswerRetrieverStep(
         entity_embedding_definition = OPENAI_EMBEDDING_MODELS[
             configuration.entity_embedding_model
         ]
+        question_embedding_definition = OPENAI_EMBEDDING_MODELS[
+            configuration.question_embedding_model
+        ]
+        relation_embedding_definition = OPENAI_EMBEDDING_MODELS[
+            configuration.relation_embedding_model
+        ]
 
         logger.info(
             f"Building GNN answer retriever: dataset={prepared_dataset.dataset_id} "
             f"entity_embedding_dimension={entity_embedding_definition.dimensions} "
             f"hidden_dimension={configuration.gnn_hidden_dimension} "
             f"gnn_layers={configuration.gnn_layer_count} "
-            f"node_classifier={configuration.node_classifier}"
+            f"node_classifier={configuration.node_classifier} "
+            f"use_edge_mlp={configuration.use_edge_mlp} "
+            f"question_aware_classifier={configuration.question_aware_classifier} "
+            f"add_layer_normalization={configuration.add_layer_normalization} "
+            f"dropout={configuration.dropout}"
         )
         model = GnnAnswerRetriever(
             entity_embedding_dimension=entity_embedding_definition.dimensions,
+            question_embedding_dimension=question_embedding_definition.dimensions,
+            relation_embedding_dimension=relation_embedding_definition.dimensions,
             hidden_dimension=configuration.gnn_hidden_dimension,
             gnn_layer_count=configuration.gnn_layer_count,
             node_classifier=configuration.node_classifier,
+            use_edge_mlp=configuration.use_edge_mlp,
+            question_aware_classifier=configuration.question_aware_classifier,
+            add_layer_normalization=configuration.add_layer_normalization,
+            edge_mlp_hidden_dim=(
+                configuration.edge_mlp_hidden_dim
+                or configuration.gnn_hidden_dimension
+            ),
+            dropout=configuration.dropout,
         )
 
         logger.info(f"Built GNN answer retriever architecture")
@@ -97,8 +131,19 @@ class BuildGnnAnswerRetrieverStep(
             dataset_id=prepared_dataset.dataset_id,
             entity_embedding_model=configuration.entity_embedding_model,
             entity_embedding_dimension=entity_embedding_definition.dimensions,
+            question_embedding_dimension=question_embedding_definition.dimensions,
+            relation_embedding_dimension=relation_embedding_definition.dimensions,
             hidden_dimension=configuration.gnn_hidden_dimension,
             gnn_layer_count=configuration.gnn_layer_count,
             node_classifier=configuration.node_classifier,
+            use_edge_mlp=configuration.use_edge_mlp,
+            question_aware_classifier=configuration.question_aware_classifier,
+            use_reverse_edges=configuration.use_reverse_edges,
+            add_layer_normalization=configuration.add_layer_normalization,
+            edge_mlp_hidden_dim=(
+                configuration.edge_mlp_hidden_dim
+                or configuration.gnn_hidden_dimension
+            ),
+            dropout=configuration.dropout,
             model=model,
         )

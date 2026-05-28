@@ -41,6 +41,12 @@ class TrainedGnnAnswerRetriever(StepResult):
     )
     gnn_layer_count: int = Field(..., description="Number of trained GNN layers.")
     node_classifier: str = Field(..., description="Trained node classifier id.")
+    use_edge_mlp: bool = Field(default=False)
+    question_aware_classifier: bool = Field(default=False)
+    use_reverse_edges: bool = Field(default=False)
+    add_layer_normalization: bool = Field(default=False)
+    edge_mlp_hidden_dim: int | None = Field(default=None)
+    dropout: float = Field(default=0.1)
     training_epochs: int = Field(..., description="Number of training epochs used.")
     training_learning_rate: float = Field(..., description="Training learning rate.")
     training_weight_decay: float = Field(..., description="Training weight decay.")
@@ -178,6 +184,12 @@ class TrainGnnAnswerRetrieverStep(
             hidden_dimension=outcome.hidden_dimension,
             gnn_layer_count=outcome.gnn_layer_count,
             node_classifier=outcome.node_classifier,
+            use_edge_mlp=outcome.use_edge_mlp,
+            question_aware_classifier=outcome.question_aware_classifier,
+            use_reverse_edges=outcome.use_reverse_edges,
+            add_layer_normalization=outcome.add_layer_normalization,
+            edge_mlp_hidden_dim=outcome.edge_mlp_hidden_dim,
+            dropout=outcome.dropout,
             training_epochs=self.training_config.epochs,
             training_learning_rate=self.training_config.learning_rate,
             training_weight_decay=self.training_config.weight_decay,

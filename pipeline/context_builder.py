@@ -29,6 +29,10 @@ from pipeline.preparation.steps.gnn_model_building import (
     BuildGnnAnswerRetrieverStep,
 )
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
+from pipeline.preparation.steps.webqsp_local_graph_preparation import (
+    BuildWebQSPLocalGraphsContext,
+    BuildWebQSPLocalGraphsStep,
+)
 from pipeline.preparation.steps.gnn_answer_retriever_training import (
     TrainGnnAnswerRetrieverContext,
     TrainGnnAnswerRetrieverStep,
@@ -44,6 +48,7 @@ class StepContextBuilder:
             type[AbstractStep],
             Callable[[StepResult | None, bool, PipelineException], StepContext],
         ] = {
+            BuildWebQSPLocalGraphsStep: self._create_build_webqsp_local_graphs_context,
             BuildGnnAnswerRetrieverStep: self._create_gnn_answer_retriever_context,
             TrainGnnAnswerRetrieverStep: self._create_train_gnn_answer_retriever_context,
             EvaluateGnnAnswerRetrieverStep: self._create_evaluate_gnn_answer_retriever_context,
@@ -76,6 +81,22 @@ class StepContextBuilder:
             result=result,
             outcome=outcome,
             exception=exception,
+        )
+
+    def _create_build_webqsp_local_graphs_context(
+        self,
+        result: StepResult | None,
+        outcome: bool,
+        exception: PipelineException,
+    ) -> BuildWebQSPLocalGraphsContext:
+        """Create the context required by WebQSP graph preparation."""
+        return BuildWebQSPLocalGraphsContext(
+            result=result,
+            outcome=outcome,
+            exception=exception,
+            pipeline_configuration=self.get_required_result(
+                BuiltPipelineConfiguration
+            ),
         )
 
     def _create_gnn_answer_retriever_context(

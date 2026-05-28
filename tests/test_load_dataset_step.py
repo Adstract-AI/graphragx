@@ -67,10 +67,18 @@ class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
             dataset_id=context.result.dataset_id,
             entity_embedding_model="text-embedding-3-small",
             entity_embedding_dimension=1536,
+            question_embedding_dimension=1536,
+            relation_embedding_dimension=1536,
             hidden_dimension=256,
             gnn_layer_count=2,
             gnn_hidden_dimension=256,
             node_classifier="mlp",
+            use_edge_mlp=False,
+            question_aware_classifier=False,
+            use_reverse_edges=False,
+            add_layer_normalization=False,
+            edge_mlp_hidden_dim=256,
+            dropout=0.1,
             model=FakeAnswerRetrieverModel(),
         )
 
