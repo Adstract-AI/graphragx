@@ -81,6 +81,29 @@ hits_at_10 = hits_at_10_count / evaluated_instances
 ### `hits_at_10_count`
 Number of questions where `Hits@10 = 1`.
 
+### `hits_at_candidate_limit`
+Share of questions where at least one retrieved candidate within the configured
+`candidate_limit` is a gold answer.
+
+Per question:
+
+```text
+Hits@candidate_limit = 1 if any selected answer candidate is in gold_answers
+Hits@candidate_limit = 0 otherwise
+```
+
+Aggregate:
+
+```text
+hits_at_candidate_limit = hits_at_candidate_limit_count / evaluated_instances
+```
+
+### `hits_at_candidate_limit_count`
+Number of questions where `Hits@candidate_limit = 1`.
+
+### `candidate_limit`
+The configured maximum number of answer candidates retained by the retriever.
+
 ### `average_candidate_count`
 Average number of retrieved answer candidates per question.
 

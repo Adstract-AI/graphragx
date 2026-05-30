@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from helpers.logging_config import get_logger
+from pydantic import Field
+
 from pipeline.abstract import AbstractStep, StepContext
 from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
+from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.steps.dataset_loading import LoadedDataset
 from pipeline.preparation.services.webqsp_local_graph_processing import (
     WebQSPLocalGraphProcessorService,
@@ -42,14 +45,22 @@ class BuildWebQSPLocalGraphsStep(
             raise InvalidInteractiveConfigurationInputException(
                 "WebQSP local graph preparation requires a loaded dataset."
             )
+        pipeline_configuration = getattr(context, "pipeline_configuration", None)
+        use_reverse_edges = bool(
+            pipeline_configuration.use_reverse_edges
+            if pipeline_configuration is not None
+            else False
+        )
 
         logger.info(
             f"Preparing WebQSP graph instances for dataset={loaded_dataset.dataset_id} "
-            f"processing_version={WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION}"
+            f"processing_version={WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION} "
+            f"use_reverse_edges={use_reverse_edges}"
         )
         cached_dataset = self.storage_service.load_if_available(
             dataset_id=loaded_dataset.dataset_id,
             processing_version=WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION,
+            use_reverse_edges=use_reverse_edges,
         )
         if cached_dataset is not None:
             logger.info(
@@ -62,8 +73,10 @@ class BuildWebQSPLocalGraphsStep(
         prepared_dataset = self.processor_service.process_loaded_dataset(
             loaded_dataset=loaded_dataset,
             processing_version=WEBQSP_LOCAL_GRAPH_PROCESSING_VERSION,
+            use_reverse_edges=use_reverse_edges,
             cache_directory=self.storage_service.get_cache_directory(
-                loaded_dataset.dataset_id
+                loaded_dataset.dataset_id,
+                use_reverse_edges=use_reverse_edges,
             ),
         )
         self.storage_service.save(prepared_dataset)
@@ -72,3 +85,12 @@ class BuildWebQSPLocalGraphsStep(
             f"train_size={prepared_dataset.train_size} test_size={prepared_dataset.test_size}"
         )
         return prepared_dataset
+
+
+class BuildWebQSPLocalGraphsContext(StepContext[LoadedDataset]):
+    """Context for WebQSP graph preparation with pipeline configuration."""
+
+    pipeline_configuration: BuiltPipelineConfiguration = Field(
+        ...,
+        description="Pipeline configuration controlling graph preparation.",
+    )

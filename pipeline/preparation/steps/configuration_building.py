@@ -54,6 +54,12 @@ class PipelineConfigurationInput(BaseModel):
     question_embedding_model: str | None = Field(default=None)
     relation_embedding_model: str | None = Field(default=None)
     entity_embedding_model: str | None = Field(default=None)
+    use_edge_mlp: bool = Field(default=False)
+    question_aware_classifier: bool = Field(default=False)
+    use_reverse_edges: bool = Field(default=False)
+    add_layer_normalization: bool = Field(default=False)
+    edge_mlp_hidden_dim: int | None = Field(default=None)
+    dropout: float = Field(default=0.1)
 
 
 class BuiltPipelineConfiguration(StepResult):
@@ -82,6 +88,12 @@ class BuiltPipelineConfiguration(StepResult):
     entity_embedding_model: str = Field(
         ..., description="OpenAI embedding model for entity text."
     )
+    use_edge_mlp: bool = Field(default=False)
+    question_aware_classifier: bool = Field(default=False)
+    use_reverse_edges: bool = Field(default=False)
+    add_layer_normalization: bool = Field(default=False)
+    edge_mlp_hidden_dim: int | None = Field(default=None)
+    dropout: float = Field(default=0.1)
 
 
 class BuildPipelineConfigurationStep(
@@ -100,6 +112,12 @@ class BuildPipelineConfigurationStep(
         question_embedding_model: str | None = None,
         relation_embedding_model: str | None = None,
         entity_embedding_model: str | None = None,
+        use_edge_mlp: bool = False,
+        question_aware_classifier: bool = False,
+        use_reverse_edges: bool = False,
+        add_layer_normalization: bool = False,
+        edge_mlp_hidden_dim: int | None = None,
+        dropout: float = 0.1,
         input_func=None,
         force_default: bool = False,
     ):
@@ -114,6 +132,12 @@ class BuildPipelineConfigurationStep(
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
             entity_embedding_model=entity_embedding_model,
+            use_edge_mlp=use_edge_mlp,
+            question_aware_classifier=question_aware_classifier,
+            use_reverse_edges=use_reverse_edges,
+            add_layer_normalization=add_layer_normalization,
+            edge_mlp_hidden_dim=edge_mlp_hidden_dim,
+            dropout=dropout,
         )
         self.selection_service = SelectionService(input_func=input_func)
 
@@ -233,7 +257,13 @@ class BuildPipelineConfigurationStep(
             f"node_classifier={node_classifier} "
             f"question_embedding_model={question_embedding_model} "
             f"relation_embedding_model={relation_embedding_model} "
-            f"entity_embedding_model={entity_embedding_model}"
+            f"entity_embedding_model={entity_embedding_model} "
+            f"use_edge_mlp={self.configuration_input.use_edge_mlp} "
+            f"question_aware_classifier="
+            f"{self.configuration_input.question_aware_classifier} "
+            f"use_reverse_edges={self.configuration_input.use_reverse_edges} "
+            f"add_layer_normalization="
+            f"{self.configuration_input.add_layer_normalization}"
         )
         return BuiltPipelineConfiguration(
             dataset_id=selected_dataset.dataset_id,
@@ -246,4 +276,15 @@ class BuildPipelineConfigurationStep(
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
             entity_embedding_model=entity_embedding_model,
+            use_edge_mlp=self.configuration_input.use_edge_mlp,
+            question_aware_classifier=(
+                self.configuration_input.question_aware_classifier
+            ),
+            use_reverse_edges=self.configuration_input.use_reverse_edges,
+            add_layer_normalization=self.configuration_input.add_layer_normalization,
+            edge_mlp_hidden_dim=(
+                self.configuration_input.edge_mlp_hidden_dim
+                or int(selected_gnn_hidden_dimension)
+            ),
+            dropout=self.configuration_input.dropout,
         )

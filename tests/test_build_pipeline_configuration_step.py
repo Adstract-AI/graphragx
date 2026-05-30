@@ -54,6 +54,44 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.relation_embedding_model, "text-embedding-3-small")
         self.assertEqual(result.entity_embedding_model, "text-embedding-3-small")
 
+    def test_gpt_5_mini_and_nano_are_supported_main_llm_models(self) -> None:
+        for model_id in ("gpt-5-mini", "gpt-5-nano"):
+            with self.subTest(model_id=model_id):
+                step = BuildPipelineConfigurationStep(
+                    main_llm_model=model_id,
+                    subgraph_algorithm="shortest_path",
+                    context_strategy="structured_triples",
+                    gnn_layer_count=2,
+                    gnn_hidden_dimension=256,
+                    node_classifier="mlp",
+                    question_embedding_model="text-embedding-3-small",
+                    relation_embedding_model="text-embedding-3-small",
+                    entity_embedding_model="text-embedding-3-small",
+                )
+
+                result = step.execute(self.make_dataset_context())
+
+                self.assertEqual(result.main_llm_model, model_id)
+
+    def test_deepseek_v4_models_are_supported_main_llm_models(self) -> None:
+        for model_id in ("deepseek-v4-flash", "deepseek-v4-pro"):
+            with self.subTest(model_id=model_id):
+                step = BuildPipelineConfigurationStep(
+                    main_llm_model=model_id,
+                    subgraph_algorithm="shortest_path",
+                    context_strategy="structured_triples",
+                    gnn_layer_count=2,
+                    gnn_hidden_dimension=256,
+                    node_classifier="mlp",
+                    question_embedding_model="text-embedding-3-small",
+                    relation_embedding_model="text-embedding-3-small",
+                    entity_embedding_model="text-embedding-3-small",
+                )
+
+                result = step.execute(self.make_dataset_context())
+
+                self.assertEqual(result.main_llm_model, model_id)
+
     def test_mixed_path_prompts_only_missing_fields(self) -> None:
         answers = iter(["1"])
         prompts: list[str] = []
@@ -82,6 +120,34 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.gnn_layer_count, 2)
         self.assertEqual(result.node_classifier, "mlp")
         self.assertEqual(len(prompts), 1)
+
+    def test_constructor_gnn_architecture_flags_are_preserved(self) -> None:
+        step = BuildPipelineConfigurationStep(
+            main_llm_model="gpt-5.4",
+            subgraph_algorithm="shortest_path",
+            context_strategy="structured_triples",
+            gnn_layer_count=2,
+            gnn_hidden_dimension=256,
+            node_classifier="mlp",
+            question_embedding_model="text-embedding-3-small",
+            relation_embedding_model="text-embedding-3-small",
+            entity_embedding_model="text-embedding-3-small",
+            use_edge_mlp=True,
+            question_aware_classifier=True,
+            use_reverse_edges=True,
+            add_layer_normalization=True,
+            edge_mlp_hidden_dim=64,
+            dropout=0.25,
+        )
+
+        result = step.execute(self.make_dataset_context())
+
+        self.assertTrue(result.use_edge_mlp)
+        self.assertTrue(result.question_aware_classifier)
+        self.assertTrue(result.use_reverse_edges)
+        self.assertTrue(result.add_layer_normalization)
+        self.assertEqual(result.edge_mlp_hidden_dim, 64)
+        self.assertEqual(result.dropout, 0.25)
 
     def test_fully_interactive_path_works(self) -> None:
         answers = iter(["1", "2", "1", "1", "1", "1", "1", "1", "1"])

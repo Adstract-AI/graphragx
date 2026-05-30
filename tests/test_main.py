@@ -53,9 +53,17 @@ class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
             dataset_id=context.result.dataset_id,
             entity_embedding_model="text-embedding-3-small",
             entity_embedding_dimension=1536,
+            question_embedding_dimension=1536,
+            relation_embedding_dimension=1536,
             hidden_dimension=256,
             gnn_layer_count=2,
             node_classifier="mlp",
+            use_edge_mlp=False,
+            question_aware_classifier=False,
+            use_reverse_edges=False,
+            add_layer_normalization=False,
+            edge_mlp_hidden_dim=256,
+            dropout=0.1,
             model=FakeAnswerRetrieverModel(),
         )
 
@@ -83,12 +91,15 @@ class FakeTrainGnnAnswerRetrieverStep(TrainGnnAnswerRetrieverStep):
             training_learning_rate=1e-3,
             training_weight_decay=0.0,
             training_max_instances=None,
+            training_start_instance=0,
+            training_end_instance=0,
             training_log_every=25,
             training_device="cpu",
             training_run_name=None,
             selected_device="cpu",
             final_loss=0.0,
             trained_instances=0,
+            is_fine_tuned_model=False,
             model=context.result.model,
             model_artifact_path="/tmp/graphragx-test/gnn_answer_retriever.pt",
             model_config_path="/tmp/graphragx-test/model_config.json",
@@ -304,7 +315,108 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertFalse(captured_configs[0].no_llm_inference)
         self.assertFalse(captured_configs[0].no_wandb)
         self.assertIsNone(captured_configs[0].training_max_instances)
+        self.assertEqual(captured_configs[0].training_start_instance, 0)
         self.assertIsNone(captured_configs[0].evaluation_max_instances)
+        self.assertEqual(
+            captured_configs[0].evaluation_log_every,
+            main.DEFAULT_EVALUATION_LOG_EVERY,
+        )
+
+    def test_training_continuation_flags_are_parsed(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            exit_code = main.main(
+                [
+                    "--training-start-instance",
+                    "101",
+                    "--training-max-instances",
+                    "100",
+                    "--continue-training-model-run-name",
+                    "12_old",
+                    "--continue-training-model-run-number",
+                    "12",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured_configs), 1)
+        self.assertEqual(captured_configs[0].training_start_instance, 101)
+        self.assertEqual(captured_configs[0].training_max_instances, 100)
+        self.assertEqual(captured_configs[0].continue_training_model_run_name, "12_old")
+        self.assertEqual(captured_configs[0].continue_training_model_run_number, 12)
+
+    def test_gnn_architecture_upgrade_flags_are_parsed(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            exit_code = main.main(
+                [
+                    "--use-edge-mlp",
+                    "--question-aware-classifier",
+                    "--use-reverse-edges",
+                    "--add-layer-normalization",
+                    "--edge-mlp-hidden-dim",
+                    "64",
+                    "--dropout",
+                    "0.25",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured_configs), 1)
+        self.assertTrue(captured_configs[0].use_edge_mlp)
+        self.assertTrue(captured_configs[0].question_aware_classifier)
+        self.assertTrue(captured_configs[0].use_reverse_edges)
+        self.assertTrue(captured_configs[0].add_layer_normalization)
+        self.assertEqual(captured_configs[0].edge_mlp_hidden_dim, 64)
+        self.assertEqual(captured_configs[0].dropout, 0.25)
+
+    def test_evaluation_log_every_flag_is_parsed(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            exit_code = main.main(["--evaluation-log-every", "25"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured_configs), 1)
+        self.assertEqual(captured_configs[0].evaluation_log_every, 25)
 
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
@@ -355,6 +467,79 @@ class MainEntrypointTests(unittest.TestCase):
             LogFinalResultsToWandbStep,
         )
         self.assertEqual(len(pipeline.evaluation_steps), 6)
+
+    def test_evaluation_log_every_is_wired_into_evaluation_step(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(evaluation_log_every=25),
+        )
+
+        evaluation_step = pipeline.evaluation_steps[0]
+        self.assertIsInstance(evaluation_step, EvaluateGnnAnswerRetrieverStep)
+        self.assertEqual(evaluation_step.evaluation_config.log_every, 25)
+
+    def test_training_continuation_is_wired_into_training_step(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                training_start_instance=101,
+                training_max_instances=100,
+                continue_training_model_run_name="12_old",
+                continue_training_model_run_number=12,
+            ),
+        )
+
+        training_step = pipeline.preparation_steps[-1]
+        self.assertIsInstance(training_step, TrainGnnAnswerRetrieverStep)
+        self.assertEqual(training_step.training_config.start_instance, 101)
+        self.assertEqual(training_step.training_config.max_instances, 100)
+        self.assertEqual(
+            training_step.training_config.continue_from_model_run_name,
+            "12_old",
+        )
+        self.assertEqual(
+            training_step.training_config.continue_from_model_run_number,
+            12,
+        )
+
+    def test_gnn_architecture_flags_are_wired_into_configuration_step(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                use_edge_mlp=True,
+                question_aware_classifier=True,
+                use_reverse_edges=True,
+                add_layer_normalization=True,
+                edge_mlp_hidden_dim=64,
+                dropout=0.25,
+            ),
+        )
+
+        configuration_step = pipeline.preparation_steps[1]
+        self.assertTrue(configuration_step.configuration_input.use_edge_mlp)
+        self.assertTrue(configuration_step.configuration_input.question_aware_classifier)
+        self.assertTrue(configuration_step.configuration_input.use_reverse_edges)
+        self.assertTrue(configuration_step.configuration_input.add_layer_normalization)
+        self.assertEqual(configuration_step.configuration_input.edge_mlp_hidden_dim, 64)
+        self.assertEqual(configuration_step.configuration_input.dropout, 0.25)
+
+    def test_negative_training_start_instance_fails_early(self) -> None:
+        with self.assertRaisesRegex(
+            main.PipelineException,
+            "training-start-instance",
+        ):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(training_start_instance=-1),
+            )
+
+    def test_evaluation_only_rejects_training_continuation_flags(self) -> None:
+        with self.assertRaisesRegex(
+            main.PipelineException,
+            "continuation flags",
+        ):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    run_mode="evaluation-only",
+                    continue_training_model_run_number=1,
+                ),
+            )
 
     def test_no_wandb_keeps_final_results_without_wandb_step(self) -> None:
         pipeline = main.build_pipeline(

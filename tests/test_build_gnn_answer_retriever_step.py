@@ -137,6 +137,58 @@ class BuildGnnAnswerRetrieverStepTests(unittest.TestCase):
 
         self.assertEqual(tuple(logits.shape), (4,))
 
+    @unittest.skipIf(torch is None, "PyTorch is not installed.")
+    def test_edge_mlp_question_aware_and_layer_norm_forward(self) -> None:
+        from pipeline.preparation.models.gnn_answer_retriever import GnnAnswerRetriever
+
+        model = GnnAnswerRetriever(
+            entity_embedding_dimension=8,
+            question_embedding_dimension=6,
+            relation_embedding_dimension=6,
+            hidden_dimension=4,
+            gnn_layer_count=2,
+            node_classifier="mlp",
+            use_edge_mlp=True,
+            question_aware_classifier=True,
+            add_layer_normalization=True,
+            edge_mlp_hidden_dim=3,
+            dropout=0.2,
+        )
+        entity_features = torch.randn(4, 8)
+        question_features = torch.randn(6)
+        relation_features = torch.randn(3, 6)
+        edge_index = torch.tensor([[0, 1, 2], [1, 2, 3]])
+
+        logits = model(
+            entity_features=entity_features,
+            edge_index=edge_index,
+            question_features=question_features,
+            relation_features=relation_features,
+        )
+        logits.sum().backward()
+
+        self.assertEqual(tuple(logits.shape), (4,))
+        self.assertEqual(len(model.layer_norms), 2)
+        self.assertEqual(model.edge_mlp_hidden_dim, 3)
+        self.assertIsNotNone(model.edge_mlp[0].weight.grad)
+
+    @unittest.skipIf(torch is None, "PyTorch is not installed.")
+    def test_question_aware_classifier_uses_wide_input(self) -> None:
+        from pipeline.preparation.models.gnn_answer_retriever import GnnAnswerRetriever
+
+        model = GnnAnswerRetriever(
+            entity_embedding_dimension=8,
+            question_embedding_dimension=6,
+            relation_embedding_dimension=6,
+            hidden_dimension=4,
+            gnn_layer_count=2,
+            node_classifier="linear",
+            question_aware_classifier=True,
+            dropout=0.1,
+        )
+
+        self.assertEqual(model.classifier[0].in_features, 12)
+
     def test_missing_configuration_in_result_bank_raises(self) -> None:
         builder = StepContextBuilder()
         step = BuildGnnAnswerRetrieverStep()

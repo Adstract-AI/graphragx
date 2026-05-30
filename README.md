@@ -6,7 +6,7 @@ The current implementation is focused on WebQSP. The pipeline prepares local gra
 
 This project was highly inspired by **GNN-RAG: Graph Neural Retrieval for Large Language Model Reasoning**: https://arxiv.org/pdf/2405.20139
 
-For the full project explanation, the project paper, architecture graphs, and metric explanations, see the `metadata/` folder.
+For the full project explanation, read the final paper at [`metadata/GraphRagX.pdf`](metadata/GraphRagX.pdf). Architecture graphs, supporting reports, and metric explanations are also available in the [`metadata/`](metadata/) folder.
 
 ## Setup
 
@@ -29,6 +29,14 @@ Fill in at least:
 ```bash
 OPENAI_API_KEY=your_openai_key
 ```
+
+Start Qdrant before running any training or evaluation step that uses embeddings:
+
+```bash
+docker compose up -d qdrant
+```
+
+By default the pipeline connects to `http://localhost:6333` and stores embeddings in Qdrant collections prefixed with `graphragx_embeddings`.
 
 W&B logging is enabled by default for full runs. For first-time W&B usage, run:
 
@@ -105,9 +113,18 @@ python main.py --evaluation-only --evaluation-model-run-number 12 --default
 | `--training-learning-rate TRAINING_LEARNING_RATE` | Learning rate for GNN training. |
 | `--training-weight-decay TRAINING_WEIGHT_DECAY` | Weight decay for GNN training. |
 | `--training-max-instances TRAINING_MAX_INSTANCES` | Optional limit for how many WebQSP training instances to use. If omitted, the full train split is used. |
+| `--training-start-instance TRAINING_START_INSTANCE` | Zero-based train split index where training starts. With `--training-max-instances 100 --training-start-instance 101`, the slice is `[101:201]`. |
 | `--training-log-every TRAINING_LOG_EVERY` | How often training progress is logged, measured in processed instances. |
 | `--training-device {auto,cpu,cuda,mps}` | Device used for GNN training. `auto` selects the best available supported device. |
 | `--training-run-name TRAINING_RUN_NAME` | Optional label for the saved training run folder. |
+| `--continue-training-model-run-name CONTINUE_TRAINING_MODEL_RUN_NAME` | Continue training from a saved GNN model run folder name or suffix. Valid in full and train-only runs. |
+| `--continue-training-model-run-number CONTINUE_TRAINING_MODEL_RUN_NUMBER` | Continue training from a saved GNN model run numeric prefix. Valid in full and train-only runs. |
+| `--use-edge-mlp` | Use a trainable question-relation MLP instead of fixed cosine edge weights. |
+| `--question-aware-classifier` | Classify nodes from `h_v`, projected question embedding, and their element-wise product. |
+| `--use-reverse-edges` | Materialize reverse edges in prepared WebQSP graphs and use a separate processed cache variant. |
+| `--add-layer-normalization` | Apply residual connection plus LayerNorm after each GNN layer. |
+| `--edge-mlp-hidden-dim EDGE_MLP_HIDDEN_DIM` | Hidden dimension for the edge MLP. Defaults to the selected GNN hidden dimension. |
+| `--dropout DROPOUT` | Dropout used by upgraded GNN components. Default: `0.1`. |
 
 ### GNN Evaluation
 
@@ -120,6 +137,7 @@ python main.py --evaluation-only --evaluation-model-run-number 12 --default
 | `--candidate-limit CANDIDATE_LIMIT` | Maximum number of selected answer candidates after threshold and top-k selection. `--limit` is an alias. |
 | `--evaluation-run-name EVALUATION_RUN_NAME` | Optional label for the saved evaluation run folder. |
 | `--evaluation-max-instances EVALUATION_MAX_INSTANCES` | Optional limit for how many WebQSP test instances to evaluate. If omitted, the full test split is used. |
+| `--evaluation-log-every EVALUATION_LOG_EVERY` | How often GNN evaluation progress is logged, measured in evaluated instances. |
 
 ### LLM Inference And Results
 
@@ -171,37 +189,77 @@ Final result outputs, including `results_config.json`, retrieval metrics, reason
 
 ## Project Structure
 
-`main.py`
+```text
+graphragx/
+├── main.py
+├── requirements.txt
+├── docker-compose.yml
+├── README.md
+├── LICENSE
+├── CONTRIBUTING.md
+├── helpers/
+│   ├── constants.py
+│   ├── env_variables.py
+│   ├── logging_config.py
+│   ├── openai_rate_limit_logging.py
+│   └── path_serialization.py
+├── pipeline/
+│   ├── abstract.py
+│   ├── context_builder.py
+│   ├── exceptions.py
+│   ├── pipeline.py
+│   ├── services.py
+│   ├── preparation/
+│   │   ├── exceptions/
+│   │   ├── helpers/
+│   │   ├── models/
+│   │   ├── services/
+│   │   └── steps/
+│   └── evaluation/
+│       ├── exceptions/
+│       ├── models/
+│       ├── services/
+│       └── steps/
+├── mappings/
+│   └── webqsp/
+├── metadata/
+│   ├── GraphRagX.pdf
+│   ├── metrics/
+│   │   ├── prediction_metrics.md
+│   │   └── retrieval_metrics.md
+│   └── other/
+│       ├── REPORT.pdf
+│       ├── graphragx-final.drawio.png
+│       └── graphragx.drawio
+├── agents_metadata/
+│   ├── guidlines/
+│   │   ├── ERROR_HANDLING_GUIDELINES.MD
+│   │   ├── GENERAL_GUIDELINES.MD
+│   │   ├── PROJECT_GUIDELINES.MD
+│   │   ├── PROJECT_OVERVIEW.md
+│   │   └── SERVICE_GUIDELINES.MD
+│   └── pipeline_overview/
+│       ├── PIPELINE_OVERVIEW.md
+│       ├── preparation/
+│       └── evaluation/
+├── tests/
+│   ├── preparation/
+│   └── evaluation/
+└── data/
+    └── webqsp/
+        ├── processed/
+        ├── processed_reverse_edges/
+        ├── models/
+        ├── evaluations/
+        ├── inference/
+        └── results/
+```
 
-CLI entrypoint and pipeline composition.
+`main.py` is the CLI entrypoint and composes the full pipeline. `pipeline/` contains the actual preparation and evaluation steps, services, models, exceptions, and pipeline runner. `helpers/` contains shared constants, environment handling, logging, rate-limit visibility, and path serialization utilities.
 
-`pipeline/`
+`metadata/` is the human-facing project documentation folder. It contains the final paper, project report, architecture diagrams, and metric explanations. `agents_metadata/` is the agent-facing context folder; contributors using AI coding agents should start there to understand conventions, expected service structure, error handling, and the intended pipeline flow.
 
-Core pipeline implementation. It contains preparation steps, evaluation steps, services, models, exceptions, and the pipeline runner.
-
-`helpers/`
-
-Shared constants, environment-variable handling, logging, and serialization utilities.
-
-`metadata/`
-
-Human-facing project materials: the project report, architecture diagrams, and metric explanations.
-
-`agents_metadata/`
-
-Agent-facing project context. Contributors using AI coding agents should start here. The folder contains project guidelines, service guidelines, error-handling rules, general conventions, and a pipeline overview. Use it to understand how agents should explore the codebase, preserve conventions, and continue work safely.
-
-`tests/`
-
-Unit and integration-style tests for the pipeline, services, metrics, W&B logging, and storage behavior.
-
-`mappings/`
-
-Static mapping files used by the WebQSP processing flow.
-
-`data/`
-
-Local generated data, model runs, evaluations, inference runs, and final results.
+`data/webqsp/` is generated locally during runs. It contains processed graph caches, trained model runs, evaluation outputs, LLM inference outputs, and final result folders.
 
 ## Contributing With Agents
 

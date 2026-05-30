@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as torch_functional
 from torch import Tensor, nn
 
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
@@ -44,45 +45,196 @@ class GnnAnswerRetriever(nn.Module, AnswerRetrieverModel):
         hidden_dimension: int,
         gnn_layer_count: int,
         node_classifier: str,
+        question_embedding_dimension: int | None = None,
+        relation_embedding_dimension: int | None = None,
+        use_edge_mlp: bool = False,
+        question_aware_classifier: bool = False,
+        add_layer_normalization: bool = False,
+        edge_mlp_hidden_dim: int | None = None,
+        dropout: float = 0.0,
     ):
         super().__init__()
         self.entity_embedding_dimension = entity_embedding_dimension
+        self.question_embedding_dimension = question_embedding_dimension
+        self.relation_embedding_dimension = relation_embedding_dimension
         self.hidden_dimension = hidden_dimension
         self.gnn_layer_count = gnn_layer_count
         self.node_classifier = node_classifier
+        self.use_edge_mlp = use_edge_mlp
+        self.question_aware_classifier = question_aware_classifier
+        self.add_layer_normalization = add_layer_normalization
+        self.edge_mlp_hidden_dim = edge_mlp_hidden_dim or hidden_dimension
+        self.dropout_value = dropout
 
         self.entity_projection = nn.Linear(
             entity_embedding_dimension,
             hidden_dimension,
         )
+        self.question_projection = (
+            nn.Linear(question_embedding_dimension, hidden_dimension)
+            if question_embedding_dimension is not None
+            and (use_edge_mlp or question_aware_classifier)
+            else None
+        )
+        self.relation_projection = (
+            nn.Linear(relation_embedding_dimension, hidden_dimension)
+            if relation_embedding_dimension is not None and use_edge_mlp
+            else None
+        )
+        self.edge_mlp = (
+            nn.Sequential(
+                nn.Linear(hidden_dimension * 3, self.edge_mlp_hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(self.edge_mlp_hidden_dim, 1),
+            )
+            if use_edge_mlp
+            else None
+        )
         self.gnn_layers = nn.ModuleList(
             WeightedMessagePassingLayer(hidden_dimension)
             for _ in range(gnn_layer_count)
         )
-        self.classifier = self._build_classifier(node_classifier, hidden_dimension)
+        self.layer_norms = nn.ModuleList(
+            nn.LayerNorm(hidden_dimension)
+            for _ in range(gnn_layer_count)
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.activation = nn.ReLU()
+        self.classifier = self._build_classifier(
+            node_classifier=node_classifier,
+            hidden_dimension=hidden_dimension,
+            question_aware_classifier=question_aware_classifier,
+            dropout=dropout,
+        )
 
     def forward(
         self,
         entity_features: Tensor,
         edge_index: Tensor,
-        edge_weight: Tensor,
+        edge_weight: Tensor | None = None,
+        question_features: Tensor | None = None,
+        relation_features: Tensor | None = None,
     ) -> Tensor:
         node_features = self.entity_projection(entity_features)
-        for layer in self.gnn_layers:
-            node_features = layer(node_features, edge_index, edge_weight)
+        projected_question = self._project_question(question_features)
+        resolved_edge_weight = self._resolve_edge_weight(
+            edge_weight=edge_weight,
+            question_features=question_features,
+            relation_features=relation_features,
+            projected_question=projected_question,
+        )
+        for layer_index, layer in enumerate(self.gnn_layers):
+            updated_features = layer(node_features, edge_index, resolved_edge_weight)
+            if self.add_layer_normalization:
+                node_features = self.layer_norms[layer_index](
+                    node_features + self.dropout(updated_features)
+                )
+                node_features = self.activation(node_features)
+            else:
+                node_features = updated_features
+
+        if self.question_aware_classifier:
+            if projected_question is None:
+                raise ValueError(
+                    "question_features are required for question-aware classification."
+                )
+            question_features_for_nodes = projected_question.reshape(1, -1).expand(
+                node_features.shape[0],
+                -1,
+            )
+            node_features = torch.cat(
+                [
+                    node_features,
+                    question_features_for_nodes,
+                    node_features * question_features_for_nodes,
+                ],
+                dim=1,
+            )
 
         return self.classifier(node_features).squeeze(-1)
 
     @staticmethod
-    def _build_classifier(node_classifier: str, hidden_dimension: int) -> nn.Module:
+    def _build_classifier(
+        node_classifier: str,
+        hidden_dimension: int,
+        question_aware_classifier: bool,
+        dropout: float,
+    ) -> nn.Module:
+        if question_aware_classifier:
+            return nn.Sequential(
+                nn.Linear(hidden_dimension * 3, hidden_dimension),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dimension, 1),
+            )
+
         if node_classifier == "linear":
             return nn.Linear(hidden_dimension, 1)
 
         if node_classifier == "mlp":
-            return nn.Sequential(
+            layers: list[nn.Module] = [
                 nn.Linear(hidden_dimension, hidden_dimension),
                 nn.ReLU(),
+            ]
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+            layers.append(
                 nn.Linear(hidden_dimension, 1),
             )
+            return nn.Sequential(*layers)
 
         raise ValueError(f"Unsupported node classifier: {node_classifier}")
+
+    def _project_question(self, question_features: Tensor | None) -> Tensor | None:
+        if self.question_projection is None:
+            return None
+        if question_features is None:
+            return None
+        return self.question_projection(question_features)
+
+    def _resolve_edge_weight(
+        self,
+        edge_weight: Tensor | None,
+        question_features: Tensor | None,
+        relation_features: Tensor | None,
+        projected_question: Tensor | None,
+    ) -> Tensor:
+        if self.use_edge_mlp:
+            if (
+                self.edge_mlp is None
+                or self.relation_projection is None
+                or projected_question is None
+                or relation_features is None
+            ):
+                raise ValueError(
+                    "question_features and relation_features are required when "
+                    "use_edge_mlp is enabled."
+                )
+            relation_projection = self.relation_projection(relation_features)
+            question_projection = projected_question.reshape(1, -1).expand(
+                relation_projection.shape[0],
+                -1,
+            )
+            edge_input = torch.cat(
+                [
+                    question_projection,
+                    relation_projection,
+                    question_projection * relation_projection,
+                ],
+                dim=1,
+            )
+            return torch.sigmoid(self.edge_mlp(edge_input)).squeeze(-1)
+
+        if edge_weight is not None:
+            return edge_weight
+
+        if question_features is None or relation_features is None:
+            raise ValueError(
+                "edge_weight or question_features plus relation_features are required."
+            )
+        return torch_functional.cosine_similarity(
+            question_features.reshape(1, -1),
+            relation_features,
+            dim=1,
+        )

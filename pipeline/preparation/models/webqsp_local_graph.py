@@ -58,6 +58,10 @@ class PreparedWebQSPGraphDataset(StepResult):
 
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     processing_version: str = Field(..., description="Processing version.")
+    use_reverse_edges: bool = Field(
+        default=False,
+        description="Whether reverse edges were materialized during processing.",
+    )
     train_instances: list[WebQSPProcessedInstance] = Field(default_factory=list)
     test_instances: list[WebQSPProcessedInstance] = Field(default_factory=list)
     vocabulary_store: WebQSPVocabularyStore = Field(...)
