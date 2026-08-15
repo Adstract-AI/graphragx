@@ -10,13 +10,22 @@ For the full project explanation, read the final paper at [`metadata/GraphRagX.p
 
 ## Setup
 
-Create a virtual environment and install dependencies:
+Install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) if it is not already available, then create the project environment and install the locked dependencies:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync --frozen
 ```
+
+The repository pins Python 3.11 in `.python-version`. If Python 3.11 is not already installed, `uv` will install and manage it automatically. Run project commands through the managed environment:
+
+```bash
+uv run python main.py
+uv run pytest
+```
+
+To activate the environment in the current shell instead, run `source .venv/bin/activate` on macOS/Linux or `.venv\Scripts\activate` on Windows.
+
+The generated `uv.lock` file is the reproducible dependency source for remote machines. `--frozen` makes setup fail clearly if the project definition and lockfile ever drift instead of silently resolving different versions. After intentionally changing dependencies in `pyproject.toml`, update the lock and environment with `uv lock` followed by `uv sync`. The existing `requirements.txt` remains available for compatibility with pip-based environments.
 
 Create your local environment file:
 
@@ -51,7 +60,7 @@ or set `WANDB_API_KEY` in your shell environment. If you do not want W&B for a r
 Run the main entrypoint:
 
 ```bash
-python main.py
+uv run python main.py
 ```
 
 With no arguments, the pipeline runs in full mode, but it still asks you to select configurable project options interactively. Full mode includes training, evaluation, LLM inference, final result computation, and W&B logging.
@@ -59,25 +68,25 @@ With no arguments, the pipeline runs in full mode, but it still asks you to sele
 To use recommended default selections without interactive prompts:
 
 ```bash
-python main.py --default
+uv run python main.py --default
 ```
 
 To run the full pipeline without W&B:
 
 ```bash
-python main.py --default --no-wandb
+uv run python main.py --default --no-wandb
 ```
 
 To run only GNN training:
 
 ```bash
-python main.py --train-only --default
+uv run python main.py --train-only --default
 ```
 
 To evaluate a saved model run:
 
 ```bash
-python main.py --evaluation-only --evaluation-model-run-number 12 --default
+uv run python main.py --evaluation-only --evaluation-model-run-number 12 --default
 ```
 
 ## CLI Flags
@@ -192,6 +201,9 @@ Final result outputs, including `results_config.json`, retrieval metrics, reason
 ```text
 graphragx/
 ├── main.py
+├── pyproject.toml
+├── uv.lock
+├── .python-version
 ├── requirements.txt
 ├── docker-compose.yml
 ├── README.md

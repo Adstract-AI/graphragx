@@ -1,3 +1,4 @@
+# Legacy pip compatibility list. pyproject.toml and uv.lock are authoritative.
 pydantic
 datasets
 torch
