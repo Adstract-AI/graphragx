@@ -1,6 +1,7 @@
 """Tests for the graphragX entry point."""
 
 import unittest
+from contextlib import contextmanager
 from io import StringIO
 from unittest.mock import patch
 
@@ -17,6 +18,8 @@ from pipeline import (
     GnnAnswerRetrieverEvaluationResult,
     LogFinalResultsToWandbStep,
     LoadDatasetStep,
+    PrepareGnnTrainingDataStep,
+    PreparedGnnTrainingData,
     PreparedWebQSPGraphDataset,
     TrainGnnAnswerRetrieverStep,
     TrainedGnnAnswerRetriever,
@@ -82,11 +85,12 @@ class FakeWebQSPLocalGraphsStep(BuildWebQSPLocalGraphsStep):
 
 class FakeTrainGnnAnswerRetrieverStep(TrainGnnAnswerRetrieverStep):
     def execute_default(self, context):
+        built_retriever = context.result.built_retriever
         return TrainedGnnAnswerRetriever(
-            dataset_id=context.result.dataset_id,
-            hidden_dimension=context.result.hidden_dimension,
-            gnn_layer_count=context.result.gnn_layer_count,
-            node_classifier=context.result.node_classifier,
+            dataset_id=built_retriever.dataset_id,
+            hidden_dimension=built_retriever.hidden_dimension,
+            gnn_layer_count=built_retriever.gnn_layer_count,
+            node_classifier=built_retriever.node_classifier,
             training_epochs=1,
             training_learning_rate=1e-3,
             training_weight_decay=0.0,
@@ -100,13 +104,33 @@ class FakeTrainGnnAnswerRetrieverStep(TrainGnnAnswerRetrieverStep):
             final_loss=0.0,
             trained_instances=0,
             is_fine_tuned_model=False,
-            model=context.result.model,
+            model=built_retriever.model,
             model_artifact_path="/tmp/graphragx-test/gnn_answer_retriever.pt",
             model_config_path="/tmp/graphragx-test/model_config.json",
             model_run_directory="/tmp/graphragx-test/1_test",
             model_run_name="1_test",
             model_run_number=1,
             embedding_cache_directory="/tmp/graphragx-test/embeddings",
+        )
+
+
+class FakePrepareGnnTrainingDataStep(PrepareGnnTrainingDataStep):
+    def execute_default(self, context):
+        return PreparedGnnTrainingData(
+            built_retriever=context.result,
+            instances=[],
+            node_embeddings=[],
+            relation_embeddings=[],
+            question_embeddings=[],
+            training_start_instance=0,
+            training_end_instance=0,
+            selected_device="cpu",
+            embedding_cache_device="cpu",
+            embedding_cache_dtype="float32",
+            entity_embedding_model="text-embedding-3-small",
+            question_embedding_model="text-embedding-3-small",
+            relation_embedding_model="text-embedding-3-small",
+            cache_root="/tmp/graphragx-test",
         )
 
 
@@ -159,11 +183,16 @@ class MainEntrypointTests(unittest.TestCase):
         )
 
     @staticmethod
+    @contextmanager
     def _patch_training_step():
-        return patch(
+        with patch(
+            "main.PrepareGnnTrainingDataStep",
+            return_value=FakePrepareGnnTrainingDataStep(),
+        ), patch(
             "main.TrainGnnAnswerRetrieverStep",
             return_value=FakeTrainGnnAnswerRetrieverStep(),
-        )
+        ):
+            yield
 
     @staticmethod
     def _patch_evaluation_step():
@@ -508,6 +537,30 @@ class MainEntrypointTests(unittest.TestCase):
         training_step = pipeline.preparation_steps[-1]
         self.assertIsInstance(training_step, TrainGnnAnswerRetrieverStep)
         self.assertTrue(training_step.training_config.profile)
+
+    def test_embedding_cache_settings_are_wired_into_preparation_step(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                training_embedding_cache_device="gpu",
+                training_embedding_cache_dtype="bfloat16",
+                training_gpu_cache_reserve_gb=5.0,
+            ),
+        )
+
+        preparation_step = pipeline.preparation_steps[-2]
+        self.assertIsInstance(preparation_step, PrepareGnnTrainingDataStep)
+        self.assertEqual(
+            preparation_step.preparation_config.embedding_cache_device,
+            "gpu",
+        )
+        self.assertEqual(
+            preparation_step.preparation_config.embedding_cache_dtype,
+            "bfloat16",
+        )
+        self.assertEqual(
+            preparation_step.preparation_config.gpu_cache_reserve_gb,
+            5.0,
+        )
 
     def test_gnn_architecture_flags_are_wired_into_configuration_step(self) -> None:
         pipeline = main.build_pipeline(

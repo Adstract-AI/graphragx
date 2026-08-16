@@ -9,6 +9,8 @@ _EXPORT_MODULES: dict[str, str] = {
     "AbstractDatasetLoaderService": "pipeline.preparation.services.dataset_loader",
     "HuggingFaceWebQSPDatasetLoaderService": "pipeline.preparation.services.dataset_loader",
     "LangChainOpenAiTextEmbeddingService": "pipeline.preparation.services.openai_text_embedding",
+    "GnnTrainingDataPreparationConfig": "pipeline.preparation.services.gnn_training_data_preparation",
+    "GnnTrainingDataPreparationService": "pipeline.preparation.services.gnn_training_data_preparation",
     "SelectionService": "pipeline.preparation.services.selection",
     "TextEmbeddingCache": "pipeline.preparation.services.embedding_cache",
     "WebQSPEmbeddingCacheService": "pipeline.preparation.services.embedding_cache",

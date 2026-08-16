@@ -18,6 +18,9 @@ from pipeline.preparation.services.gnn_answer_retriever_training import (
     GnnAnswerRetrieverTrainingConfig,
     GnnAnswerRetrieverTrainingService,
 )
+from pipeline.preparation.services.gnn_training_data_preparation import (
+    GnnTrainingDataPreparationService,
+)
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
 
 
@@ -40,7 +43,7 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
     def test_select_train_instances_defaults_to_full_split(self) -> None:
         dataset = SimpleNamespace(train_instances=list(range(3)))
 
-        selected, start, end = GnnAnswerRetrieverTrainingService._select_train_instances(
+        selected, start, end = GnnTrainingDataPreparationService._select_instances(
             prepared_dataset=dataset,
             start_instance=0,
             max_instances=None,
@@ -53,7 +56,7 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
     def test_select_train_instances_uses_start_plus_max_semantics(self) -> None:
         dataset = SimpleNamespace(train_instances=list(range(300)))
 
-        selected, start, end = GnnAnswerRetrieverTrainingService._select_train_instances(
+        selected, start, end = GnnTrainingDataPreparationService._select_instances(
             prepared_dataset=dataset,
             start_instance=101,
             max_instances=100,
@@ -72,7 +75,7 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
             GnnAnswerRetrieverTrainingException,
             "greater than or equal to 0",
         ):
-            GnnAnswerRetrieverTrainingService._select_train_instances(
+            GnnTrainingDataPreparationService._select_instances(
                 prepared_dataset=dataset,
                 start_instance=-1,
                 max_instances=None,
@@ -85,7 +88,7 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
             GnnAnswerRetrieverTrainingException,
             "selected no instances",
         ):
-            GnnAnswerRetrieverTrainingService._select_train_instances(
+            GnnTrainingDataPreparationService._select_instances(
                 prepared_dataset=dataset,
                 start_instance=3,
                 max_instances=None,
@@ -132,6 +135,8 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
                 continued_run=None,
                 model_run_directory=run_directory,
                 torch=FakeTorch,
+                embedding_cache_device="cuda",
+                embedding_cache_dtype="bfloat16",
             )
 
             config = json.loads((run_directory / "model_config.json").read_text())
@@ -151,6 +156,8 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
         self.assertEqual(config["dropout"], 0.25)
         self.assertTrue(config["training"]["use_reverse_edges"])
         self.assertTrue(config["training"]["add_layer_normalization"])
+        self.assertEqual(config["training"]["embedding_cache_device"], "cuda")
+        self.assertEqual(config["training"]["embedding_cache_dtype"], "bfloat16")
 
     def test_save_model_config_marks_continued_training(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

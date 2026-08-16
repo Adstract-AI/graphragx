@@ -125,6 +125,10 @@ uv run python main.py --evaluation-only --evaluation-model-run-number 12 --defau
 | `--training-start-instance TRAINING_START_INSTANCE` | Zero-based train split index where training starts. With `--training-max-instances 100 --training-start-instance 101`, the slice is `[101:201]`. |
 | `--training-log-every TRAINING_LOG_EVERY` | How often training progress is logged, measured in processed instances. |
 | `--training-device {auto,cpu,cuda,mps}` | Device used for GNN training. `auto` selects the best available supported device. |
+| `--training-profile` | Reports synchronized input, forward, loss, backward, and optimizer timings. Use only for short diagnostics because synchronization reduces throughput. |
+| `--training-embedding-cache-device {auto,gpu,cpu}` | Placement for compact frozen embeddings prepared before training. `auto` uses CUDA when the matrices fit after the configured reserve. |
+| `--training-embedding-cache-dtype {auto,float32,bfloat16}` | Storage precision for compact embeddings. `auto` uses BF16 on supported CUDA devices and float32 otherwise. |
+| `--training-gpu-cache-reserve-gb TRAINING_GPU_CACHE_RESERVE_GB` | VRAM kept free for model parameters, graph activations, gradients, and CUDA overhead. Default: `6.0`. |
 | `--training-run-name TRAINING_RUN_NAME` | Optional label for the saved training run folder. |
 | `--continue-training-model-run-name CONTINUE_TRAINING_MODEL_RUN_NAME` | Continue training from a saved GNN model run folder name or suffix. Valid in full and train-only runs. |
 | `--continue-training-model-run-number CONTINUE_TRAINING_MODEL_RUN_NUMBER` | Continue training from a saved GNN model run numeric prefix. Valid in full and train-only runs. |
@@ -134,6 +138,8 @@ uv run python main.py --evaluation-only --evaluation-model-run-number 12 --defau
 | `--add-layer-normalization` | Apply residual connection plus LayerNorm after each GNN layer. |
 | `--edge-mlp-hidden-dim EDGE_MLP_HIDDEN_DIM` | Hidden dimension for the edge MLP. Defaults to the selected GNN hidden dimension. |
 | `--dropout DROPOUT` | Dropout used by upgraded GNN components. Default: `0.1`. |
+
+Before the epoch loop, training deduplicates embeddings used by the selected instance slice, retrieves them from Qdrant once, and builds compact integer-indexed matrices. GPU-resident matrices remain frozen, are excluded from the optimizer and model checkpoint, and are released when training finishes. If the safe CUDA memory budget is exceeded in `auto` mode, the matrices remain on CPU.
 
 ### GNN Evaluation
 

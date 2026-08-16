@@ -18,14 +18,13 @@ from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
+from pipeline.preparation.models.gnn_training_data import PreparedGnnTrainingData
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
-from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
 from pipeline.preparation.services.gnn_answer_retriever_training import (
     GnnAnswerRetrieverTrainingConfig,
     GnnAnswerRetrieverTrainingService,
 )
-from pipeline.preparation.services.embedding_cache import WebQSPEmbeddingCacheService
 
 logger = get_logger(__name__)
 
@@ -74,6 +73,14 @@ class TrainedGnnAnswerRetriever(StepResult):
         description="Optional user-provided training run label.",
     )
     selected_device: str = Field(..., description="Resolved PyTorch training device.")
+    embedding_cache_device: str = Field(
+        default="qdrant",
+        description="Resolved device used by compact frozen embeddings.",
+    )
+    embedding_cache_dtype: str = Field(
+        default="float32",
+        description="Storage precision used by compact frozen embeddings.",
+    )
     final_loss: float = Field(..., description="Final average epoch loss.")
     loss_history: list[dict[str, float | int]] = Field(
         default_factory=list,
@@ -104,7 +111,7 @@ class TrainedGnnAnswerRetriever(StepResult):
     )
 
 
-class TrainGnnAnswerRetrieverContext(StepContext[BuiltGnnAnswerRetriever]):
+class TrainGnnAnswerRetrieverContext(StepContext[PreparedGnnTrainingData]):
     """Specialized context for training the GNN answer retriever."""
 
     prepared_dataset: PreparedWebQSPGraphDataset = Field(
@@ -118,7 +125,7 @@ class TrainGnnAnswerRetrieverContext(StepContext[BuiltGnnAnswerRetriever]):
 
 
 class TrainGnnAnswerRetrieverStep(
-    AbstractStep[TrainedGnnAnswerRetriever, BuiltGnnAnswerRetriever]
+    AbstractStep[TrainedGnnAnswerRetriever, PreparedGnnTrainingData]
 ):
     """Train the built GNN answer retriever on prepared WebQSP graphs."""
 
@@ -152,22 +159,21 @@ class TrainGnnAnswerRetrieverStep(
             continue_from_model_run_name=continue_training_model_run_name,
             continue_from_model_run_number=continue_training_model_run_number,
         )
-        self.training_service = training_service or GnnAnswerRetrieverTrainingService(
-            embedding_cache_service=WebQSPEmbeddingCacheService()
-        )
+        self.training_service = training_service or GnnAnswerRetrieverTrainingService()
 
     def execute_default(
         self,
         context: TrainGnnAnswerRetrieverContext,
     ) -> TrainedGnnAnswerRetriever:
-        built_retriever = context.result
-        if built_retriever is None:
+        prepared_training_data = context.result
+        if prepared_training_data is None:
             raise InvalidInteractiveConfigurationInputException(
-                "GNN answer-retriever training requires a built retriever."
+                "GNN answer-retriever training requires prepared training data."
             )
 
         logger.info(
-            f"Starting TrainGnnAnswerRetrieverStep: dataset={built_retriever.dataset_id} "
+            f"Starting TrainGnnAnswerRetrieverStep: "
+            f"dataset={prepared_training_data.built_retriever.dataset_id} "
             f"epochs={self.training_config.epochs} "
             f"start_instance={self.training_config.start_instance} "
             f"max_instances={self.training_config.max_instances} "
@@ -176,12 +182,17 @@ class TrainGnnAnswerRetrieverStep(
             f"continue_from_name={self.training_config.continue_from_model_run_name} "
             f"continue_from_number={self.training_config.continue_from_model_run_number}"
         )
-        outcome = self.training_service.train(
-            built_retriever=built_retriever,
-            prepared_dataset=context.prepared_dataset,
-            configuration=context.pipeline_configuration,
-            training_config=self.training_config,
-        )
+        try:
+            outcome = self.training_service.train(
+                prepared_training_data=prepared_training_data,
+                prepared_dataset=context.prepared_dataset,
+                configuration=context.pipeline_configuration,
+                training_config=self.training_config,
+            )
+        finally:
+            self.training_service.release_prepared_embeddings(
+                prepared_training_data
+            )
         logger.info(
             f"Finished TrainGnnAnswerRetrieverStep: "
             f"run={outcome.model_run_name} final_loss={outcome.final_loss:.6f} "
@@ -209,6 +220,8 @@ class TrainGnnAnswerRetrieverStep(
             training_profile=self.training_config.profile,
             training_run_name=self.training_config.run_name,
             selected_device=outcome.selected_device,
+            embedding_cache_device=outcome.embedding_cache_device,
+            embedding_cache_dtype=outcome.embedding_cache_dtype,
             final_loss=outcome.final_loss,
             loss_history=outcome.loss_history,
             trained_instances=outcome.trained_instances,

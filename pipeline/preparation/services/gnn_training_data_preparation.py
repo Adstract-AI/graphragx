@@ -1,0 +1,511 @@
+"""Prepare compact frozen embedding matrices for GNN training."""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from types import ModuleType
+from typing import TYPE_CHECKING, Literal
+
+from pydantic import BaseModel, Field
+
+from helpers.constants import (
+    DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE,
+    DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE,
+    DEFAULT_TRAINING_GPU_CACHE_RESERVE_GB,
+)
+from helpers.logging_config import get_logger
+from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
+from pipeline.preparation.models.gnn_training_data import (
+    PreparedGnnTrainingData,
+    PreparedGnnTrainingInstance,
+)
+from pipeline.preparation.models.webqsp_local_graph import (
+    PreparedWebQSPGraphDataset,
+    WebQSPProcessedInstance,
+)
+from pipeline.preparation.services.embedding_cache import (
+    TextEmbeddingCache,
+    WebQSPEmbeddingCacheService,
+)
+from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
+    GnnAnswerRetrieverModelRunService,
+)
+from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
+from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
+from pipeline.services import AbstractService
+
+logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from torch import Tensor, dtype as TorchDtype
+
+
+class GnnTrainingDataPreparationConfig(BaseModel):
+    """Settings controlling training-slice embedding preparation and placement."""
+
+    start_instance: int = 0
+    max_instances: int | None = None
+    training_device: str = "auto"
+    embedding_cache_device: Literal["auto", "gpu", "cpu"] = Field(
+        default=DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE
+    )
+    embedding_cache_dtype: Literal["auto", "float32", "bfloat16"] = Field(
+        default=DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE
+    )
+    gpu_cache_reserve_gb: float = DEFAULT_TRAINING_GPU_CACHE_RESERVE_GB
+    continue_from_model_run_name: str | None = None
+    continue_from_model_run_number: int | None = None
+
+
+class GnnTrainingDataPreparationService(AbstractService):
+    """Build compact embedding matrices and integer-indexed training graphs."""
+
+    bytes_per_gibibyte = 1024**3
+    progress_update_count = 10
+
+    def __init__(
+        self,
+        embedding_cache_service: WebQSPEmbeddingCacheService | None = None,
+        model_run_service: GnnAnswerRetrieverModelRunService | None = None,
+    ) -> None:
+        self.embedding_cache_service = (
+            embedding_cache_service or WebQSPEmbeddingCacheService()
+        )
+        self.model_run_service = model_run_service or GnnAnswerRetrieverModelRunService()
+
+    def prepare(
+        self,
+        built_retriever: BuiltGnnAnswerRetriever,
+        prepared_dataset: PreparedWebQSPGraphDataset,
+        configuration: BuiltPipelineConfiguration,
+        preparation_config: GnnTrainingDataPreparationConfig,
+    ) -> PreparedGnnTrainingData:
+        """Prepare selected graph embeddings once and place them for repeated epochs."""
+        import torch
+
+        if preparation_config.gpu_cache_reserve_gb < 0:
+            raise GnnAnswerRetrieverTrainingException(
+                "training_gpu_cache_reserve_gb must be greater than or equal to zero."
+            )
+
+        selected_instances, start_index, end_index = self._select_instances(
+            prepared_dataset=prepared_dataset,
+            start_instance=preparation_config.start_instance,
+            max_instances=preparation_config.max_instances,
+        )
+        selected_device = self._resolve_training_device(
+            torch=torch,
+            requested_device=preparation_config.training_device,
+        )
+        (
+            entity_embedding_model,
+            question_embedding_model,
+            relation_embedding_model,
+        ) = self._resolve_embedding_models(
+            cache_root=prepared_dataset.cache_directory.parent,
+            built_retriever=built_retriever,
+            configuration=configuration,
+            preparation_config=preparation_config,
+        )
+
+        node_texts, node_index_tensors = self._compact_text_index_tensors(
+            instance_texts=[instance.nodes for instance in selected_instances],
+            torch=torch,
+        )
+        relation_texts, relation_index_tensors = self._compact_text_index_tensors(
+            instance_texts=[
+                instance.edge_relations for instance in selected_instances
+            ],
+            torch=torch,
+        )
+        question_texts, question_indices = self._compact_text_indices(
+            [[instance.question] for instance in selected_instances]
+        )
+
+        cache_root = prepared_dataset.cache_directory.parent
+        node_cache = self.embedding_cache_service.load_node_cache(
+            cache_root=cache_root,
+            model_id=entity_embedding_model,
+            vocabulary={text: index for index, text in enumerate(node_texts)},
+            dataset_id=prepared_dataset.dataset_id,
+        )
+        relation_cache = self.embedding_cache_service.load_relation_cache(
+            cache_root=cache_root,
+            model_id=relation_embedding_model,
+            vocabulary={text: index for index, text in enumerate(relation_texts)},
+            dataset_id=prepared_dataset.dataset_id,
+        )
+        question_cache = self.embedding_cache_service.load_question_cache(
+            cache_root=cache_root,
+            model_id=question_embedding_model,
+            vocabulary={text: index for index, text in enumerate(question_texts)},
+            dataset_id=prepared_dataset.dataset_id,
+        )
+        self.embedding_cache_service.ensure_embeddings(node_cache, node_texts)
+        self.embedding_cache_service.ensure_embeddings(
+            relation_cache,
+            relation_texts,
+            preprocess=True,
+        )
+        self.embedding_cache_service.ensure_embeddings(question_cache, question_texts)
+
+        embedding_dtype = self._resolve_embedding_dtype(
+            torch=torch,
+            requested_dtype=preparation_config.embedding_cache_dtype,
+            selected_device=selected_device,
+        )
+        total_embedding_bytes = self._embedding_storage_bytes(
+            text_counts=(len(node_texts), len(relation_texts), len(question_texts)),
+            vector_sizes=(
+                node_cache.vector_size,
+                relation_cache.vector_size,
+                question_cache.vector_size,
+            ),
+            element_size=2 if embedding_dtype == "bfloat16" else 4,
+        )
+        embedding_device = self._resolve_embedding_device(
+            torch=torch,
+            requested_device=preparation_config.embedding_cache_device,
+            selected_device=selected_device,
+            required_bytes=total_embedding_bytes,
+            reserve_gb=preparation_config.gpu_cache_reserve_gb,
+        )
+        logger.info(
+            f"Preparing compact GNN training embeddings: instances={len(selected_instances)} "
+            f"nodes={len(node_texts)} relations={len(relation_texts)} "
+            f"questions={len(question_texts)} storage_gib="
+            f"{total_embedding_bytes / self.bytes_per_gibibyte:.2f} "
+            f"device={embedding_device} dtype={embedding_dtype}"
+        )
+
+        torch_dtype = torch.bfloat16 if embedding_dtype == "bfloat16" else torch.float32
+        cuda_allocation_failed = False
+        try:
+            (
+                node_embeddings,
+                relation_embeddings,
+                question_embeddings,
+            ) = self._load_embedding_matrices(
+                torch=torch,
+                caches=(node_cache, relation_cache, question_cache),
+                text_groups=(node_texts, relation_texts, question_texts),
+                dtype=torch_dtype,
+                device=embedding_device,
+            )
+        except torch.OutOfMemoryError as error:
+            if not embedding_device.startswith("cuda"):
+                raise GnnAnswerRetrieverTrainingException(
+                    "Host memory was exhausted while loading compact embeddings."
+                ) from error
+            if preparation_config.embedding_cache_device == "gpu":
+                raise GnnAnswerRetrieverTrainingException(
+                    "CUDA ran out of memory while loading the forced GPU embedding cache."
+                ) from error
+            logger.warning(
+                "CUDA allocation failed while preparing compact embeddings; "
+                "retrying with CPU storage."
+            )
+            embedding_device = "cpu"
+            (
+                node_embeddings,
+                relation_embeddings,
+                question_embeddings,
+            ) = self._load_embedding_matrices(
+                torch=torch,
+                caches=(node_cache, relation_cache, question_cache),
+                text_groups=(node_texts, relation_texts, question_texts),
+                dtype=torch_dtype,
+                device=embedding_device,
+            )
+            cuda_allocation_failed = True
+        if cuda_allocation_failed:
+            torch.cuda.empty_cache()
+        prepared_instances = [
+            PreparedGnnTrainingInstance(
+                source_instance_index=start_index + offset,
+                node_embedding_indices=node_index_tensors[offset],
+                relation_embedding_indices=relation_index_tensors[offset],
+                question_embedding_index=question_indices[offset][0],
+                edge_index=instance.edge_index,
+                node_labels=instance.node_labels,
+            )
+            for offset, instance in enumerate(selected_instances)
+        ]
+        logger.info(
+            f"Prepared GNN training data once for epochs: "
+            f"instances={len(prepared_instances)} device={embedding_device} "
+            f"dtype={embedding_dtype}"
+        )
+        return PreparedGnnTrainingData(
+            built_retriever=built_retriever,
+            instances=prepared_instances,
+            node_embeddings=node_embeddings,
+            relation_embeddings=relation_embeddings,
+            question_embeddings=question_embeddings,
+            training_start_instance=start_index,
+            training_end_instance=end_index,
+            selected_device=selected_device,
+            embedding_cache_device=embedding_device,
+            embedding_cache_dtype=embedding_dtype,
+            entity_embedding_model=entity_embedding_model,
+            question_embedding_model=question_embedding_model,
+            relation_embedding_model=relation_embedding_model,
+            cache_root=cache_root,
+        )
+
+    @staticmethod
+    def _select_instances(
+        prepared_dataset: PreparedWebQSPGraphDataset,
+        start_instance: int,
+        max_instances: int | None,
+    ) -> tuple[list[WebQSPProcessedInstance], int, int]:
+        """Select the configured contiguous training split slice."""
+        if start_instance < 0:
+            raise GnnAnswerRetrieverTrainingException(
+                "training_start_instance must be greater than or equal to 0."
+            )
+        end_instance = (
+            len(prepared_dataset.train_instances)
+            if max_instances is None
+            else start_instance + max_instances
+        )
+        selected_instances = prepared_dataset.train_instances[start_instance:end_instance]
+        if not selected_instances:
+            raise GnnAnswerRetrieverTrainingException(
+                f"GNN answer retriever training selected no instances: "
+                f"start={start_instance} end={end_instance} "
+                f"available={len(prepared_dataset.train_instances)}."
+            )
+        return selected_instances, start_instance, start_instance + len(selected_instances)
+
+    @staticmethod
+    def _compact_text_indices(
+        instance_texts: list[list[str]],
+    ) -> tuple[list[str], list[list[int]]]:
+        """Create one compact vocabulary and per-instance integer indices."""
+        text_to_index: dict[str, int] = {}
+        compact_texts: list[str] = []
+        instance_indices: list[list[int]] = []
+        for texts in instance_texts:
+            indices: list[int] = []
+            for text in texts:
+                compact_index = text_to_index.get(text)
+                if compact_index is None:
+                    compact_index = len(compact_texts)
+                    text_to_index[text] = compact_index
+                    compact_texts.append(text)
+                indices.append(compact_index)
+            instance_indices.append(indices)
+        return compact_texts, instance_indices
+
+    @staticmethod
+    def _compact_text_index_tensors(
+        instance_texts: list[list[str]],
+        torch: ModuleType,
+    ) -> tuple[list[str], list[Tensor]]:
+        """Build compact IDs as tensors without retaining all Python integers."""
+        text_to_index: dict[str, int] = {}
+        compact_texts: list[str] = []
+        instance_index_tensors: list[Tensor] = []
+        for texts in instance_texts:
+            indices: list[int] = []
+            for text in texts:
+                compact_index = text_to_index.get(text)
+                if compact_index is None:
+                    compact_index = len(compact_texts)
+                    text_to_index[text] = compact_index
+                    compact_texts.append(text)
+                indices.append(compact_index)
+            instance_index_tensors.append(torch.tensor(indices, dtype=torch.long))
+        return compact_texts, instance_index_tensors
+
+    def _resolve_embedding_models(
+        self,
+        cache_root: Path,
+        built_retriever: BuiltGnnAnswerRetriever,
+        configuration: BuiltPipelineConfiguration,
+        preparation_config: GnnTrainingDataPreparationConfig,
+    ) -> tuple[str, str, str]:
+        """Resolve embedding model IDs for fresh or continued training."""
+        if (
+            preparation_config.continue_from_model_run_name is None
+            and preparation_config.continue_from_model_run_number is None
+        ):
+            return (
+                built_retriever.entity_embedding_model,
+                configuration.question_embedding_model,
+                configuration.relation_embedding_model,
+            )
+        saved_run = self.model_run_service.resolve_run(
+            model_root=cache_root / "models",
+            run_name=preparation_config.continue_from_model_run_name,
+            run_number=preparation_config.continue_from_model_run_number,
+        )
+        return (
+            saved_run.config.entity_embedding_model,
+            saved_run.config.question_embedding_model
+            or configuration.question_embedding_model,
+            saved_run.config.relation_embedding_model
+            or configuration.relation_embedding_model,
+        )
+
+    @staticmethod
+    def _resolve_training_device(torch: ModuleType, requested_device: str) -> str:
+        """Resolve the accelerator used by the training service."""
+        if requested_device != "auto":
+            if requested_device.startswith("cuda") and not torch.cuda.is_available():
+                raise GnnAnswerRetrieverTrainingException(
+                    "CUDA training was requested, but CUDA is not available."
+                )
+            if requested_device == "mps" and not torch.backends.mps.is_available():
+                raise GnnAnswerRetrieverTrainingException(
+                    "MPS training was requested, but MPS is not available."
+                )
+            return requested_device
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+
+    @staticmethod
+    def _resolve_embedding_dtype(
+        torch: ModuleType,
+        requested_dtype: str,
+        selected_device: str,
+    ) -> str:
+        """Resolve compact embedding precision for the training device."""
+        if not selected_device.startswith("cuda"):
+            if requested_dtype == "bfloat16":
+                raise GnnAnswerRetrieverTrainingException(
+                    "bfloat16 training embeddings require a CUDA training device."
+                )
+            return "float32"
+        if requested_dtype == "float32":
+            return "float32"
+        if torch.cuda.is_bf16_supported():
+            return "bfloat16"
+        if requested_dtype == "bfloat16":
+            raise GnnAnswerRetrieverTrainingException(
+                "The selected CUDA device does not support bfloat16 embeddings."
+            )
+        return "float32"
+
+    def _resolve_embedding_device(
+        self,
+        torch: ModuleType,
+        requested_device: str,
+        selected_device: str,
+        required_bytes: int,
+        reserve_gb: float,
+    ) -> str:
+        """Place embeddings on CUDA when requested and safely within free VRAM."""
+        if requested_device == "cpu":
+            return "cpu"
+        if not selected_device.startswith("cuda"):
+            if requested_device == "gpu":
+                raise GnnAnswerRetrieverTrainingException(
+                    "GPU embedding cache requested without a CUDA training device."
+                )
+            return "cpu"
+        free_bytes, _ = torch.cuda.mem_get_info()
+        reserve_bytes = int(reserve_gb * self.bytes_per_gibibyte)
+        fits_safely = required_bytes <= max(0, free_bytes - reserve_bytes)
+        if fits_safely:
+            return selected_device
+        if requested_device == "gpu":
+            raise GnnAnswerRetrieverTrainingException(
+                f"GPU embedding cache requires {required_bytes / self.bytes_per_gibibyte:.2f} "
+                f"GiB with a {reserve_gb:.2f} GiB reserve, but only "
+                f"{free_bytes / self.bytes_per_gibibyte:.2f} GiB is free."
+            )
+        logger.warning(
+            f"Compact embeddings do not fit the safe CUDA budget; using CPU storage: "
+            f"required_gib={required_bytes / self.bytes_per_gibibyte:.2f} "
+            f"free_gib={free_bytes / self.bytes_per_gibibyte:.2f} "
+            f"reserve_gib={reserve_gb:.2f}"
+        )
+        return "cpu"
+
+    @staticmethod
+    def _embedding_storage_bytes(
+        text_counts: tuple[int, int, int],
+        vector_sizes: tuple[int, int, int],
+        element_size: int,
+    ) -> int:
+        """Calculate storage required by all compact embedding matrices."""
+        return sum(
+            text_count * vector_size * element_size
+            for text_count, vector_size in zip(text_counts, vector_sizes, strict=True)
+        )
+
+    def _load_embedding_matrix(
+        self,
+        torch: ModuleType,
+        cache: TextEmbeddingCache,
+        texts: list[str],
+        dtype: TorchDtype,
+        device: str,
+    ) -> Tensor:
+        """Retrieve embeddings in bounded chunks directly into one dense matrix."""
+        matrix = torch.empty(
+            (len(texts), cache.vector_size),
+            dtype=dtype,
+            device=device,
+        )
+        total_batches = max(
+            1,
+            (len(texts) + self.embedding_cache_service.batch_size - 1)
+            // self.embedding_cache_service.batch_size,
+        )
+        log_every = max(1, total_batches // self.progress_update_count)
+        load_started_at = time.perf_counter()
+        for batch_index, start_index in enumerate(
+            range(0, len(texts), self.embedding_cache_service.batch_size),
+            start=1,
+        ):
+            end_index = min(
+                start_index + self.embedding_cache_service.batch_size,
+                len(texts),
+            )
+            vectors = self.embedding_cache_service.embeddings_for_texts(
+                cache=cache,
+                texts=texts[start_index:end_index],
+            )
+            source = torch.tensor(vectors, dtype=torch.float32)
+            matrix[start_index:end_index].copy_(
+                source.to(device=device, dtype=dtype)
+            )
+            if batch_index % log_every == 0 or batch_index == total_batches:
+                logger.info(
+                    f"Loaded compact {cache.cache_kind} embeddings: "
+                    f"batch={batch_index}/{total_batches} "
+                    f"vectors={end_index}/{len(texts)}"
+                )
+        logger.info(
+            f"Finished compact {cache.cache_kind} embedding matrix: "
+            f"vectors={len(texts)} elapsed_seconds="
+            f"{time.perf_counter() - load_started_at:.2f}"
+        )
+        return matrix
+
+    def _load_embedding_matrices(
+        self,
+        torch: ModuleType,
+        caches: tuple[TextEmbeddingCache, TextEmbeddingCache, TextEmbeddingCache],
+        text_groups: tuple[list[str], list[str], list[str]],
+        dtype: TorchDtype,
+        device: str,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """Load node, relation, and question matrices on one storage device."""
+        return tuple(
+            self._load_embedding_matrix(
+                torch=torch,
+                cache=cache,
+                texts=texts,
+                dtype=dtype,
+                device=device,
+            )
+            for cache, texts in zip(caches, text_groups, strict=True)
+        )

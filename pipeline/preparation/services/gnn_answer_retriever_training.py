@@ -7,6 +7,7 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import TYPE_CHECKING, Protocol
 from datetime import datetime, timezone
 
@@ -25,22 +26,17 @@ from helpers.constants import (
 )
 from helpers.logging_config import get_logger
 from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
-from pipeline.preparation.models.webqsp_local_graph import (
-    PreparedWebQSPGraphDataset,
-    WebQSPProcessedInstance,
-)
+from pipeline.preparation.models.gnn_training_data import PreparedGnnTrainingData
+from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
 from pipeline.services import AbstractService
-from pipeline.preparation.services.embedding_cache import (
-    TextEmbeddingCache,
-    WebQSPEmbeddingCacheService,
-)
 from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
     GnnAnswerRetrieverModelRunService,
     LoadedGnnAnswerRetrieverRun,
 )
 
 if TYPE_CHECKING:
+    from torch import Tensor
     from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 
 logger = get_logger(__name__)
@@ -119,6 +115,8 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
     model_run_number: int = Field(..., description="Incremental training run number.")
     embedding_cache_directory: Path = Field(..., description="Embedding cache root.")
     selected_device: str = Field(..., description="Resolved PyTorch training device.")
+    embedding_cache_device: str = Field(..., description="Resolved embedding location.")
+    embedding_cache_dtype: str = Field(..., description="Frozen embedding precision.")
     dataset_id: str = Field(..., description="Dataset id used by the trained model.")
     entity_embedding_model: str = Field(..., description="Entity embedding model id.")
     question_embedding_model: str = Field(..., description="Question embedding model id.")
@@ -155,39 +153,30 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
 
     def __init__(
         self,
-        embedding_cache_service: WebQSPEmbeddingCacheService | None = None,
         model_run_service: GnnAnswerRetrieverModelRunService | None = None,
-    ):
-        self.embedding_cache_service = (
-            embedding_cache_service or WebQSPEmbeddingCacheService()
-        )
+    ) -> None:
         self.model_run_service = model_run_service or GnnAnswerRetrieverModelRunService()
 
     def train(
         self,
-        built_retriever: BuiltGnnAnswerRetriever,
+        prepared_training_data: PreparedGnnTrainingData,
         prepared_dataset: PreparedWebQSPGraphDataset,
         configuration: BuiltPipelineConfiguration,
         training_config: GnnAnswerRetrieverTrainingConfig,
     ) -> GnnAnswerRetrieverTrainingOutcome:
-        """Train the built answer retriever on prepared WebQSP instances."""
+        """Train the answer retriever from compact indexed embedding matrices."""
         import torch
         import torch.nn.functional as torch_functional
 
-        (
-            train_instances,
-            training_start_instance,
-            training_end_instance,
-        ) = self._select_train_instances(
-            prepared_dataset=prepared_dataset,
-            start_instance=training_config.start_instance,
-            max_instances=training_config.max_instances,
-        )
-
         device = self._resolve_device(torch, training_config.device)
+        if device != prepared_training_data.selected_device:
+            raise GnnAnswerRetrieverTrainingException(
+                f"Prepared training device {prepared_training_data.selected_device} "
+                f"does not match resolved training device {device}."
+            )
         logger.info(f"Starting GNN answer retriever training on device={device}")
 
-        cache_root = prepared_dataset.cache_directory.parent
+        cache_root = prepared_training_data.cache_root
         continued_run = self._load_continued_run(
             cache_root=cache_root,
             configuration=configuration,
@@ -195,7 +184,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             device=device,
         )
         effective_retriever = self._build_effective_retriever(
-            built_retriever=built_retriever,
+            built_retriever=prepared_training_data.built_retriever,
             continued_run=continued_run,
         )
         question_embedding_model = (
@@ -208,6 +197,17 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             if continued_run is not None
             else configuration.relation_embedding_model
         )
+        if (
+            effective_retriever.entity_embedding_model
+            != prepared_training_data.entity_embedding_model
+            or question_embedding_model
+            != prepared_training_data.question_embedding_model
+            or relation_embedding_model
+            != prepared_training_data.relation_embedding_model
+        ):
+            raise GnnAnswerRetrieverTrainingException(
+                "Prepared training embeddings do not match the effective model run."
+            )
         if effective_retriever.dataset_id != prepared_dataset.dataset_id:
             raise GnnAnswerRetrieverTrainingException(
                 f"Cannot continue training model run from dataset "
@@ -215,8 +215,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             )
 
         logger.info(
-            f"Selected GNN training slice: start={training_start_instance} "
-            f"end={training_end_instance} instances={len(train_instances)}"
+            f"Selected GNN training slice: "
+            f"start={prepared_training_data.training_start_instance} "
+            f"end={prepared_training_data.training_end_instance} "
+            f"instances={len(prepared_training_data.instances)} "
+            f"embedding_device={prepared_training_data.embedding_cache_device} "
+            f"embedding_dtype={prepared_training_data.embedding_cache_dtype}"
         )
         if continued_run is not None:
             logger.info(
@@ -224,44 +228,6 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 f"run_number={continued_run.run_number} "
                 f"additional_epochs={training_config.epochs}"
             )
-
-        node_cache = self.embedding_cache_service.load_node_cache(
-            cache_root=cache_root,
-            model_id=effective_retriever.entity_embedding_model,
-            vocabulary=prepared_dataset.vocabulary_store.nodes,
-            dataset_id=prepared_dataset.dataset_id,
-        )
-        relation_cache = self.embedding_cache_service.load_relation_cache(
-            cache_root=cache_root,
-            model_id=relation_embedding_model,
-            vocabulary=prepared_dataset.vocabulary_store.relations,
-            dataset_id=prepared_dataset.dataset_id,
-        )
-        question_cache = self.embedding_cache_service.load_question_cache(
-            cache_root=cache_root,
-            model_id=question_embedding_model,
-            vocabulary=prepared_dataset.vocabulary_store.questions,
-            dataset_id=prepared_dataset.dataset_id,
-        )
-        logger.info(
-            f"Loaded Qdrant embedding cache handles: "
-            f"nodes_collection={node_cache.collection_name} "
-            f"relations_collection={relation_cache.collection_name} "
-            f"questions_collection={question_cache.collection_name}"
-        )
-
-        self._populate_embedding_caches(
-            train_instances=train_instances,
-            node_cache=node_cache,
-            relation_cache=relation_cache,
-            question_cache=question_cache,
-        )
-        logger.info(
-            f"Qdrant embedding caches ready: "
-            f"node_vocab={len(node_cache.vocabulary)} "
-            f"relation_vocab={len(relation_cache.vocabulary)} "
-            f"question_vocab={len(question_cache.vocabulary)}"
-        )
 
         model = effective_retriever.model
         model.to(device)
@@ -277,11 +243,14 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         for epoch in range(1, training_config.epochs + 1):
             logger.info(
                 f"Training epoch {epoch}/{training_config.epochs} "
-                f"over {len(train_instances)} WebQSP instances"
+                f"over {len(prepared_training_data.instances)} WebQSP instances"
             )
             epoch_loss = torch.zeros((), dtype=torch.float, device=device)
             phase_timings = GnnTrainingPhaseTimings()
-            for instance_index, instance in enumerate(train_instances, start=1):
+            for instance_index, instance in enumerate(
+                prepared_training_data.instances,
+                start=1,
+            ):
                 optimizer.zero_grad(set_to_none=True)
                 phase_started_at = self._start_profiled_phase(
                     torch=torch,
@@ -289,21 +258,18 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     enabled=training_config.profile,
                 )
 
-                entity_features = self._build_entity_feature_tensor(
-                    instance=instance,
-                    node_cache=node_cache,
+                entity_features = self._gather_embedding_features(
+                    embedding_matrix=prepared_training_data.node_embeddings,
+                    indices=instance.node_embedding_indices,
                     torch=torch,
                     device=device,
                 )
-                question_features = self._build_question_feature_tensor(
-                    instance=instance,
-                    question_cache=question_cache,
-                    torch=torch,
-                    device=device,
-                )
-                relation_features = self._build_relation_feature_tensor(
-                    instance=instance,
-                    relation_cache=relation_cache,
+                question_features = prepared_training_data.question_embeddings[
+                    instance.question_embedding_index
+                ].to(device=device, non_blocking=True)
+                relation_features = self._gather_embedding_features(
+                    embedding_matrix=prepared_training_data.relation_embeddings,
+                    indices=instance.relation_embedding_indices,
                     torch=torch,
                     device=device,
                 )
@@ -318,8 +284,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         device=device,
                     )
                 )
-                edge_index = instance.edge_index.to(device)
-                node_labels = instance.node_labels.to(device)
+                edge_index = instance.edge_index.to(device=device, non_blocking=True)
+                node_labels = instance.node_labels.to(device=device, non_blocking=True)
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
                     device=device,
@@ -328,13 +294,21 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 )
                 phase_timings.input_preparation_seconds += elapsed_seconds
 
-                logits = model(
-                    entity_features=entity_features,
-                    edge_index=edge_index,
-                    edge_weight=edge_weight,
-                    question_features=question_features,
-                    relation_features=relation_features,
-                )
+                with torch.autocast(
+                    device_type="cuda",
+                    dtype=torch.bfloat16,
+                    enabled=(
+                        device.startswith("cuda")
+                        and prepared_training_data.uses_bfloat16
+                    ),
+                ):
+                    logits = model(
+                        entity_features=entity_features,
+                        edge_index=edge_index,
+                        edge_weight=edge_weight,
+                        question_features=question_features,
+                        relation_features=relation_features,
+                    )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
                     device=device,
@@ -343,7 +317,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 )
                 phase_timings.forward_seconds += elapsed_seconds
                 loss = self._compute_loss(
-                    logits=logits,
+                    logits=logits.float(),
                     node_labels=node_labels,
                     torch=torch,
                     torch_functional=torch_functional,
@@ -381,7 +355,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 ):
                     logger.info(
                         f"Epoch {epoch}/{training_config.epochs} progress: "
-                        f"{instance_index}/{len(train_instances)} instances, "
+                        f"{instance_index}/{len(prepared_training_data.instances)} "
+                        f"instances, "
                         f"latest_loss={detached_loss.item():.6f}"
                     )
                     if training_config.profile:
@@ -391,7 +366,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                             timings=phase_timings,
                         )
 
-            final_loss = (epoch_loss / len(train_instances)).item()
+            final_loss = (epoch_loss / len(prepared_training_data.instances)).item()
             loss_history.append(
                 {
                     "epoch": epoch,
@@ -404,11 +379,11 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             )
             if training_config.profile and (
                 training_config.log_every <= 0
-                or len(train_instances) % training_config.log_every != 0
+                or len(prepared_training_data.instances) % training_config.log_every != 0
             ):
                 self._log_phase_timings(
                     epoch=epoch,
-                    processed_instances=len(train_instances),
+                    processed_instances=len(prepared_training_data.instances),
                     timings=phase_timings,
                 )
 
@@ -421,15 +396,17 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             selected_device=device,
             final_loss=final_loss,
             loss_history=loss_history,
-            trained_instances=len(train_instances),
-            training_start_instance=training_start_instance,
-            training_end_instance=training_end_instance,
+            trained_instances=len(prepared_training_data.instances),
+            training_start_instance=prepared_training_data.training_start_instance,
+            training_end_instance=prepared_training_data.training_end_instance,
             continued_run=continued_run,
             model_run_directory=self._create_model_run_directory(
                 model_root=cache_root / "models",
                 run_name=training_config.run_name,
             ),
             torch=torch,
+            embedding_cache_device=prepared_training_data.embedding_cache_device,
+            embedding_cache_dtype=prepared_training_data.embedding_cache_dtype,
         )
         logger.info(f"Saved trained GNN answer retriever to {model_artifact_path}")
         model_run_directory = model_artifact_path.parent
@@ -438,9 +415,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         return GnnAnswerRetrieverTrainingOutcome(
             final_loss=final_loss,
             loss_history=loss_history,
-            trained_instances=len(train_instances),
-            training_start_instance=training_start_instance,
-            training_end_instance=training_end_instance,
+            trained_instances=len(prepared_training_data.instances),
+            training_start_instance=prepared_training_data.training_start_instance,
+            training_end_instance=prepared_training_data.training_end_instance,
             model_artifact_path=model_artifact_path,
             model_config_path=model_artifact_path.with_name(self.model_config_filename),
             model_run_directory=model_run_directory,
@@ -448,6 +425,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             model_run_number=model_run_number,
             embedding_cache_directory=cache_root / "embeddings",
             selected_device=device,
+            embedding_cache_device=prepared_training_data.embedding_cache_device,
+            embedding_cache_dtype=prepared_training_data.embedding_cache_dtype,
             dataset_id=effective_retriever.dataset_id,
             entity_embedding_model=effective_retriever.entity_embedding_model,
             question_embedding_model=question_embedding_model,
@@ -475,35 +454,18 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         )
 
     @staticmethod
-    def _select_train_instances(
-        prepared_dataset: PreparedWebQSPGraphDataset,
-        start_instance: int,
-        max_instances: int | None,
-    ) -> tuple[list[WebQSPProcessedInstance], int, int]:
-        if start_instance < 0:
-            raise GnnAnswerRetrieverTrainingException(
-                "training_start_instance must be greater than or equal to 0."
-            )
+    def release_prepared_embeddings(
+        prepared_training_data: PreparedGnnTrainingData,
+    ) -> None:
+        """Release compact embedding matrices after the training step finishes."""
+        import torch
 
-        available_instances = prepared_dataset.train_instances
-        end_instance = (
-            len(available_instances)
-            if max_instances is None
-            else start_instance + max_instances
-        )
-        selected_instances = available_instances[start_instance:end_instance]
-        if not selected_instances:
-            raise GnnAnswerRetrieverTrainingException(
-                f"GNN answer retriever training selected no instances: "
-                f"start={start_instance} end={end_instance} "
-                f"available={len(available_instances)}."
-            )
-
-        return (
-            selected_instances,
-            start_instance,
-            start_instance + len(selected_instances),
-        )
+        used_cuda = prepared_training_data.embedding_cache_device.startswith("cuda")
+        prepared_training_data.node_embeddings = torch.empty(0)
+        prepared_training_data.relation_embeddings = torch.empty(0)
+        prepared_training_data.question_embeddings = torch.empty(0)
+        if used_cuda:
+            torch.cuda.empty_cache()
 
     def _load_continued_run(
         self,
@@ -571,82 +533,18 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
 
         return "cpu"
 
-    def _populate_embedding_caches(
-        self,
-        train_instances: list[WebQSPProcessedInstance],
-        node_cache: TextEmbeddingCache,
-        relation_cache: TextEmbeddingCache,
-        question_cache: TextEmbeddingCache,
-    ) -> None:
-        node_texts: list[str] = []
-        relation_texts: list[str] = []
-        question_texts: list[str] = []
-        for instance in train_instances:
-            node_texts.extend(instance.nodes)
-            relation_texts.extend(instance.edge_relations)
-            question_texts.append(instance.question)
-
-        self.embedding_cache_service.ensure_embeddings(node_cache, node_texts)
-        self.embedding_cache_service.ensure_embeddings(
-            relation_cache,
-            relation_texts,
-            preprocess=True,
-        )
-        self.embedding_cache_service.ensure_embeddings(question_cache, question_texts)
-
-    def _build_entity_feature_tensor(
-        self,
-        instance: WebQSPProcessedInstance,
-        node_cache: TextEmbeddingCache,
-        torch,
+    @staticmethod
+    def _gather_embedding_features(
+        embedding_matrix: Tensor,
+        indices: Tensor,
+        torch: ModuleType,
         device: str,
-    ):
-        return torch.tensor(
-            self.embedding_cache_service.embeddings_for_texts(
-                cache=node_cache,
-                texts=instance.nodes,
-            ),
-            dtype=torch.float,
-            device=device,
-        )
-
-    def _build_question_feature_tensor(
-        self,
-        instance: WebQSPProcessedInstance,
-        question_cache: TextEmbeddingCache,
-        torch,
-        device: str,
-    ):
-        return torch.tensor(
-            self.embedding_cache_service.embeddings_for_texts(
-                cache=question_cache,
-                texts=[instance.question],
-            )[0],
-            dtype=torch.float,
-            device=device,
-        )
-
-    def _build_relation_feature_tensor(
-        self,
-        instance: WebQSPProcessedInstance,
-        relation_cache: TextEmbeddingCache,
-        torch,
-        device: str,
-    ):
-        if not instance.edge_relations:
-            return torch.empty(
-                (0, relation_cache.vector_size),
-                dtype=torch.float,
-                device=device,
-            )
-        return torch.tensor(
-            self.embedding_cache_service.embeddings_for_texts(
-                cache=relation_cache,
-                texts=instance.edge_relations,
-            ),
-            dtype=torch.float,
-            device=device,
-        )
+    ) -> Tensor:
+        """Gather compact frozen embeddings and move the result to training device."""
+        matrix_device = embedding_matrix.device
+        resolved_indices = indices.to(device=matrix_device, non_blocking=True)
+        features = torch.index_select(embedding_matrix, 0, resolved_indices)
+        return features.to(device=device, non_blocking=True)
 
     def _build_edge_weight_tensor(
         self,
@@ -657,7 +555,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         device: str,
     ):
         if relation_features.shape[0] == 0:
-            return torch.empty(0, dtype=torch.float, device=device)
+            return torch.empty(0, dtype=relation_features.dtype, device=device)
         return torch_functional.cosine_similarity(
             question_features.reshape(1, -1),
             relation_features,
@@ -755,6 +653,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         continued_run: LoadedGnnAnswerRetrieverRun | None,
         model_run_directory: Path,
         torch,
+        embedding_cache_device: str = "qdrant",
+        embedding_cache_dtype: str = "float32",
     ) -> Path:
         model_run_directory.mkdir(parents=True, exist_ok=False)
         model_artifact_path = model_run_directory / self.model_weights_filename
@@ -782,6 +682,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         )
         training_payload["edge_mlp_hidden_dim"] = built_retriever.edge_mlp_hidden_dim
         training_payload["dropout"] = built_retriever.dropout
+        training_payload["embedding_cache_device"] = embedding_cache_device
+        training_payload["embedding_cache_dtype"] = embedding_cache_dtype
         is_fine_tuned_model = continued_run is not None
         config_payload = {
             "dataset_id": built_retriever.dataset_id,

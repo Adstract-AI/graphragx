@@ -17,6 +17,9 @@ from helpers.constants import (
     DEFAULT_TRAINING_LEARNING_RATE,
     DEFAULT_TRAINING_LOG_EVERY,
     DEFAULT_TRAINING_PROFILE,
+    DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE,
+    DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE,
+    DEFAULT_TRAINING_GPU_CACHE_RESERVE_GB,
     DEFAULT_TRAINING_WEIGHT_DECAY,
 )
 from helpers.logging_config import get_logger, setup_logger
@@ -28,6 +31,7 @@ from pipeline import (
     LoadDatasetStep,
     Pipeline,
     PipelineExecutionResult,
+    PrepareGnnTrainingDataStep,
     SelectDatasetStep,
     StepContext,
     TrainGnnAnswerRetrieverStep,
@@ -83,6 +87,9 @@ class PipelineRuntimeConfig(BaseModel):
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
     training_device: str = DEFAULT_TRAINING_DEVICE
     training_profile: bool = DEFAULT_TRAINING_PROFILE
+    training_embedding_cache_device: str = DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE
+    training_embedding_cache_dtype: str = DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE
+    training_gpu_cache_reserve_gb: float = DEFAULT_TRAINING_GPU_CACHE_RESERVE_GB
     training_run_name: str | None = None
     continue_training_model_run_name: str | None = None
     continue_training_model_run_number: int | None = None
@@ -183,6 +190,26 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     ]
     training_steps = [
         BuildGnnAnswerRetrieverStep(),
+        PrepareGnnTrainingDataStep(
+            training_max_instances=resolved_config.training_max_instances,
+            training_start_instance=resolved_config.training_start_instance,
+            training_device=resolved_config.training_device,
+            training_embedding_cache_device=(
+                resolved_config.training_embedding_cache_device
+            ),
+            training_embedding_cache_dtype=(
+                resolved_config.training_embedding_cache_dtype
+            ),
+            training_gpu_cache_reserve_gb=(
+                resolved_config.training_gpu_cache_reserve_gb
+            ),
+            continue_training_model_run_name=(
+                resolved_config.continue_training_model_run_name
+            ),
+            continue_training_model_run_number=(
+                resolved_config.continue_training_model_run_number
+            ),
+        ),
         TrainGnnAnswerRetrieverStep(
             training_epochs=resolved_config.training_epochs,
             training_learning_rate=resolved_config.training_learning_rate,
@@ -543,6 +570,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Synchronize and report detailed GNN training phase timings.",
     )
     parser.add_argument(
+        "--training-embedding-cache-device",
+        choices=["auto", "gpu", "cpu"],
+        default=DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE,
+        help="Place compact frozen training embeddings on GPU, CPU, or automatically.",
+    )
+    parser.add_argument(
+        "--training-embedding-cache-dtype",
+        choices=["auto", "float32", "bfloat16"],
+        default=DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE,
+        help="Storage precision for compact frozen training embeddings.",
+    )
+    parser.add_argument(
+        "--training-gpu-cache-reserve-gb",
+        type=float,
+        default=DEFAULT_TRAINING_GPU_CACHE_RESERVE_GB,
+        help="GPU memory reserved for the model, activations, and CUDA overhead.",
+    )
+    parser.add_argument(
         "--training-run-name",
         default=None,
         help="Optional label for the versioned training run folder.",
@@ -692,6 +737,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_log_every=args.training_log_every,
         training_device=args.training_device,
         training_profile=args.training_profile,
+        training_embedding_cache_device=args.training_embedding_cache_device,
+        training_embedding_cache_dtype=args.training_embedding_cache_dtype,
+        training_gpu_cache_reserve_gb=args.training_gpu_cache_reserve_gb,
         training_run_name=args.training_run_name,
         continue_training_model_run_name=args.continue_training_model_run_name,
         continue_training_model_run_number=args.continue_training_model_run_number,
