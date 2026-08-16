@@ -161,6 +161,9 @@ class LogFinalResultsToWandbStep(
                 wandb_config={},
             )
         )
+        payload.update(
+            self.logging_service.build_summary_plot_metrics(scalar_metrics)
+        )
         self.coordinator.log(
             payload,
             source_config_path=source_config_path,

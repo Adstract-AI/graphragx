@@ -427,6 +427,12 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     assert payload["Run_Summary/retrieval_hits_at_1"] == 0.4
     assert payload["Run_Summary/retrieval_hits_at_10"] == 0.9
     assert payload["Run_Summary/retrieval_hits_at_candidate_limit"] == 1.0
+    assert payload["Summary_Plots/retrieval_hits_at_1"] == 0.4
+    assert payload["Summary_Plots/retrieval_hits_at_5"] == 0.8
+    assert payload["Summary_Plots/retrieval_hits_at_10"] == 0.9
+    assert payload["Summary_Plots/retrieval_hits_at_candidate_limit"] == 1.0
+    assert payload["Summary_Plots/retrieval_average_candidate_count"] == 12.0
+    assert payload["Summary_Plots/retrieval_missing_gold_in_graph_count"] == 0
     assert not any(key.startswith("Retriever/") for key in payload)
     config_payload = coordinator.config_updates[0]
     assert config_payload["runs"]["model"] == {"name": "1_model", "number": 1}

@@ -276,6 +276,11 @@ class LogRetrieverToWandbStep(
             scalar_metrics=scalar_metrics,
             wandb_config={},
         )
+        metrics.update(
+            WandbFinalResultsLoggingService.build_summary_plot_metrics(
+                scalar_metrics
+            )
+        )
         self.coordinator.log(metrics)
         self.coordinator.persist_metadata(result.evaluation_config_path)
         artifact_paths = [result.evaluation_config_path, result.predictions_path]
