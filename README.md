@@ -139,7 +139,9 @@ uv run python main.py --evaluation-only --evaluation-model-run-number 12 --defau
 | `--edge-mlp-hidden-dim EDGE_MLP_HIDDEN_DIM` | Hidden dimension for the edge MLP. Defaults to the selected GNN hidden dimension. |
 | `--dropout DROPOUT` | Dropout used by upgraded GNN components. Default: `0.1`. |
 
-Before the epoch loop, training deduplicates embeddings used by the selected instance slice, retrieves them from Qdrant once, and builds compact integer-indexed matrices. GPU-resident matrices remain frozen, are excluded from the optimizer and model checkpoint, and are released when training finishes. If the safe CUDA memory budget is exceeded in `auto` mode, the matrices remain on CPU.
+Before the epoch loop, training deduplicates embeddings used by the selected instance slice and builds compact integer-indexed matrices. Retrieved vectors are also persisted under `data/webqsp/training_embedding_tensors` as append-only local tensor shards. A full local hit bypasses Qdrant; a partial hit retrieves and appends only vectors that have not been persisted yet. For example, training first on 100 instances and then on 300 reuses the vectors from the first run and fills only embeddings introduced by the additional 200 instances. Separate local caches are maintained for each dataset, embedding model, text category, vector dimension, and storage dtype.
+
+The compact matrices are still copied into VRAM at the start of every process because GPU memory is not persistent across runs. GPU-resident matrices remain frozen, are excluded from the optimizer and model checkpoint, and are released when training finishes. If the safe CUDA memory budget is exceeded in `auto` mode, the matrices remain on CPU.
 
 ### GNN Evaluation
 
@@ -189,6 +191,10 @@ Processed WebQSP graph cache and vocabulary artifacts.
 `data/webqsp/models/<run>`
 
 GNN training outputs, including `model_config.json`, model weights, and loss history.
+
+`data/webqsp/training_embedding_tensors`
+
+Incremental append-only tensor shards used to bypass Qdrant for embeddings already loaded by previous training runs.
 
 `data/webqsp/evaluations/<run>`
 

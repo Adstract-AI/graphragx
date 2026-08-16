@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Literal
@@ -30,6 +29,9 @@ from pipeline.preparation.services.embedding_cache import (
 )
 from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
     GnnAnswerRetrieverModelRunService,
+)
+from pipeline.preparation.services.gnn_embedding_tensor_cache import (
+    GnnEmbeddingTensorCacheService,
 )
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
@@ -62,15 +64,18 @@ class GnnTrainingDataPreparationService(AbstractService):
     """Build compact embedding matrices and integer-indexed training graphs."""
 
     bytes_per_gibibyte = 1024**3
-    progress_update_count = 10
-
     def __init__(
         self,
         embedding_cache_service: WebQSPEmbeddingCacheService | None = None,
+        embedding_tensor_cache_service: GnnEmbeddingTensorCacheService | None = None,
         model_run_service: GnnAnswerRetrieverModelRunService | None = None,
     ) -> None:
         self.embedding_cache_service = (
             embedding_cache_service or WebQSPEmbeddingCacheService()
+        )
+        self.embedding_tensor_cache_service = (
+            embedding_tensor_cache_service
+            or GnnEmbeddingTensorCacheService(self.embedding_cache_service)
         )
         self.model_run_service = model_run_service or GnnAnswerRetrieverModelRunService()
 
@@ -129,26 +134,22 @@ class GnnTrainingDataPreparationService(AbstractService):
             model_id=entity_embedding_model,
             vocabulary={text: index for index, text in enumerate(node_texts)},
             dataset_id=prepared_dataset.dataset_id,
+            ensure_collection=False,
         )
         relation_cache = self.embedding_cache_service.load_relation_cache(
             cache_root=cache_root,
             model_id=relation_embedding_model,
             vocabulary={text: index for index, text in enumerate(relation_texts)},
             dataset_id=prepared_dataset.dataset_id,
+            ensure_collection=False,
         )
         question_cache = self.embedding_cache_service.load_question_cache(
             cache_root=cache_root,
             model_id=question_embedding_model,
             vocabulary={text: index for index, text in enumerate(question_texts)},
             dataset_id=prepared_dataset.dataset_id,
+            ensure_collection=False,
         )
-        self.embedding_cache_service.ensure_embeddings(node_cache, node_texts)
-        self.embedding_cache_service.ensure_embeddings(
-            relation_cache,
-            relation_texts,
-            preprocess=True,
-        )
-        self.embedding_cache_service.ensure_embeddings(question_cache, question_texts)
 
         embedding_dtype = self._resolve_embedding_dtype(
             torch=torch,
@@ -191,7 +192,9 @@ class GnnTrainingDataPreparationService(AbstractService):
                 caches=(node_cache, relation_cache, question_cache),
                 text_groups=(node_texts, relation_texts, question_texts),
                 dtype=torch_dtype,
+                dtype_name=embedding_dtype,
                 device=embedding_device,
+                cache_root=cache_root,
             )
         except torch.OutOfMemoryError as error:
             if not embedding_device.startswith("cuda"):
@@ -216,7 +219,9 @@ class GnnTrainingDataPreparationService(AbstractService):
                 caches=(node_cache, relation_cache, question_cache),
                 text_groups=(node_texts, relation_texts, question_texts),
                 dtype=torch_dtype,
+                dtype_name=embedding_dtype,
                 device=embedding_device,
+                cache_root=cache_root,
             )
             cuda_allocation_failed = True
         if cuda_allocation_failed:
@@ -443,69 +448,47 @@ class GnnTrainingDataPreparationService(AbstractService):
     def _load_embedding_matrix(
         self,
         torch: ModuleType,
+        cache_root: Path,
         cache: TextEmbeddingCache,
         texts: list[str],
         dtype: TorchDtype,
+        dtype_name: str,
         device: str,
+        preprocess: bool,
     ) -> Tensor:
-        """Retrieve embeddings in bounded chunks directly into one dense matrix."""
-        matrix = torch.empty(
-            (len(texts), cache.vector_size),
+        """Load one compact matrix through the incremental local tensor cache."""
+        return self.embedding_tensor_cache_service.load_matrix(
+            torch=torch,
+            cache_root=cache_root,
+            cache=cache,
+            texts=texts,
             dtype=dtype,
+            dtype_name=dtype_name,
             device=device,
+            preprocess=preprocess,
         )
-        total_batches = max(
-            1,
-            (len(texts) + self.embedding_cache_service.batch_size - 1)
-            // self.embedding_cache_service.batch_size,
-        )
-        log_every = max(1, total_batches // self.progress_update_count)
-        load_started_at = time.perf_counter()
-        for batch_index, start_index in enumerate(
-            range(0, len(texts), self.embedding_cache_service.batch_size),
-            start=1,
-        ):
-            end_index = min(
-                start_index + self.embedding_cache_service.batch_size,
-                len(texts),
-            )
-            vectors = self.embedding_cache_service.embeddings_for_texts(
-                cache=cache,
-                texts=texts[start_index:end_index],
-            )
-            source = torch.tensor(vectors, dtype=torch.float32)
-            matrix[start_index:end_index].copy_(
-                source.to(device=device, dtype=dtype)
-            )
-            if batch_index % log_every == 0 or batch_index == total_batches:
-                logger.info(
-                    f"Loaded compact {cache.cache_kind} embeddings: "
-                    f"batch={batch_index}/{total_batches} "
-                    f"vectors={end_index}/{len(texts)}"
-                )
-        logger.info(
-            f"Finished compact {cache.cache_kind} embedding matrix: "
-            f"vectors={len(texts)} elapsed_seconds="
-            f"{time.perf_counter() - load_started_at:.2f}"
-        )
-        return matrix
 
     def _load_embedding_matrices(
         self,
         torch: ModuleType,
+        cache_root: Path,
         caches: tuple[TextEmbeddingCache, TextEmbeddingCache, TextEmbeddingCache],
         text_groups: tuple[list[str], list[str], list[str]],
         dtype: TorchDtype,
+        dtype_name: str,
         device: str,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Load node, relation, and question matrices on one storage device."""
         return tuple(
             self._load_embedding_matrix(
                 torch=torch,
+                cache_root=cache_root,
                 cache=cache,
                 texts=texts,
                 dtype=dtype,
+                dtype_name=dtype_name,
                 device=device,
+                preprocess=cache.cache_kind == "relations",
             )
             for cache, texts in zip(caches, text_groups, strict=True)
         )
