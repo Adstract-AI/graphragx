@@ -27,6 +27,12 @@ from pipeline.preparation.steps.gnn_answer_retriever_training import (
 )
 
 
+class FakeConfig(dict):
+    def update(self, payload=None, *, allow_val_change=False, **kwargs) -> None:
+        super().update(payload or {})
+        super().update(kwargs)
+
+
 class FakeRun:
     def __init__(self) -> None:
         self.id = "wandb-run-id"
@@ -35,6 +41,7 @@ class FakeRun:
         self.artifacts = []
         self.finished = False
         self.defined_metrics: list[tuple[str, dict]] = []
+        self.config = FakeConfig()
 
     def define_metric(self, name, **kwargs) -> None:
         self.defined_metrics.append((name, kwargs))
@@ -74,6 +81,7 @@ class FakeWandb:
 class CapturingCoordinator:
     def __init__(self) -> None:
         self.logged: list[dict] = []
+        self.config_updates: list[dict] = []
         self.has_active_run = True
         self.metadata = type(
             "Metadata",
@@ -91,6 +99,9 @@ class CapturingCoordinator:
 
     def log(self, payload, **kwargs) -> None:
         self.logged.append(payload)
+
+    def update_config(self, payload, **kwargs) -> None:
+        self.config_updates.append(payload)
 
     def persist_metadata(self, path) -> None:
         return None
@@ -116,7 +127,11 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
         coordinator.log_training_progress(
             {"epoch": 1, "instance": 3, "global_step": 3, "loss": 0.4}
         )
-        coordinator.log({"Retriever/hits_at_1": 0.8})
+        coordinator.update_config({"configs": {"model": {"epochs": 2}}})
+        coordinator.update_config(
+            {"configs": {"evaluation": {"candidate_limit": 10}}}
+        )
+        coordinator.log({"Run_Summary/retrieval_hits_at_1": 0.8})
         coordinator.persist_metadata(config_path)
         coordinator.finish()
 
@@ -124,6 +139,10 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
     assert fake_wandb.init_calls[0]["name"].startswith("1_")
     assert fake_wandb.init_calls[0]["name"] != "gnn-training"
     assert fake_wandb.run.logged[0][0]["Training/global_step"] == 3
+    assert fake_wandb.run.config["configs"] == {
+        "model": {"epochs": 2},
+        "evaluation": {"candidate_limit": 10},
+    }
     assert ("Training/global_step", {}) in fake_wandb.run.defined_metrics
     assert (
         "Training/loss",
@@ -143,6 +162,9 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
 
 def test_coordinator_resumes_persisted_run(tmp_path) -> None:
     fake_wandb = FakeWandb()
+    fake_wandb.run.config.update(
+        {"configs": {"model": {"training": {"epochs": 3}}}}
+    )
     config_path = tmp_path / "evaluation_config.json"
     config_path.write_text(
         json.dumps(
@@ -165,9 +187,16 @@ def test_coordinator_resumes_persisted_run(tmp_path) -> None:
         return_value=fake_wandb,
     ):
         coordinator.ensure_run(source_config_path=config_path)
+        coordinator.update_config(
+            {"configs": {"evaluation": {"candidate_limit": 20}}}
+        )
 
     assert fake_wandb.init_calls[0]["id"] == "existing-id"
     assert fake_wandb.init_calls[0]["resume"] == "allow"
+    assert fake_wandb.run.config["configs"] == {
+        "model": {"training": {"epochs": 3}},
+        "evaluation": {"candidate_limit": 20},
+    }
 
 
 def test_coordinator_rejects_conflicting_persisted_project(tmp_path) -> None:
@@ -202,7 +231,7 @@ def test_operational_initialization_failure_is_non_fatal(tmp_path) -> None:
         "pipeline.evaluation.services.wandb_experiment.importlib.import_module",
         side_effect=RuntimeError("offline"),
     ):
-        coordinator.log({"Retriever/hits_at_1": 0.5})
+        coordinator.log({"Run_Summary/retrieval_hits_at_1": 0.5})
 
     assert coordinator.metadata.status == "failed"
     assert coordinator.metadata.error_message == "offline"
@@ -227,8 +256,14 @@ def test_multiple_inference_runs_are_namespaced_on_one_wandb_run(tmp_path) -> No
             config_path.write_text(
                 json.dumps(
                     {
+                        "dataset_id": "WebQSP",
+                        "run_name": run_name,
+                        "run_number": run_number,
                         "evaluation_config": {},
-                        "inference": {"total_tokens": run_number * 10},
+                        "inference": {
+                            "model_id": "gpt-test",
+                            "total_tokens": run_number * 10,
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -264,6 +299,13 @@ def test_multiple_inference_runs_are_namespaced_on_one_wandb_run(tmp_path) -> No
     }
     assert "Inference/first/total_tokens" in logged_keys
     assert "Inference/second/total_tokens" in logged_keys
+    assert fake_wandb.run.config["dataset_id"] == "WebQSP"
+    assert fake_wandb.run.config["model_id"] == "gpt-test"
+    assert fake_wandb.run.config["runs"]["inference"] == {
+        "name": "second",
+        "number": 2,
+    }
+    assert fake_wandb.run.config["configs"]["inference"]["total_tokens"] == 20
 
 
 def test_run_identifier_service_uses_one_global_counter(tmp_path) -> None:
@@ -283,7 +325,19 @@ def test_training_epoch_average_uses_legacy_metric_name(tmp_path) -> None:
     coordinator = CapturingCoordinator()
     config_path = tmp_path / "model_config.json"
     weights_path = tmp_path / "gnn_answer_retriever.pt"
-    config_path.write_text("{}", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset_id": "WebQSP",
+                "run_name": "1_model",
+                "run_number": 1,
+                "gnn_layer_count": 2,
+                "hidden_dimension": 256,
+                "training": {"epochs": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
     weights_path.write_bytes(b"")
     result = TrainedGnnAnswerRetriever.model_construct(
         loss_history=[{"epoch": 1, "average_loss": 0.75}],
@@ -299,6 +353,11 @@ def test_training_epoch_average_uses_legacy_metric_name(tmp_path) -> None:
     assert coordinator.logged == [
         {"Training/gnn_training_loss": 0.75, "Training/epoch": 1}
     ]
+    assert coordinator.config_updates[0]["dataset_id"] == "WebQSP"
+    assert coordinator.config_updates[0]["gnn_id"] == "2-256-gnn"
+    assert coordinator.config_updates[0]["configs"]["model"]["training"] == {
+        "epochs": 1
+    }
 
 
 def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
@@ -307,11 +366,32 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     evaluation_dir = tmp_path / "evaluation"
     model_dir.mkdir()
     evaluation_dir.mkdir()
-    (model_dir / "model_config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "model_config.json").write_text(
+        json.dumps(
+            {
+                "dataset_id": "WebQSP",
+                "run_name": "1_model",
+                "run_number": 1,
+                "gnn_layer_count": 2,
+                "hidden_dimension": 256,
+            }
+        ),
+        encoding="utf-8",
+    )
     evaluation_config_path = evaluation_dir / "evaluation_config.json"
     predictions_path = evaluation_dir / "predictions.jsonl"
     retrieval_metrics_path = evaluation_dir / "retrieval_metrics.json"
-    evaluation_config_path.write_text("{}", encoding="utf-8")
+    evaluation_config_path.write_text(
+        json.dumps(
+            {
+                "dataset_id": "WebQSP",
+                "run_name": "1_evaluation",
+                "run_number": 1,
+                "evaluation": {"candidate_limit": 10},
+            }
+        ),
+        encoding="utf-8",
+    )
     predictions_path.write_text("", encoding="utf-8")
     retrieval_metrics_path.write_text("{}", encoding="utf-8")
     result = GnnAnswerRetrieverEvaluationResult(
@@ -347,3 +427,11 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     assert payload["Run_Summary/retrieval_hits_at_1"] == 0.4
     assert payload["Run_Summary/retrieval_hits_at_10"] == 0.9
     assert payload["Run_Summary/retrieval_hits_at_candidate_limit"] == 1.0
+    assert not any(key.startswith("Retriever/") for key in payload)
+    config_payload = coordinator.config_updates[0]
+    assert config_payload["runs"]["model"] == {"name": "1_model", "number": 1}
+    assert config_payload["runs"]["evaluation"] == {
+        "name": "1_evaluation",
+        "number": 1,
+    }
+    assert config_payload["configs"]["evaluation"] == {"candidate_limit": 10}

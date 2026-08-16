@@ -135,6 +135,13 @@ class LogFinalResultsToWandbStep(
             retrieval_metrics=retrieval_metrics,
             reasoning_metrics=reasoning_metrics,
         )
+        self.coordinator.update_config(
+            self.logging_service.build_wandb_config(
+                final_result=final_result,
+                results_config=results_config,
+            ),
+            source_config_path=source_config_path,
+        )
         payload = {
             f"{prefix}/evaluated_instances": final_result.evaluated_instances,
             f"{prefix}/accuracy": final_result.accuracy,

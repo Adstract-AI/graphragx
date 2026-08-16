@@ -483,6 +483,7 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
     class CapturingCoordinator:
         def __init__(self) -> None:
             self.logged: list[dict] = []
+            self.config_updates: list[dict] = []
             self.metadata = SimpleNamespace(
                 status="logged",
                 run_id="run-1",
@@ -492,6 +493,9 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
 
         def log(self, payload, **kwargs) -> None:
             self.logged.append(payload)
+
+        def update_config(self, payload, **kwargs) -> None:
+            self.config_updates.append(payload)
 
         def persist_metadata(self, path) -> None:
             return None
@@ -513,4 +517,12 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
     assert payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
     assert payload["Run_Summary/grounded_explanation_rate"] == 0.5
     assert payload["Inference/1_inference/f1"] == 2 / 3
+    config_payload = coordinator.config_updates[0]
+    assert set(config_payload["configs"]) == {"model", "evaluation", "inference"}
+    assert set(config_payload["runs"]) == {
+        "model",
+        "evaluation",
+        "inference",
+        "results",
+    }
     assert result.wandb_status == "logged"

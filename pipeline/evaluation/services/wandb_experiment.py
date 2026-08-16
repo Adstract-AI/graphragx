@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import re
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -86,6 +87,7 @@ class WandbExperimentCoordinator:
         self._run: Any | None = None
         self._metadata = WandbTrackingMetadata(status="skipped")
         self._metadata_paths: set[Path] = set()
+        self._config_payload: dict[str, Any] = {}
 
     @property
     def metadata(self) -> WandbTrackingMetadata:
@@ -133,6 +135,24 @@ class WandbExperimentCoordinator:
             if lineage is not None and lineage.run_id:
                 init_kwargs.update({"id": lineage.run_id, "resume": "allow"})
             self._run = self._wandb.init(**init_kwargs)
+            run_config = getattr(self._run, "config", None)
+            if isinstance(run_config, Mapping) or hasattr(run_config, "get"):
+                existing_config: dict[str, Any] = {}
+                for key in [
+                    "dataset_id",
+                    "model_id",
+                    "gnn_id",
+                    "runs",
+                    "configs",
+                    "source_paths",
+                ]:
+                    try:
+                        value = run_config.get(key)
+                    except (AttributeError, KeyError, TypeError):
+                        continue
+                    if value is not None:
+                        existing_config[key] = value
+                self._config_payload = existing_config
             if hasattr(self._run, "define_metric"):
                 self._run.define_metric("Training/global_step")
                 self._run.define_metric(
@@ -164,6 +184,28 @@ class WandbExperimentCoordinator:
                 error_message=str(error),
             )
         return self.metadata
+
+    def update_config(
+        self,
+        payload: dict[str, Any],
+        *,
+        source_config_path: Path | None = None,
+    ) -> None:
+        """Merge available stage configuration into the shared W&B run config."""
+        self.ensure_run(source_config_path=source_config_path)
+        if self._run is None:
+            return
+        self._config_payload = self._deep_merge(self._config_payload, payload)
+        run_config = getattr(self._run, "config", None)
+        if run_config is None or not hasattr(run_config, "update"):
+            return
+        try:
+            try:
+                run_config.update(self._config_payload, allow_val_change=True)
+            except TypeError:
+                run_config.update(self._config_payload)
+        except Exception as error:
+            self._record_failure("WandB config update failed", error)
 
     def log(
         self,
@@ -279,3 +321,19 @@ class WandbExperimentCoordinator:
         self._metadata = self._metadata.model_copy(
             update={"status": "failed", "error_message": str(error)}
         )
+
+    @classmethod
+    def _deep_merge(
+        cls,
+        existing: dict[str, Any],
+        incoming: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Recursively merge stage config without dropping upstream sections."""
+        merged = dict(existing)
+        for key, value in incoming.items():
+            current = merged.get(key)
+            if isinstance(current, dict) and isinstance(value, dict):
+                merged[key] = cls._deep_merge(current, value)
+            else:
+                merged[key] = value
+        return merged

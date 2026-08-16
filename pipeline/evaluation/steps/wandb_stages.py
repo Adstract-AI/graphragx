@@ -15,6 +15,7 @@ from pipeline.evaluation.models import (
     SavedLlmInferenceRun,
 )
 from helpers.path_serialization import project_absolute_path
+from helpers.path_serialization import make_project_paths_relative
 from pipeline.evaluation.services.wandb_experiment import WandbExperimentCoordinator
 from pipeline.evaluation.services.wandb_final_results import (
     WandbFinalResultsLoggingService,
@@ -25,6 +26,136 @@ from pipeline.preparation.steps.gnn_answer_retriever_training import (
 
 logger = get_logger(__name__)
 LEGACY_GNN_CONFIG_FILENAME = "gnn_answer_retriever_config.json"
+
+
+def _load_config(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    payload.pop("wandb", None)
+    return payload
+
+
+def _run_reference(config: dict[str, Any]) -> dict[str, Any]:
+    reference: dict[str, Any] = {}
+    if config.get("run_name") is not None:
+        reference["name"] = config["run_name"]
+    if config.get("run_number") is not None:
+        reference["number"] = config["run_number"]
+    return reference
+
+
+def _build_available_wandb_config(
+    *,
+    model_config_path: Path | None = None,
+    model_weights_path: Path | None = None,
+    evaluation_config_path: Path | None = None,
+    predictions_path: Path | None = None,
+    retrieval_metrics_path: Path | None = None,
+    inference_config_path: Path | None = None,
+    answers_path: Path | None = None,
+    reasoning_path: Path | None = None,
+) -> dict[str, Any]:
+    """Build the legacy Config-tab shape from all currently available stages."""
+    inference_config = _load_config(inference_config_path)
+    inference_evaluation_ref = inference_config.get("evaluation_config", {})
+    if evaluation_config_path is None and isinstance(inference_evaluation_ref, dict):
+        value = inference_evaluation_ref.get("full_config_path")
+        if isinstance(value, str):
+            evaluation_config_path = project_absolute_path(value)
+        predictions_value = inference_evaluation_ref.get("predictions_path")
+        if predictions_path is None and isinstance(predictions_value, str):
+            predictions_path = project_absolute_path(predictions_value)
+
+    evaluation_config = _load_config(evaluation_config_path)
+    evaluation_model_ref = evaluation_config.get("model_config", {})
+    if isinstance(evaluation_model_ref, dict):
+        if model_config_path is None:
+            value = evaluation_model_ref.get("full_config_path")
+            if isinstance(value, str):
+                model_config_path = project_absolute_path(value)
+        if model_weights_path is None:
+            value = evaluation_model_ref.get("weights_path")
+            if isinstance(value, str):
+                model_weights_path = project_absolute_path(value)
+    evaluation_artifacts = evaluation_config.get("artifacts", {})
+    if isinstance(evaluation_artifacts, dict):
+        if predictions_path is None:
+            value = evaluation_artifacts.get("predictions_path")
+            if isinstance(value, str):
+                predictions_path = project_absolute_path(value)
+        if retrieval_metrics_path is None:
+            value = evaluation_artifacts.get("retrieval_metrics_path")
+            if isinstance(value, str):
+                retrieval_metrics_path = project_absolute_path(value)
+
+    model_config = _load_config(model_config_path)
+    runs: dict[str, Any] = {}
+    configs: dict[str, Any] = {}
+    source_paths: dict[str, Any] = {}
+    payload: dict[str, Any] = {}
+
+    dataset_id = (
+        inference_config.get("dataset_id")
+        or evaluation_config.get("dataset_id")
+        or model_config.get("dataset_id")
+    )
+    if dataset_id is not None:
+        payload["dataset_id"] = dataset_id
+
+    if model_config:
+        runs["model"] = _run_reference(model_config)
+        configs["model"] = model_config
+        layers = model_config.get("gnn_layer_count")
+        hidden = model_config.get("hidden_dimension")
+        if layers is not None and hidden is not None:
+            payload["gnn_id"] = f"{layers}-{hidden}-gnn"
+    if model_config_path is not None:
+        source_paths["model_config_path"] = model_config_path
+        source_paths["training_model_config_path"] = model_config_path
+    if model_weights_path is not None:
+        source_paths["training_weights_path"] = model_weights_path
+
+    if evaluation_config:
+        runs["evaluation"] = _run_reference(evaluation_config)
+        evaluation_payload = evaluation_config.get("evaluation")
+        if isinstance(evaluation_payload, dict):
+            configs["evaluation"] = evaluation_payload
+    if evaluation_config_path is not None:
+        source_paths["evaluation_config_path"] = evaluation_config_path
+        source_paths["evaluation_evaluation_config_path"] = evaluation_config_path
+    if predictions_path is not None:
+        source_paths["evaluation_predictions_path"] = predictions_path
+    if retrieval_metrics_path is not None:
+        source_paths["retrieval_metrics_path"] = retrieval_metrics_path
+
+    if inference_config:
+        runs["inference"] = _run_reference(inference_config)
+        inference_payload = inference_config.get("inference")
+        if isinstance(inference_payload, dict):
+            configs["inference"] = inference_payload
+            if inference_payload.get("model_id") is not None:
+                payload["model_id"] = inference_payload["model_id"]
+    if inference_config_path is not None:
+        source_paths["inference_config_path"] = inference_config_path
+        source_paths["inference_inference_config_path"] = inference_config_path
+    if answers_path is not None:
+        source_paths["inference_answers_path"] = answers_path
+    if reasoning_path is not None:
+        source_paths["inference_reasoning_path"] = reasoning_path
+
+    if runs:
+        payload["runs"] = runs
+    if configs:
+        payload["configs"] = configs
+    if source_paths:
+        payload["source_paths"] = source_paths
+    return make_project_paths_relative(payload)
 
 
 class LogTrainingToWandbStep(
@@ -48,6 +179,12 @@ class LogTrainingToWandbStep(
         if result is None:
             raise PipelineException("Training W&B logging requires a training result.")
         self.coordinator.ensure_run()
+        self.coordinator.update_config(
+            _build_available_wandb_config(
+                model_config_path=result.model_config_path,
+                model_weights_path=result.model_artifact_path,
+            )
+        )
         for point in result.loss_history:
             epoch = int(point["epoch"])
             self.coordinator.log(
@@ -114,15 +251,14 @@ class LogRetrieverToWandbStep(
         )
         if not had_active_run and result.wandb_run_id is None:
             self._backfill_training(model_config_path)
-        metrics = {
-            "Retriever/evaluated_instances": result.evaluated_instances,
-            "Retriever/hits_at_1": result.hits_at_1,
-            "Retriever/hits_at_5": result.hits_at_5,
-            "Retriever/hits_at_10": result.hits_at_10,
-            "Retriever/hits_at_candidate_limit": result.hits_at_candidate_limit,
-            "Retriever/average_candidate_count": result.average_candidate_count,
-            "Retriever/missing_gold_in_graph_count": result.missing_gold_in_graph_count,
-        }
+        self.coordinator.update_config(
+            _build_available_wandb_config(
+                model_config_path=model_config_path,
+                evaluation_config_path=result.evaluation_config_path,
+                predictions_path=result.predictions_path,
+                retrieval_metrics_path=result.retrieval_metrics_path,
+            )
+        )
         scalar_metrics = WandbFinalResultsLoggingService.build_scalar_metrics(
             retrieval_metrics={
                 "hits_at_1": result.hits_at_1,
@@ -136,11 +272,9 @@ class LogRetrieverToWandbStep(
             },
             reasoning_metrics={},
         )
-        metrics.update(
-            WandbFinalResultsLoggingService.build_run_summary_plot_metrics(
-                scalar_metrics=scalar_metrics,
-                wandb_config={},
-            )
+        metrics = WandbFinalResultsLoggingService.build_run_summary_plot_metrics(
+            scalar_metrics=scalar_metrics,
+            wandb_config={},
         )
         self.coordinator.log(metrics)
         self.coordinator.persist_metadata(result.evaluation_config_path)
@@ -239,6 +373,15 @@ class LogInferenceToWandbStep(
             else None
         )
         inference = config.get("inference", {})
+        self.coordinator.update_config(
+            _build_available_wandb_config(
+                evaluation_config_path=source_config_path,
+                inference_config_path=result.inference_config_path,
+                answers_path=result.answers_path,
+                reasoning_path=result.reasoning_path,
+            ),
+            source_config_path=source_config_path,
+        )
         prefix = f"Inference/{result.inference_run_name}"
         payload: dict[str, float | int | str] = {
             f"{prefix}/total_instances": result.total_instances,

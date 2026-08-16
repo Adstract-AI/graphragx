@@ -447,7 +447,9 @@ class WandbFinalResultsLoggingService(AbstractService):
         if isinstance(model_config_path_value, str):
             model_config_path = project_absolute_path(model_config_path_value)
             if model_config_path.exists():
-                return self._load_json_object(model_config_path)
+                return self._without_wandb_tracking(
+                    self._load_json_object(model_config_path)
+                )
 
         model_run_directory = results_config.get("model_run_directory")
         if isinstance(model_run_directory, str):
@@ -458,13 +460,22 @@ class WandbFinalResultsLoggingService(AbstractService):
             ]:
                 model_config_path = project_absolute_path(model_run_directory) / filename
                 if model_config_path.exists():
-                    return self._load_json_object(model_config_path)
+                    return self._without_wandb_tracking(
+                        self._load_json_object(model_config_path)
+                    )
 
         model_configuration = evaluation_config.get("model_configuration")
         if isinstance(model_configuration, dict):
-            return model_configuration
+            return self._without_wandb_tracking(model_configuration)
 
         return {}
+
+    @staticmethod
+    def _without_wandb_tracking(config: dict[str, Any]) -> dict[str, Any]:
+        """Keep persisted lineage metadata out of the user-facing Config tab."""
+        cleaned = dict(config)
+        cleaned.pop("wandb", None)
+        return cleaned
 
     @classmethod
     def _build_source_paths(cls, results_config: dict[str, Any]) -> dict[str, str]:
