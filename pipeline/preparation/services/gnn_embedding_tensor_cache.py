@@ -212,9 +212,22 @@ class GnnEmbeddingTensorCacheService(AbstractService):
     ) -> None:
         """Retrieve missing vectors in bounded batches and append tensor shards."""
         batch_size = self.embedding_cache_service.batch_size
-        for start_index in range(0, len(missing_point_ids), batch_size):
+        total_batches = (len(missing_point_ids) + batch_size - 1) // batch_size
+        for batch_index, start_index in enumerate(
+            range(0, len(missing_point_ids), batch_size),
+            start=1,
+        ):
             batch_point_ids = missing_point_ids[start_index : start_index + batch_size]
             batch_texts = [text_by_point_id[point_id] for point_id in batch_point_ids]
+            end_index = min(
+                start_index + len(batch_texts),
+                len(missing_point_ids),
+            )
+            logger.info(
+                f"Fetching Qdrant {cache.cache_kind}/{cache.model_id} batch "
+                f"{batch_index}/{total_batches}: vectors={len(batch_texts)} "
+                f"range={start_index + 1}-{end_index}/{len(missing_point_ids)}"
+            )
             vectors = self.embedding_cache_service.embeddings_for_texts(
                 cache=cache,
                 texts=batch_texts,
@@ -254,6 +267,12 @@ class GnnEmbeddingTensorCacheService(AbstractService):
                 vectors=expanded_shard,
                 destination_rows=destination_rows,
                 device=device,
+            )
+            logger.info(
+                f"Cached Qdrant {cache.cache_kind}/{cache.model_id} batch "
+                f"{batch_index}/{total_batches}: "
+                f"progress={end_index}/{len(missing_point_ids)} "
+                f"shard={shard_filename}"
             )
 
     @staticmethod

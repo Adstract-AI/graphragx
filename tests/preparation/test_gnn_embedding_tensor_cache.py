@@ -77,15 +77,19 @@ class GnnEmbeddingTensorCacheServiceTests(unittest.TestCase):
         remote_cache = FakeRemoteEmbeddingCacheService()
         service = GnnEmbeddingTensorCacheService(remote_cache)
 
-        first_matrix = service.load_matrix(
-            torch=torch,
-            cache_root=self.cache_root,
-            cache=self.cache,
-            texts=["A", "B"],
-            dtype=torch.float32,
-            dtype_name="float32",
-            device="cpu",
-        )
+        with self.assertLogs(
+            "pipeline.preparation.services.gnn_embedding_tensor_cache",
+            level="INFO",
+        ) as captured_logs:
+            first_matrix = service.load_matrix(
+                torch=torch,
+                cache_root=self.cache_root,
+                cache=self.cache,
+                texts=["A", "B"],
+                dtype=torch.float32,
+                dtype_name="float32",
+                device="cpu",
+            )
         second_matrix = service.load_matrix(
             torch=torch,
             cache_root=self.cache_root,
@@ -118,6 +122,12 @@ class GnnEmbeddingTensorCacheServiceTests(unittest.TestCase):
         self.assertEqual(remote_cache.available_checks, 2)
         self.assertEqual(remote_cache.ensure_requests, [["A", "B"], ["C", "D"]])
         self.assertEqual(remote_cache.retrieval_requests, [["A", "B"], ["C", "D"]])
+        self.assertTrue(
+            any(
+                "Fetching Qdrant nodes/test-model batch 1/1" in message
+                for message in captured_logs.output
+            )
+        )
 
         cache_directory = service._cache_directory(
             cache_root=self.cache_root,
