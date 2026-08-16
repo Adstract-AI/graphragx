@@ -14,6 +14,9 @@ class FinalResultsConfig(BaseModel):
     """Source artifact paths and run metadata for one final results run."""
 
     dataset_id: str = Field(..., description="Evaluated dataset identifier.")
+    model_run_name: str | None = Field(default=None)
+    evaluation_run_name: str | None = Field(default=None)
+    inference_run_name: str | None = Field(default=None)
     model_id: str = Field(..., description="LLM model used for answer generation.")
     gnn_id: str = Field(..., description="Compact GNN architecture id.")
     run_name: str | None = Field(default=None, description="Created results run name.")
@@ -179,6 +182,9 @@ class FinalResultsEvaluationResult(StepResult):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     dataset_id: str = Field(..., description="Evaluated dataset identifier.")
+    model_run_name: str | None = Field(default=None)
+    evaluation_run_name: str | None = Field(default=None)
+    inference_run_name: str | None = Field(default=None)
     results_run_directory: Path = Field(..., description="Created results directory.")
     results_run_name: str = Field(..., description="Created results run folder name.")
     results_run_number: int = Field(..., description="Created results run number.")

@@ -16,6 +16,9 @@ from pipeline.evaluation.models import (
     GoldAnswerScore,
     PreparedGnnEvaluationData,
 )
+from pipeline.evaluation.services.gnn_retriever_results import (
+    GnnRetrieverResultsService,
+)
 from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
 from pipeline.preparation.models.webqsp_local_graph import (
     PreparedWebQSPGraphDataset,
@@ -102,6 +105,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         embedding_cache_service: WebQSPEmbeddingCacheService | None = None,
         data_preparation_service: GnnEvaluationDataPreparationService | None = None,
         storage_service: GnnAnswerRetrieverEvaluationStorageService | None = None,
+        results_service: GnnRetrieverResultsService | None = None,
     ):
         self.model_run_service = model_run_service or GnnAnswerRetrieverModelRunService()
         self.embedding_cache_service = (
@@ -114,6 +118,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         self.storage_service = (
             storage_service or GnnAnswerRetrieverEvaluationStorageService()
         )
+        self.results_service = results_service or GnnRetrieverResultsService()
 
     def evaluate(
         self,
@@ -353,6 +358,13 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     prepared_evaluation_data=prepared_evaluation_data,
                 ),
                 predictions=predictions,
+                metrics=self.results_service.build_metrics(
+                    dataset_id=prepared_dataset.dataset_id,
+                    model_run_name=loaded_model_run.run_name,
+                    model_run_number=loaded_model_run.run_number,
+                    predictions=predictions,
+                    candidate_limit=evaluation_config.candidate_limit,
+                ),
             ),
         )
         _, elapsed_seconds = self._finish_profiled_phase(

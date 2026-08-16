@@ -143,6 +143,28 @@ class EvaluatedAnswerRetrievalInstance(BaseModel):
     )
 
 
+class GnnAnswerRetrieverMetrics(BaseModel):
+    """Aggregate metrics for one persisted answer-retriever evaluation."""
+
+    dataset_id: str
+    model_run_name: str
+    model_run_number: int
+    evaluation_run_name: str | None = None
+    evaluation_run_number: int | None = None
+    evaluated_instances: int
+    hits_at_1: float
+    hits_at_1_count: int
+    hits_at_5: float
+    hits_at_5_count: int
+    hits_at_10: float
+    hits_at_10_count: int
+    hits_at_candidate_limit: float
+    hits_at_candidate_limit_count: int
+    candidate_limit: int
+    average_candidate_count: float
+    missing_gold_in_graph_count: int
+
+
 class GnnAnswerRetrieverEvaluationResult(StepResult):
     """Saved evaluation result for a GNN answer-retriever run."""
 
@@ -183,3 +205,11 @@ class GnnAnswerRetrieverEvaluationResult(StepResult):
     )
     predictions_path: Path = Field(..., description="Saved JSONL predictions path.")
     evaluation_config_path: Path = Field(..., description="Saved evaluation config path.")
+    retrieval_metrics_path: Path | None = Field(
+        default=None,
+        description="Saved aggregate retrieval metrics path when available.",
+    )
+    wandb_status: str | None = None
+    wandb_run_id: str | None = None
+    wandb_run_url: str | None = None
+    wandb_error_message: str | None = None

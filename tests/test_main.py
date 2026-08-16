@@ -17,6 +17,10 @@ from pipeline import (
     GenerateAndSaveFinalAnswersBatchesStep,
     GnnAnswerRetrieverEvaluationResult,
     LogFinalResultsToWandbStep,
+    LogRetrieverToWandbStep,
+    LogTrainingToWandbStep,
+    LogInferenceToWandbStep,
+    LoadGnnAnswerRetrieverRunStep,
     LoadDatasetStep,
     PrepareGnnTrainingDataStep,
     PreparedGnnTrainingData,
@@ -27,6 +31,10 @@ from pipeline import (
 )
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.services import AbstractDatasetLoaderService
+from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
+    SavedGnnAnswerRetrieverConfig,
+    SavedGnnAnswerRetrieverTrainingConfig,
+)
 
 
 class FakeSplit:
@@ -522,21 +530,24 @@ class MainEntrypointTests(unittest.TestCase):
         )
 
         self.assertIsInstance(pipeline.evaluation_steps[0], EvaluateGnnAnswerRetrieverStep)
+        self.assertIsInstance(pipeline.evaluation_steps[1], LogRetrieverToWandbStep)
         self.assertIsInstance(
-            pipeline.evaluation_steps[1],
+            pipeline.evaluation_steps[2],
             BuildReasoningSamplesFromGnnEvaluationStep,
         )
-        self.assertIsInstance(pipeline.evaluation_steps[2], ExtractShortestPathsBatchStep)
+        self.assertIsInstance(pipeline.evaluation_steps[3], ExtractShortestPathsBatchStep)
         self.assertIsInstance(
-            pipeline.evaluation_steps[3],
+            pipeline.evaluation_steps[4],
             GenerateAndSaveFinalAnswersBatchesStep,
         )
-        self.assertIsInstance(pipeline.evaluation_steps[4], ComputeFinalResultsStep)
+        self.assertIsInstance(pipeline.evaluation_steps[5], LogInferenceToWandbStep)
+        self.assertIsInstance(pipeline.evaluation_steps[6], ComputeFinalResultsStep)
         self.assertIsInstance(
-            pipeline.evaluation_steps[5],
+            pipeline.evaluation_steps[7],
             LogFinalResultsToWandbStep,
         )
-        self.assertEqual(len(pipeline.evaluation_steps), 6)
+        self.assertEqual(len(pipeline.evaluation_steps), 8)
+        self.assertIsInstance(pipeline.preparation_steps[-1], LogTrainingToWandbStep)
 
     def test_evaluation_log_every_is_wired_into_evaluation_step(self) -> None:
         pipeline = main.build_pipeline(
@@ -577,7 +588,10 @@ class MainEntrypointTests(unittest.TestCase):
             ),
         )
 
-        training_step = pipeline.preparation_steps[-1]
+        training_step = next(
+            step for step in pipeline.preparation_steps
+            if isinstance(step, TrainGnnAnswerRetrieverStep)
+        )
         self.assertIsInstance(training_step, TrainGnnAnswerRetrieverStep)
         self.assertEqual(training_step.training_config.start_instance, 101)
         self.assertEqual(training_step.training_config.max_instances, 100)
@@ -595,7 +609,10 @@ class MainEntrypointTests(unittest.TestCase):
             config=main.PipelineRuntimeConfig(training_profile=True),
         )
 
-        training_step = pipeline.preparation_steps[-1]
+        training_step = next(
+            step for step in pipeline.preparation_steps
+            if isinstance(step, TrainGnnAnswerRetrieverStep)
+        )
         self.assertIsInstance(training_step, TrainGnnAnswerRetrieverStep)
         self.assertTrue(training_step.training_config.profile)
 
@@ -608,7 +625,10 @@ class MainEntrypointTests(unittest.TestCase):
             ),
         )
 
-        preparation_step = pipeline.preparation_steps[-2]
+        preparation_step = next(
+            step for step in pipeline.preparation_steps
+            if isinstance(step, PrepareGnnTrainingDataStep)
+        )
         self.assertIsInstance(preparation_step, PrepareGnnTrainingDataStep)
         self.assertEqual(
             preparation_step.preparation_config.embedding_cache_device,
@@ -687,14 +707,88 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertIsInstance(pipeline.evaluation_steps[0], EvaluateGnnAnswerRetrieverStep)
         self.assertEqual(len(pipeline.evaluation_steps), 1)
 
-    def test_wandb_requires_llm_inference(self) -> None:
-        with self.assertRaisesRegex(
-            main.PipelineException,
-            "requires LLM inference",
-        ):
-            main.build_pipeline(
-                config=main.PipelineRuntimeConfig(no_llm_inference=True),
+    def test_wandb_logs_retriever_when_llm_inference_is_disabled(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(no_llm_inference=True),
+        )
+
+        self.assertIsInstance(pipeline.evaluation_steps[0], EvaluateGnnAnswerRetrieverStep)
+        self.assertIsInstance(pipeline.evaluation_steps[1], LogRetrieverToWandbStep)
+        self.assertEqual(len(pipeline.evaluation_steps), 2)
+
+    def test_retriever_only_composes_training_and_retriever_stages(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(run_mode="retriever-only"),
+        )
+
+        self.assertTrue(
+            any(isinstance(step, TrainGnnAnswerRetrieverStep) for step in pipeline.preparation_steps)
+        )
+        self.assertEqual(
+            [type(step) for step in pipeline.evaluation_steps],
+            [EvaluateGnnAnswerRetrieverStep, LogRetrieverToWandbStep],
+        )
+
+    def test_inference_only_requires_retriever_selector(self) -> None:
+        with self.assertRaisesRegex(main.PipelineException, "requires --retriever-run"):
+            main.run_pipeline(
+                config=main.PipelineRuntimeConfig(run_mode="inference-only")
             )
+
+    def test_inference_only_rejects_no_llm_inference(self) -> None:
+        with self.assertRaisesRegex(main.PipelineException, "not valid"):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    run_mode="inference-only",
+                    retriever_run_number=1,
+                    no_llm_inference=True,
+                )
+            )
+
+    def test_inference_only_composes_loader_and_inference_without_training(self) -> None:
+        saved_config = SavedGnnAnswerRetrieverConfig(
+            dataset_id="WebQSP",
+            entity_embedding_model="text-embedding-3-small",
+            question_embedding_model="text-embedding-3-small",
+            relation_embedding_model="text-embedding-3-small",
+            entity_embedding_dimension=1536,
+            question_embedding_dimension=1536,
+            relation_embedding_dimension=1536,
+            hidden_dimension=256,
+            gnn_layer_count=2,
+            node_classifier="mlp",
+            training=SavedGnnAnswerRetrieverTrainingConfig(
+                epochs=1,
+                learning_rate=0.001,
+                weight_decay=0.0,
+                log_every=3,
+                device="cpu",
+            ),
+            final_loss=0.5,
+            trained_instances=3,
+        )
+        with patch.object(
+            main.GnnRetrieverResultsService,
+            "load_model_config",
+            return_value=saved_config,
+        ):
+            pipeline = main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    run_mode="inference-only",
+                    retriever_run_number=7,
+                    use_default_config_values=True,
+                    no_wandb=True,
+                )
+            )
+
+        self.assertFalse(
+            any(isinstance(step, TrainGnnAnswerRetrieverStep) for step in pipeline.preparation_steps)
+        )
+        self.assertIsInstance(pipeline.evaluation_steps[0], LoadGnnAnswerRetrieverRunStep)
+        self.assertIsInstance(
+            pipeline.evaluation_steps[1], BuildReasoningSamplesFromGnnEvaluationStep
+        )
+        self.assertIsInstance(pipeline.evaluation_steps[-1], ComputeFinalResultsStep)
 
 
 if __name__ == "__main__":

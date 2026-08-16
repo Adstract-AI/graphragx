@@ -47,7 +47,7 @@ docker compose up -d qdrant
 
 By default the pipeline connects to `http://localhost:6333` and stores embeddings in Qdrant collections prefixed with `graphragx_embeddings`.
 
-W&B logging is enabled by default for full runs. For first-time W&B usage, run:
+W&B logging is enabled by default for every run mode. For first-time W&B usage, run:
 
 ```bash
 wandb login
@@ -89,6 +89,18 @@ To evaluate a saved model run:
 uv run python main.py --evaluation-only --evaluation-model-run-number 12 --default
 ```
 
+To train and evaluate only the retriever:
+
+```bash
+uv run python main.py --retriever-only --default
+```
+
+To run LLM inference from an existing retriever evaluation:
+
+```bash
+uv run python main.py --inference-only --retriever-run-number 7 --default
+```
+
 ## CLI Flags
 
 ### Run Mode
@@ -97,7 +109,9 @@ uv run python main.py --evaluation-only --evaluation-model-run-number 12 --defau
 | --- | --- |
 | `--full` | Runs setup, GNN training, GNN evaluation, LLM inference, final results, and W&B logging. This is the default run mode. |
 | `--train-only` | Runs dataset selection/configuration, dataset loading, local WebQSP graph preparation, GNN model construction, and GNN training. It stops after saving the trained model run. |
-| `--evaluation-only` | Runs setup and evaluates a previously saved GNN model run. Use this with `--evaluation-model-run-name` or `--evaluation-model-run-number`. |
+| `--retriever-only` | Trains the GNN, evaluates it on the test split, saves retriever predictions and metrics, and stops before LLM inference. |
+| `--evaluation-only` | Evaluates a previously saved GNN model and then runs LLM inference/final results. Use this with `--evaluation-model-run-name` or `--evaluation-model-run-number`. |
+| `--inference-only` | Loads a saved retriever evaluation and runs LLM inference/final results without loading or training the GNN. Use a retriever run selector. |
 
 ### Dataset And Pipeline Configuration
 
@@ -153,6 +167,8 @@ The compact matrices are still copied into VRAM at the start of every process be
 | `--candidate-top-k CANDIDATE_TOP_K` | Minimum number of selected candidates when threshold selection returns too few. |
 | `--candidate-limit CANDIDATE_LIMIT` | Maximum number of selected answer candidates after threshold and top-k selection. `--limit` is an alias. |
 | `--evaluation-run-name EVALUATION_RUN_NAME` | Optional label for the saved evaluation run folder. |
+| `--retriever-run-name RETRIEVER_RUN_NAME` | Saved retriever evaluation folder name or suffix required by inference-only mode. |
+| `--retriever-run-number RETRIEVER_RUN_NUMBER` | Saved retriever evaluation numeric prefix required by inference-only mode. |
 | `--evaluation-max-instances EVALUATION_MAX_INSTANCES` | Optional limit for how many WebQSP test instances to evaluate. If omitted, the full test split is used. |
 | `--evaluation-log-every EVALUATION_LOG_EVERY` | How often GNN evaluation progress is logged, measured in evaluated instances. |
 | `--evaluation-profile` | Reports synchronized model loading, embedding preparation, input, forward, prediction, and persistence timings. Use for short diagnostics because synchronization reduces throughput. |
@@ -166,7 +182,7 @@ Evaluation compacts the selected test instances into unique node, relation, and 
 
 | Flag | Description |
 | --- | --- |
-| `--no-llm-inference` | Stops after GNN candidate retrieval and skips reasoning-subgraph extraction, LLM answer generation, final results, and W&B logging. If this is used, also pass `--no-wandb`. |
+| `--no-llm-inference` | Stops full or evaluation-only mode after GNN candidate retrieval. Training and retriever W&B logging still run unless `--no-wandb` is supplied. |
 | `--inference-run-name INFERENCE_RUN_NAME` | Optional label for the saved LLM inference run folder. |
 | `--llm-inference-batch-size LLM_INFERENCE_BATCH_SIZE` | Number of samples to process per persistence batch during LLM inference. The LLM calls remain one-by-one. |
 
@@ -178,6 +194,8 @@ Evaluation compacts the selected test instances into unique node, relation, and 
 | `--wandb-project WANDB_PROJECT` | W&B project name. Defaults to `WANDB_PROJECT` from the environment, then `graphragx`. |
 | `--wandb-entity WANDB_ENTITY` | Optional W&B entity/team. Defaults to `WANDB_ENTITY` from the environment. |
 | `--wandb-mode {online,offline,disabled}` | W&B mode. Defaults to `WANDB_MODE` from the environment, then `online`. |
+
+One W&B run is reused across the logical experiment. Model, retriever, inference, and final-result configs persist the run ID so later evaluation-only or inference-only commands can resume it. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts.
 
 ### Execution Helpers
 

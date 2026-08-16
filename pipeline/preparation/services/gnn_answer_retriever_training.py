@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -154,8 +155,10 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
     def __init__(
         self,
         model_run_service: GnnAnswerRetrieverModelRunService | None = None,
+        progress_callback: Callable[[dict[str, float | int]], None] | None = None,
     ) -> None:
         self.model_run_service = model_run_service or GnnAnswerRetrieverModelRunService()
+        self.progress_callback = progress_callback
 
     def train(
         self,
@@ -351,7 +354,10 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 epoch_loss += detached_loss
                 if (
                     training_config.log_every > 0
-                    and instance_index % training_config.log_every == 0
+                    and (
+                        instance_index % training_config.log_every == 0
+                        or instance_index == len(prepared_training_data.instances)
+                    )
                 ):
                     logger.info(
                         f"Epoch {epoch}/{training_config.epochs} progress: "
@@ -364,6 +370,18 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                             epoch=epoch,
                             processed_instances=instance_index,
                             timings=phase_timings,
+                        )
+                    if self.progress_callback is not None:
+                        self.progress_callback(
+                            {
+                                "epoch": epoch,
+                                "instance": instance_index,
+                                "global_step": (
+                                    (epoch - 1) * len(prepared_training_data.instances)
+                                    + instance_index
+                                ),
+                                "loss": float(detached_loss.item()),
+                            }
                         )
 
             final_loss = (epoch_loss / len(prepared_training_data.instances)).item()

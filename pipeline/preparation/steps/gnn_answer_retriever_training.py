@@ -109,6 +109,10 @@ class TrainedGnnAnswerRetriever(StepResult):
         ...,
         description="Directory containing cached OpenAI embeddings.",
     )
+    wandb_status: str | None = None
+    wandb_run_id: str | None = None
+    wandb_run_url: str | None = None
+    wandb_error_message: str | None = None
 
 
 class TrainGnnAnswerRetrieverContext(StepContext[PreparedGnnTrainingData]):
