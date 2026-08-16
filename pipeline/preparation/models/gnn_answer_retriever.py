@@ -27,7 +27,9 @@ class WeightedMessagePassingLayer(nn.Module):
         source_nodes = edge_index[0].long()
         target_nodes = edge_index[1].long()
         source_messages = self.message_projection(node_features[source_nodes])
-        weighted_messages = source_messages * edge_weight.reshape(-1, 1)
+        weighted_messages = (
+            source_messages * edge_weight.reshape(-1, 1)
+        ).to(dtype=node_features.dtype)
 
         aggregated_messages = torch.zeros_like(node_features)
         aggregated_messages.index_add_(0, target_nodes, weighted_messages)
