@@ -155,6 +155,12 @@ The compact matrices are still copied into VRAM at the start of every process be
 | `--evaluation-run-name EVALUATION_RUN_NAME` | Optional label for the saved evaluation run folder. |
 | `--evaluation-max-instances EVALUATION_MAX_INSTANCES` | Optional limit for how many WebQSP test instances to evaluate. If omitted, the full test split is used. |
 | `--evaluation-log-every EVALUATION_LOG_EVERY` | How often GNN evaluation progress is logged, measured in evaluated instances. |
+| `--evaluation-profile` | Reports synchronized model loading, embedding preparation, input, forward, prediction, and persistence timings. Use for short diagnostics because synchronization reduces throughput. |
+| `--evaluation-embedding-cache-device {auto,gpu,cpu}` | Placement for compact frozen evaluation embeddings. `auto` uses CUDA when the matrices fit after the configured reserve. |
+| `--evaluation-embedding-cache-dtype {auto,float32,bfloat16}` | Storage precision for compact evaluation embeddings. `auto` uses BF16 on supported CUDA devices and float32 otherwise. |
+| `--evaluation-gpu-cache-reserve-gb EVALUATION_GPU_CACHE_RESERVE_GB` | VRAM kept free outside the evaluation embedding matrices. Default: `6.0`. |
+
+Evaluation compacts the selected test instances into unique node, relation, and question matrices before model inference. It uses the same incremental tensor shards as training, so matching dataset/model/type/dtype vectors are reused immediately. Only missing test vectors are fetched from Qdrant and appended; no Qdrant requests occur inside the per-instance inference loop. Evaluation uses `torch.inference_mode()` and BF16 autocast when BF16 cache storage is selected on CUDA.
 
 ### LLM Inference And Results
 

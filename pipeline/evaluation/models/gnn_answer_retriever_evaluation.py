@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,9 +11,19 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE,
+    DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE,
+    DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB,
     DEFAULT_EVALUATION_LOG_EVERY,
+    DEFAULT_EVALUATION_PROFILE,
 )
 from pipeline.abstract import StepResult
+from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
+
+if TYPE_CHECKING:
+    from torch import Tensor as TorchTensor
+else:
+    TorchTensor = Any
 
 
 class GnnAnswerRetrieverEvaluationConfig(BaseModel):
@@ -26,6 +37,47 @@ class GnnAnswerRetrieverEvaluationConfig(BaseModel):
     run_name: str | None = Field(default=None)
     max_instances: int | None = Field(default=None)
     log_every: int = Field(default=DEFAULT_EVALUATION_LOG_EVERY)
+    profile: bool = Field(default=DEFAULT_EVALUATION_PROFILE)
+    embedding_cache_device: Literal["auto", "gpu", "cpu"] = Field(
+        default=DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE
+    )
+    embedding_cache_dtype: Literal["auto", "float32", "bfloat16"] = Field(
+        default=DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE
+    )
+    gpu_cache_reserve_gb: float = Field(
+        default=DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB
+    )
+
+
+class PreparedGnnEvaluationInstance(BaseModel):
+    """One evaluation graph indexed into compact embedding matrices."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    source_instance_index: int = Field(...)
+    instance: WebQSPProcessedInstance = Field(...)
+    node_embedding_indices: TorchTensor = Field(...)
+    relation_embedding_indices: TorchTensor = Field(...)
+    question_embedding_index: int = Field(...)
+
+
+class PreparedGnnEvaluationData(BaseModel):
+    """Compact frozen embeddings and indexed graphs used during evaluation."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    instances: list[PreparedGnnEvaluationInstance] = Field(default_factory=list)
+    node_embeddings: TorchTensor = Field(...)
+    relation_embeddings: TorchTensor = Field(...)
+    question_embeddings: TorchTensor = Field(...)
+    selected_device: str = Field(...)
+    embedding_cache_device: str = Field(...)
+    embedding_cache_dtype: str = Field(...)
+
+    @property
+    def uses_bfloat16(self) -> bool:
+        """Return whether compact evaluation embeddings use BF16 storage."""
+        return self.embedding_cache_dtype == "bfloat16"
 
 
 class AnswerCandidateScore(BaseModel):

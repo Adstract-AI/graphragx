@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 
 from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE,
+    DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE,
+    DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB,
     DEFAULT_EVALUATION_LOG_EVERY,
+    DEFAULT_EVALUATION_PROFILE,
 )
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
@@ -56,6 +62,16 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
         evaluation_run_name: str | None = None,
         evaluation_max_instances: int | None = None,
         evaluation_log_every: int = DEFAULT_EVALUATION_LOG_EVERY,
+        evaluation_profile: bool = DEFAULT_EVALUATION_PROFILE,
+        evaluation_embedding_cache_device: Literal[
+            "auto", "gpu", "cpu"
+        ] = DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE,
+        evaluation_embedding_cache_dtype: Literal[
+            "auto", "float32", "bfloat16"
+        ] = DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE,
+        evaluation_gpu_cache_reserve_gb: float = (
+            DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB
+        ),
         evaluation_service: GnnAnswerRetrieverEvaluationService | None = None,
         force_default: bool = False,
     ):
@@ -69,6 +85,10 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             run_name=evaluation_run_name,
             max_instances=evaluation_max_instances,
             log_every=evaluation_log_every,
+            profile=evaluation_profile,
+            embedding_cache_device=evaluation_embedding_cache_device,
+            embedding_cache_dtype=evaluation_embedding_cache_dtype,
+            gpu_cache_reserve_gb=evaluation_gpu_cache_reserve_gb,
         )
         self.evaluation_service = (
             evaluation_service
@@ -108,7 +128,10 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             f"threshold={evaluation_config.answer_threshold} "
             f"candidate_top_k={evaluation_config.candidate_top_k} "
             f"candidate_limit={evaluation_config.candidate_limit} "
-            f"log_every={evaluation_config.log_every}"
+            f"log_every={evaluation_config.log_every} "
+            f"profile={evaluation_config.profile} "
+            f"cache_device={evaluation_config.embedding_cache_device} "
+            f"cache_dtype={evaluation_config.embedding_cache_dtype}"
         )
         outcome = self.evaluation_service.evaluate(
             prepared_dataset=context.prepared_dataset,

@@ -11,7 +11,11 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE,
+    DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE,
+    DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB,
     DEFAULT_EVALUATION_LOG_EVERY,
+    DEFAULT_EVALUATION_PROFILE,
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
@@ -101,6 +105,10 @@ class PipelineRuntimeConfig(BaseModel):
     evaluation_run_name: str | None = None
     evaluation_max_instances: int | None = None
     evaluation_log_every: int = DEFAULT_EVALUATION_LOG_EVERY
+    evaluation_profile: bool = DEFAULT_EVALUATION_PROFILE
+    evaluation_embedding_cache_device: str = DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE
+    evaluation_embedding_cache_dtype: str = DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE
+    evaluation_gpu_cache_reserve_gb: float = DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB
     no_llm_inference: bool = False
     inference_run_name: str | None = None
     llm_inference_batch_size: int = 10
@@ -238,6 +246,16 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             evaluation_run_name=resolved_config.evaluation_run_name,
             evaluation_max_instances=resolved_config.evaluation_max_instances,
             evaluation_log_every=resolved_config.evaluation_log_every,
+            evaluation_profile=resolved_config.evaluation_profile,
+            evaluation_embedding_cache_device=(
+                resolved_config.evaluation_embedding_cache_device
+            ),
+            evaluation_embedding_cache_dtype=(
+                resolved_config.evaluation_embedding_cache_dtype
+            ),
+            evaluation_gpu_cache_reserve_gb=(
+                resolved_config.evaluation_gpu_cache_reserve_gb
+            ),
         ),
     ]
     if not resolved_config.no_llm_inference:
@@ -652,6 +670,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Log GNN evaluation progress after this many evaluated instances.",
     )
     parser.add_argument(
+        "--evaluation-profile",
+        action="store_true",
+        default=DEFAULT_EVALUATION_PROFILE,
+        help="Synchronize and report detailed GNN evaluation phase timings.",
+    )
+    parser.add_argument(
+        "--evaluation-embedding-cache-device",
+        choices=["auto", "gpu", "cpu"],
+        default=DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE,
+        help="Place compact frozen evaluation embeddings on GPU, CPU, or automatically.",
+    )
+    parser.add_argument(
+        "--evaluation-embedding-cache-dtype",
+        choices=["auto", "float32", "bfloat16"],
+        default=DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE,
+        help="Storage precision for compact frozen evaluation embeddings.",
+    )
+    parser.add_argument(
+        "--evaluation-gpu-cache-reserve-gb",
+        type=float,
+        default=DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB,
+        help="GPU memory reserved outside the evaluation embedding cache.",
+    )
+    parser.add_argument(
         "--no-llm-inference",
         dest="no_llm_inference",
         action="store_true",
@@ -751,6 +793,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         evaluation_run_name=args.evaluation_run_name,
         evaluation_max_instances=args.evaluation_max_instances,
         evaluation_log_every=args.evaluation_log_every,
+        evaluation_profile=args.evaluation_profile,
+        evaluation_embedding_cache_device=args.evaluation_embedding_cache_device,
+        evaluation_embedding_cache_dtype=args.evaluation_embedding_cache_dtype,
+        evaluation_gpu_cache_reserve_gb=args.evaluation_gpu_cache_reserve_gb,
         no_llm_inference=args.no_llm_inference,
         inference_run_name=args.inference_run_name,
         llm_inference_batch_size=args.llm_inference_batch_size,

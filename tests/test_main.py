@@ -447,6 +447,47 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(len(captured_configs), 1)
         self.assertEqual(captured_configs[0].evaluation_log_every, 25)
 
+    def test_evaluation_embedding_and_profile_flags_are_parsed(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            exit_code = main.main(
+                [
+                    "--evaluation-profile",
+                    "--evaluation-embedding-cache-device",
+                    "gpu",
+                    "--evaluation-embedding-cache-dtype",
+                    "bfloat16",
+                    "--evaluation-gpu-cache-reserve-gb",
+                    "4.5",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured_configs), 1)
+        self.assertTrue(captured_configs[0].evaluation_profile)
+        self.assertEqual(
+            captured_configs[0].evaluation_embedding_cache_device,
+            "gpu",
+        )
+        self.assertEqual(
+            captured_configs[0].evaluation_embedding_cache_dtype,
+            "bfloat16",
+        )
+        self.assertEqual(captured_configs[0].evaluation_gpu_cache_reserve_gb, 4.5)
+
     def test_run_pipeline_default_config_succeeds_from_neutral_initial_result(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
             "builtins.input",
@@ -505,6 +546,26 @@ class MainEntrypointTests(unittest.TestCase):
         evaluation_step = pipeline.evaluation_steps[0]
         self.assertIsInstance(evaluation_step, EvaluateGnnAnswerRetrieverStep)
         self.assertEqual(evaluation_step.evaluation_config.log_every, 25)
+
+    def test_evaluation_embedding_and_profile_config_is_wired_into_step(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                evaluation_profile=True,
+                evaluation_embedding_cache_device="gpu",
+                evaluation_embedding_cache_dtype="bfloat16",
+                evaluation_gpu_cache_reserve_gb=4.5,
+            ),
+        )
+
+        evaluation_step = pipeline.evaluation_steps[0]
+        self.assertIsInstance(evaluation_step, EvaluateGnnAnswerRetrieverStep)
+        self.assertTrue(evaluation_step.evaluation_config.profile)
+        self.assertEqual(evaluation_step.evaluation_config.embedding_cache_device, "gpu")
+        self.assertEqual(
+            evaluation_step.evaluation_config.embedding_cache_dtype,
+            "bfloat16",
+        )
+        self.assertEqual(evaluation_step.evaluation_config.gpu_cache_reserve_gb, 4.5)
 
     def test_training_continuation_is_wired_into_training_step(self) -> None:
         pipeline = main.build_pipeline(

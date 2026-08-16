@@ -6,6 +6,8 @@ from pipeline.evaluation.models.gnn_answer_retriever_evaluation import (
     GnnAnswerRetrieverEvaluationConfig,
     GnnAnswerRetrieverEvaluationResult,
     GoldAnswerScore,
+    PreparedGnnEvaluationData,
+    PreparedGnnEvaluationInstance,
 )
 from pipeline.evaluation.models.llm_answer_generation import GeneratedFinalAnswer
 from pipeline.evaluation.models.final_results import (
@@ -55,6 +57,8 @@ __all__ = [
     "GnnAnswerRetrieverEvaluationConfig",
     "GnnAnswerRetrieverEvaluationResult",
     "GoldAnswerScore",
+    "PreparedGnnEvaluationData",
+    "PreparedGnnEvaluationInstance",
     "GraphTriple",
     "PerInstanceFinalResult",
     "RankingMetrics",
