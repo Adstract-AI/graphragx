@@ -125,14 +125,11 @@ class LogFinalResultsToWandbStep(
             else None
         )
         prefix = f"Inference/{inference_name}"
-        retrieval_metrics = self.logging_service._load_json_object(
-            final_result.retrieval_metrics_path
-        )
         reasoning_metrics = self.logging_service._load_json_object(
             final_result.reasoning_metrics_path
         )
         scalar_metrics = self.logging_service.build_scalar_metrics(
-            retrieval_metrics=retrieval_metrics,
+            retrieval_metrics={},
             reasoning_metrics=reasoning_metrics,
         )
         self.coordinator.update_config(

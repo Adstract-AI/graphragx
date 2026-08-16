@@ -82,6 +82,7 @@ class CapturingCoordinator:
     def __init__(self) -> None:
         self.logged: list[dict] = []
         self.config_updates: list[dict] = []
+        self.artifact_calls: list[dict] = []
         self.has_active_run = True
         self.metadata = type(
             "Metadata",
@@ -107,7 +108,7 @@ class CapturingCoordinator:
         return None
 
     def log_artifact(self, **kwargs) -> None:
-        return None
+        self.artifact_calls.append(kwargs)
 
 
 def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
@@ -416,7 +417,6 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
         predictions_path=predictions_path,
         evaluation_config_path=evaluation_config_path,
         retrieval_metrics_path=retrieval_metrics_path,
-        wandb_run_id="existing-lineage",
     )
 
     LogRetrieverToWandbStep(coordinator=coordinator).execute_default(
@@ -441,3 +441,15 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
         "number": 1,
     }
     assert config_payload["configs"]["evaluation"] == {"candidate_limit": 10}
+
+    continuation_coordinator = CapturingCoordinator()
+    continuation_result = result.model_copy(
+        update={"wandb_run_id": "existing-lineage", "wandb_status": "logged"}
+    )
+    LogRetrieverToWandbStep(
+        coordinator=continuation_coordinator
+    ).execute_default(StepContext(result=continuation_result))
+
+    assert continuation_coordinator.logged == []
+    assert continuation_coordinator.artifact_calls == []
+    assert len(continuation_coordinator.config_updates) == 1

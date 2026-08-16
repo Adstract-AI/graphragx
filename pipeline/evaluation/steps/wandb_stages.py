@@ -259,38 +259,46 @@ class LogRetrieverToWandbStep(
                 retrieval_metrics_path=result.retrieval_metrics_path,
             )
         )
-        scalar_metrics = WandbFinalResultsLoggingService.build_scalar_metrics(
-            retrieval_metrics={
-                "hits_at_1": result.hits_at_1,
-                "hits_at_5": result.hits_at_5,
-                "hits_at_10": result.hits_at_10,
-                "hits_at_candidate_limit": result.hits_at_candidate_limit,
-                "average_candidate_count": result.average_candidate_count,
-                "missing_gold_in_graph_count": (
-                    result.missing_gold_in_graph_count
-                ),
-            },
-            reasoning_metrics={},
-        )
-        metrics = WandbFinalResultsLoggingService.build_run_summary_plot_metrics(
-            scalar_metrics=scalar_metrics,
-            wandb_config={},
-        )
-        metrics.update(
-            WandbFinalResultsLoggingService.build_summary_plot_metrics(
-                scalar_metrics
+        is_logged_continuation = result.wandb_run_id is not None
+        if is_logged_continuation:
+            logger.info(
+                "Preserving previously logged retriever metrics during W&B "
+                f"continuation: run={result.evaluation_run_name}"
             )
-        )
-        self.coordinator.log(metrics)
+        if not is_logged_continuation:
+            scalar_metrics = WandbFinalResultsLoggingService.build_scalar_metrics(
+                retrieval_metrics={
+                    "hits_at_1": result.hits_at_1,
+                    "hits_at_5": result.hits_at_5,
+                    "hits_at_10": result.hits_at_10,
+                    "hits_at_candidate_limit": result.hits_at_candidate_limit,
+                    "average_candidate_count": result.average_candidate_count,
+                    "missing_gold_in_graph_count": (
+                        result.missing_gold_in_graph_count
+                    ),
+                },
+                reasoning_metrics={},
+            )
+            metrics = WandbFinalResultsLoggingService.build_run_summary_plot_metrics(
+                scalar_metrics=scalar_metrics,
+                wandb_config={},
+            )
+            metrics.update(
+                WandbFinalResultsLoggingService.build_summary_plot_metrics(
+                    scalar_metrics
+                )
+            )
+            self.coordinator.log(metrics)
         self.coordinator.persist_metadata(result.evaluation_config_path)
-        artifact_paths = [result.evaluation_config_path, result.predictions_path]
-        if result.retrieval_metrics_path is not None:
-            artifact_paths.append(result.retrieval_metrics_path)
-        self.coordinator.log_artifact(
-            name=f"retriever-{result.evaluation_run_name}",
-            artifact_type="retriever-results",
-            paths=artifact_paths,
-        )
+        if not is_logged_continuation:
+            artifact_paths = [result.evaluation_config_path, result.predictions_path]
+            if result.retrieval_metrics_path is not None:
+                artifact_paths.append(result.retrieval_metrics_path)
+            self.coordinator.log_artifact(
+                name=f"retriever-{result.evaluation_run_name}",
+                artifact_type="retriever-results",
+                paths=artifact_paths,
+            )
         self.coordinator.persist_metadata(result.evaluation_config_path)
         metadata = self.coordinator.metadata
         return result.model_copy(

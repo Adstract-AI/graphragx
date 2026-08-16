@@ -509,14 +509,12 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
     ).execute_default(StepContext(result=final_result))
 
     payload = coordinator.logged[0]
-    assert payload["Run_Summary/retrieval_hits_at_1"] == 0.5
-    assert payload["Run_Summary/retrieval_hits_at_10"] == 1.0
-    assert payload["Run_Summary/retrieval_hits_at_candidate_limit"] == 1.0
+    assert not any(key.startswith("Run_Summary/retrieval_") for key in payload)
     assert payload["Run_Summary/answer_hit_rate"] == 0.5
     assert payload["Run_Summary/answer_f1"] == 2 / 3
     assert payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
     assert payload["Run_Summary/grounded_explanation_rate"] == 0.5
-    assert payload["Summary_Plots/retrieval_hits_at_5"] == 1.0
+    assert not any(key.startswith("Summary_Plots/retrieval_") for key in payload)
     assert payload["Summary_Plots/answer_accuracy"] == 0.5
     assert payload["Summary_Plots/answer_f1"] == 2 / 3
     assert payload["Summary_Plots/grounding_fully_grounded_explanation_rate"] == 0.5
