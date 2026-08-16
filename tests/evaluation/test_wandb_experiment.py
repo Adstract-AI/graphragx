@@ -42,6 +42,7 @@ class FakeRun:
         self.finished = False
         self.defined_metrics: list[tuple[str, dict]] = []
         self.config = FakeConfig()
+        self.tags: tuple[str, ...] = ()
 
     def define_metric(self, name, **kwargs) -> None:
         self.defined_metrics.append((name, kwargs))
@@ -84,6 +85,7 @@ class CapturingCoordinator:
         self.config_updates: list[dict] = []
         self.artifact_calls: list[dict] = []
         self.persisted_metadata_paths: list = []
+        self.tag_updates: list[list[str]] = []
         self.has_active_run = True
         self.metadata = type(
             "Metadata",
@@ -104,6 +106,9 @@ class CapturingCoordinator:
 
     def update_config(self, payload, **kwargs) -> None:
         self.config_updates.append(payload)
+
+    def update_tags(self, tags) -> None:
+        self.tag_updates.append(tags)
 
     def persist_metadata(self, path) -> None:
         self.persisted_metadata_paths.append(path)
@@ -145,6 +150,7 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
         "model": {"epochs": 2},
         "evaluation": {"candidate_limit": 10},
     }
+    assert "graphragx" in fake_wandb.run.tags
     assert ("Training/global_step", {}) in fake_wandb.run.defined_metrics
     assert (
         "Training/loss",
@@ -233,6 +239,53 @@ def test_coordinator_can_start_new_run_without_resuming_lineage(tmp_path) -> Non
     assert "id" not in init_payload
     assert "resume" not in init_payload
     assert init_payload["name"].startswith("1_")
+
+
+def test_config_updates_add_all_available_stage_tags(tmp_path) -> None:
+    fake_wandb = FakeWandb()
+    coordinator = WandbExperimentCoordinator(
+        project="project",
+        run_root=tmp_path / "wandb_runs",
+    )
+
+    with patch(
+        "pipeline.evaluation.services.wandb_experiment.importlib.import_module",
+        return_value=fake_wandb,
+    ):
+        coordinator.update_config(
+            {
+                "dataset_id": "WebQSP",
+                "gnn_id": "3-256-gnn",
+                "model_id": "gpt-5.4-mini",
+                "runs": {
+                    "model": {"number": 59},
+                    "evaluation": {"number": 64},
+                    "inference": {"number": 55},
+                },
+                "configs": {
+                    "model": {
+                        "entity_embedding_model": "text-embedding-3-small",
+                        "question_embedding_model": "text-embedding-3-small",
+                        "relation_embedding_model": "text-embedding-3-small",
+                        "trained_instances": 100,
+                    }
+                },
+            }
+        )
+        coordinator.update_tags(["evaluated_instances:100"])
+
+    assert set(fake_wandb.run.tags) == {
+        "graphragx",
+        "WebQSP",
+        "3-256-gnn",
+        "gpt-5.4-mini",
+        "text-embedding-3-small",
+        "trained_instances:100",
+        "model_run_number:59",
+        "evaluation_run_number:64",
+        "inference_run_number:55",
+        "evaluated_instances:100",
+    }
 
 
 def test_coordinator_rejects_conflicting_persisted_project(tmp_path) -> None:
@@ -342,6 +395,9 @@ def test_multiple_inference_runs_are_namespaced_on_one_wandb_run(tmp_path) -> No
         "number": 2,
     }
     assert fake_wandb.run.config["configs"]["inference"]["total_tokens"] == 20
+    assert "WebQSP" in fake_wandb.run.tags
+    assert "gpt-test" in fake_wandb.run.tags
+    assert "inference_run_number:2" in fake_wandb.run.tags
 
 
 def test_run_identifier_service_uses_one_global_counter(tmp_path) -> None:
@@ -369,6 +425,8 @@ def test_training_epoch_average_uses_legacy_metric_name(tmp_path) -> None:
                 "run_number": 1,
                 "gnn_layer_count": 2,
                 "hidden_dimension": 256,
+                "entity_embedding_model": "text-embedding-3-small",
+                "trained_instances": 10,
                 "training": {"epochs": 1},
             }
         ),
@@ -476,6 +534,7 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
         "number": 1,
     }
     assert config_payload["configs"]["evaluation"] == {"candidate_limit": 10}
+    assert coordinator.tag_updates == [["evaluated_instances:10"]]
 
     continuation_coordinator = CapturingCoordinator()
     continuation_result = result.model_copy(
@@ -488,6 +547,7 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     assert continuation_coordinator.logged == []
     assert continuation_coordinator.artifact_calls == []
     assert len(continuation_coordinator.config_updates) == 1
+    assert continuation_coordinator.tag_updates == [["evaluated_instances:10"]]
 
     copied_coordinator = CapturingCoordinator()
     LogRetrieverToWandbStep(
@@ -499,3 +559,4 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     assert copied_coordinator.logged[0]["Summary_Plots/retrieval_hits_at_5"] == 0.8
     assert len(copied_coordinator.artifact_calls) == 1
     assert copied_coordinator.persisted_metadata_paths == []
+    assert copied_coordinator.tag_updates == [["evaluated_instances:10"]]

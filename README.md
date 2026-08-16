@@ -198,6 +198,8 @@ Evaluation compacts the selected test instances into unique node, relation, and 
 
 New W&B runs use a dataset-wide sequential identifier in the form `run_number_YYYYMMDD_HHMMSS`, independent of which pipeline mode creates them. Full, training, retriever, and evaluation continuations reuse their logical experiment where applicable. Every inference-only command creates a new W&B run and copies the selected retriever metrics and configuration into it, so multiple LLM inference runs remain independently comparable without modifying the retriever run. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts.
 
+W&B tags are populated incrementally from the stages available in each mode. Depending on the completed stages, tags include the dataset, GNN id, LLM id, embedding models, trained/evaluated instance counts, and model, evaluation, and inference run numbers. Resumed runs preserve their existing tags, and duplicate values are removed.
+
 ### Execution Helpers
 
 | Flag | Description |

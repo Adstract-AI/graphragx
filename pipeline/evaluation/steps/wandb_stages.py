@@ -261,6 +261,9 @@ class LogRetrieverToWandbStep(
                 retrieval_metrics_path=result.retrieval_metrics_path,
             )
         )
+        self.coordinator.update_tags(
+            [f"evaluated_instances:{result.evaluated_instances}"]
+        )
         is_logged_continuation = (
             result.wandb_run_id is not None and not self.copy_to_new_experiment
         )

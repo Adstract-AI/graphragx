@@ -90,6 +90,7 @@ class WandbExperimentCoordinator:
         self._metadata = WandbTrackingMetadata(status="skipped")
         self._metadata_paths: set[Path] = set()
         self._config_payload: dict[str, Any] = {}
+        self._tags: list[str] = ["graphragx"]
 
     @property
     def metadata(self) -> WandbTrackingMetadata:
@@ -141,6 +142,14 @@ class WandbExperimentCoordinator:
             if lineage is not None and lineage.run_id:
                 init_kwargs.update({"id": lineage.run_id, "resume": "allow"})
             self._run = self._wandb.init(**init_kwargs)
+            existing_tags = getattr(self._run, "tags", ())
+            if isinstance(existing_tags, str):
+                existing_tags = (existing_tags,)
+            if isinstance(existing_tags, list | tuple):
+                self._tags = list(
+                    dict.fromkeys([*existing_tags, *self._tags])
+                )
+            self._apply_tags()
             run_config = getattr(self._run, "config", None)
             if isinstance(run_config, Mapping) or hasattr(run_config, "get"):
                 existing_config: dict[str, Any] = {}
@@ -202,6 +211,7 @@ class WandbExperimentCoordinator:
         if self._run is None:
             return
         self._config_payload = self._deep_merge(self._config_payload, payload)
+        self.update_tags(self._build_tags_from_config(self._config_payload))
         run_config = getattr(self._run, "config", None)
         if run_config is None or not hasattr(run_config, "update"):
             return
@@ -212,6 +222,14 @@ class WandbExperimentCoordinator:
                 run_config.update(self._config_payload)
         except Exception as error:
             self._record_failure("WandB config update failed", error)
+
+    def update_tags(self, tags: list[str]) -> None:
+        """Add available stage tags without dropping tags from earlier stages."""
+        self.ensure_run()
+        if self._run is None:
+            return
+        self._tags = list(dict.fromkeys([*self._tags, *filter(None, tags)]))
+        self._apply_tags()
 
     def log(
         self,
@@ -327,6 +345,48 @@ class WandbExperimentCoordinator:
         self._metadata = self._metadata.model_copy(
             update={"status": "failed", "error_message": str(error)}
         )
+
+    def _apply_tags(self) -> None:
+        if self._run is None:
+            return
+        try:
+            self._run.tags = tuple(self._tags)
+        except Exception as error:
+            self._record_failure("WandB tag update failed", error)
+
+    @staticmethod
+    def _build_tags_from_config(config: dict[str, Any]) -> list[str]:
+        tags: list[str] = []
+        for key in ["dataset_id", "gnn_id", "model_id"]:
+            value = config.get(key)
+            if value:
+                tags.append(str(value))
+
+        configs = config.get("configs", {})
+        model_config = configs.get("model", {}) if isinstance(configs, dict) else {}
+        if isinstance(model_config, dict):
+            for key in [
+                "entity_embedding_model",
+                "question_embedding_model",
+                "relation_embedding_model",
+            ]:
+                value = model_config.get(key)
+                if value:
+                    tags.append(str(value))
+            trained_instances = model_config.get("trained_instances")
+            if trained_instances is not None:
+                tags.append(f"trained_instances:{trained_instances}")
+
+        runs = config.get("runs", {})
+        if isinstance(runs, dict):
+            for stage in ["model", "evaluation", "inference"]:
+                reference = runs.get(stage)
+                if not isinstance(reference, dict):
+                    continue
+                run_number = reference.get("number")
+                if run_number is not None:
+                    tags.append(f"{stage}_run_number:{run_number}")
+        return tags
 
     @classmethod
     def _deep_merge(
