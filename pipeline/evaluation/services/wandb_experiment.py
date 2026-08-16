@@ -70,6 +70,7 @@ class WandbExperimentCoordinator:
         entity: str | None = None,
         mode: str | None = None,
         enabled: bool = True,
+        resume_from_lineage: bool = True,
         run_root: Path | None = None,
         run_identifier_service: WandbRunIdentifierService | None = None,
     ) -> None:
@@ -79,6 +80,7 @@ class WandbExperimentCoordinator:
         self.entity = entity if entity is not None else WANDB_ENTITY
         self.mode = mode or WANDB_MODE
         self.enabled = enabled
+        self.resume_from_lineage = resume_from_lineage
         self.run_root = run_root
         self.run_identifier_service = (
             run_identifier_service or WandbRunIdentifierService()
@@ -110,7 +112,11 @@ class WandbExperimentCoordinator:
         if self._run is not None:
             return self.metadata
 
-        lineage = self._load_lineage(source_config_path)
+        lineage = (
+            self._load_lineage(source_config_path)
+            if self.resume_from_lineage
+            else None
+        )
         if lineage is not None:
             self._validate_lineage(lineage)
             self.project = lineage.project or self.project

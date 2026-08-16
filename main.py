@@ -312,6 +312,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         entity=resolved_config.wandb_entity,
         mode=resolved_config.wandb_mode,
         enabled=not resolved_config.no_wandb,
+        resume_from_lineage=resolved_config.run_mode != "inference-only",
         run_root=wandb_loader_definition.cache_root / "wandb_runs",
     )
     setup_steps = [
@@ -457,7 +458,12 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 run_number=resolved_config.retriever_run_number,
             ),
             *(
-                [LogRetrieverToWandbStep(coordinator=wandb_coordinator)]
+                [
+                    LogRetrieverToWandbStep(
+                        coordinator=wandb_coordinator,
+                        copy_to_new_experiment=True,
+                    )
+                ]
                 if not resolved_config.no_wandb
                 else []
             ),

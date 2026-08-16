@@ -196,7 +196,7 @@ Evaluation compacts the selected test instances into unique node, relation, and 
 | `--wandb-mode {online,offline,disabled}` | W&B mode. Defaults to `WANDB_MODE` from the environment, then `online`. |
 | `--wandb-training-log-every WANDB_TRAINING_LOG_EVERY` | How often live training loss is sent to W&B, measured in processed instances. Use `0` to disable live loss events. |
 
-New W&B runs use a dataset-wide sequential identifier in the form `run_number_YYYYMMDD_HHMMSS`, independent of which pipeline mode creates them. One W&B run is reused across the logical experiment. Model, retriever, inference, and final-result configs persist the run ID and identifier so later evaluation-only or inference-only commands can resume it. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts.
+New W&B runs use a dataset-wide sequential identifier in the form `run_number_YYYYMMDD_HHMMSS`, independent of which pipeline mode creates them. Full, training, retriever, and evaluation continuations reuse their logical experiment where applicable. Every inference-only command creates a new W&B run and copies the selected retriever metrics and configuration into it, so multiple LLM inference runs remain independently comparable without modifying the retriever run. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts.
 
 ### Execution Helpers
 

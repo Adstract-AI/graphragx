@@ -844,6 +844,45 @@ class MainEntrypointTests(unittest.TestCase):
         )
         self.assertIsInstance(pipeline.evaluation_steps[-1], ComputeFinalResultsStep)
 
+    def test_inference_only_copies_retriever_into_new_wandb_run(self) -> None:
+        saved_config = SavedGnnAnswerRetrieverConfig(
+            dataset_id="WebQSP",
+            entity_embedding_model="text-embedding-3-small",
+            question_embedding_model="text-embedding-3-small",
+            relation_embedding_model="text-embedding-3-small",
+            entity_embedding_dimension=1536,
+            question_embedding_dimension=1536,
+            relation_embedding_dimension=1536,
+            hidden_dimension=256,
+            gnn_layer_count=2,
+            node_classifier="mlp",
+            training=SavedGnnAnswerRetrieverTrainingConfig(
+                epochs=1,
+                learning_rate=0.001,
+                weight_decay=0.0,
+                log_every=3,
+                device="cpu",
+            ),
+            final_loss=0.5,
+            trained_instances=3,
+        )
+        with patch.object(
+            main.GnnRetrieverResultsService,
+            "load_model_config",
+            return_value=saved_config,
+        ):
+            pipeline = main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    run_mode="inference-only",
+                    retriever_run_number=7,
+                    use_default_config_values=True,
+                )
+            )
+
+        retriever_wandb_step = pipeline.evaluation_steps[1]
+        self.assertIsInstance(retriever_wandb_step, LogRetrieverToWandbStep)
+        self.assertTrue(retriever_wandb_step.copy_to_new_experiment)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -83,6 +83,7 @@ class CapturingCoordinator:
         self.logged: list[dict] = []
         self.config_updates: list[dict] = []
         self.artifact_calls: list[dict] = []
+        self.persisted_metadata_paths: list = []
         self.has_active_run = True
         self.metadata = type(
             "Metadata",
@@ -105,7 +106,7 @@ class CapturingCoordinator:
         self.config_updates.append(payload)
 
     def persist_metadata(self, path) -> None:
-        return None
+        self.persisted_metadata_paths.append(path)
 
     def log_artifact(self, **kwargs) -> None:
         self.artifact_calls.append(kwargs)
@@ -198,6 +199,40 @@ def test_coordinator_resumes_persisted_run(tmp_path) -> None:
         "model": {"training": {"epochs": 3}},
         "evaluation": {"candidate_limit": 20},
     }
+
+
+def test_coordinator_can_start_new_run_without_resuming_lineage(tmp_path) -> None:
+    fake_wandb = FakeWandb()
+    config_path = tmp_path / "evaluation_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "wandb": {
+                    "status": "logged",
+                    "run_id": "retriever-run-id",
+                    "run_name": "7_retriever",
+                    "project": "project",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    coordinator = WandbExperimentCoordinator(
+        project="project",
+        resume_from_lineage=False,
+        run_root=tmp_path / "wandb_runs",
+    )
+
+    with patch(
+        "pipeline.evaluation.services.wandb_experiment.importlib.import_module",
+        return_value=fake_wandb,
+    ):
+        coordinator.ensure_run(source_config_path=config_path)
+
+    init_payload = fake_wandb.init_calls[0]
+    assert "id" not in init_payload
+    assert "resume" not in init_payload
+    assert init_payload["name"].startswith("1_")
 
 
 def test_coordinator_rejects_conflicting_persisted_project(tmp_path) -> None:
@@ -453,3 +488,14 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     assert continuation_coordinator.logged == []
     assert continuation_coordinator.artifact_calls == []
     assert len(continuation_coordinator.config_updates) == 1
+
+    copied_coordinator = CapturingCoordinator()
+    LogRetrieverToWandbStep(
+        coordinator=copied_coordinator,
+        copy_to_new_experiment=True,
+    ).execute_default(StepContext(result=continuation_result))
+
+    assert copied_coordinator.logged[0]["Run_Summary/retrieval_hits_at_1"] == 0.4
+    assert copied_coordinator.logged[0]["Summary_Plots/retrieval_hits_at_5"] == 0.8
+    assert len(copied_coordinator.artifact_calls) == 1
+    assert copied_coordinator.persisted_metadata_paths == []

@@ -223,10 +223,12 @@ class LogRetrieverToWandbStep(
     def __init__(
         self,
         coordinator: WandbExperimentCoordinator,
+        copy_to_new_experiment: bool = False,
         force_default: bool = False,
     ) -> None:
         super().__init__(force_default=force_default)
         self.coordinator = coordinator
+        self.copy_to_new_experiment = copy_to_new_experiment
 
     def execute_default(
         self,
@@ -259,7 +261,9 @@ class LogRetrieverToWandbStep(
                 retrieval_metrics_path=result.retrieval_metrics_path,
             )
         )
-        is_logged_continuation = result.wandb_run_id is not None
+        is_logged_continuation = (
+            result.wandb_run_id is not None and not self.copy_to_new_experiment
+        )
         if is_logged_continuation:
             logger.info(
                 "Preserving previously logged retriever metrics during W&B "
@@ -289,7 +293,8 @@ class LogRetrieverToWandbStep(
                 )
             )
             self.coordinator.log(metrics)
-        self.coordinator.persist_metadata(result.evaluation_config_path)
+        if not self.copy_to_new_experiment:
+            self.coordinator.persist_metadata(result.evaluation_config_path)
         if not is_logged_continuation:
             artifact_paths = [result.evaluation_config_path, result.predictions_path]
             if result.retrieval_metrics_path is not None:
@@ -299,7 +304,8 @@ class LogRetrieverToWandbStep(
                 artifact_type="retriever-results",
                 paths=artifact_paths,
             )
-        self.coordinator.persist_metadata(result.evaluation_config_path)
+        if not self.copy_to_new_experiment:
+            self.coordinator.persist_metadata(result.evaluation_config_path)
         metadata = self.coordinator.metadata
         return result.model_copy(
             update={
