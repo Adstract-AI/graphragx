@@ -139,6 +139,11 @@ class WandbExperimentCoordinator:
                     "Training/loss",
                     step_metric="Training/global_step",
                 )
+                self._run.define_metric("Training/epoch")
+                self._run.define_metric(
+                    "Training/gnn_training_loss",
+                    step_metric="Training/epoch",
+                )
             run_id = str(getattr(self._run, "id", "")) or None
             run_url = str(getattr(self._run, "url", "")) or None
             self._metadata = WandbTrackingMetadata(

@@ -16,6 +16,9 @@ from pipeline.evaluation.models import (
 )
 from helpers.path_serialization import project_absolute_path
 from pipeline.evaluation.services.wandb_experiment import WandbExperimentCoordinator
+from pipeline.evaluation.services.wandb_final_results import (
+    WandbFinalResultsLoggingService,
+)
 from pipeline.preparation.steps.gnn_answer_retriever_training import (
     TrainedGnnAnswerRetriever,
 )
@@ -49,7 +52,7 @@ class LogTrainingToWandbStep(
             epoch = int(point["epoch"])
             self.coordinator.log(
                 {
-                    "Training/epoch_average_loss": float(point["average_loss"]),
+                    "Training/gnn_training_loss": float(point["average_loss"]),
                     "Training/epoch": epoch,
                 }
             )
@@ -120,6 +123,25 @@ class LogRetrieverToWandbStep(
             "Retriever/average_candidate_count": result.average_candidate_count,
             "Retriever/missing_gold_in_graph_count": result.missing_gold_in_graph_count,
         }
+        scalar_metrics = WandbFinalResultsLoggingService.build_scalar_metrics(
+            retrieval_metrics={
+                "hits_at_1": result.hits_at_1,
+                "hits_at_5": result.hits_at_5,
+                "hits_at_10": result.hits_at_10,
+                "hits_at_candidate_limit": result.hits_at_candidate_limit,
+                "average_candidate_count": result.average_candidate_count,
+                "missing_gold_in_graph_count": (
+                    result.missing_gold_in_graph_count
+                ),
+            },
+            reasoning_metrics={},
+        )
+        metrics.update(
+            WandbFinalResultsLoggingService.build_run_summary_plot_metrics(
+                scalar_metrics=scalar_metrics,
+                wandb_config={},
+            )
+        )
         self.coordinator.log(metrics)
         self.coordinator.persist_metadata(result.evaluation_config_path)
         artifact_paths = [result.evaluation_config_path, result.predictions_path]
@@ -158,7 +180,7 @@ class LogRetrieverToWandbStep(
                 self.coordinator.log(
                     {
                         "Training/epoch": epoch,
-                        "Training/epoch_average_loss": float(average_loss),
+                        "Training/gnn_training_loss": float(average_loss),
                     }
                 )
         self.coordinator.log_artifact(

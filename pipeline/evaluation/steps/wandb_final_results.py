@@ -125,20 +125,37 @@ class LogFinalResultsToWandbStep(
             else None
         )
         prefix = f"Inference/{inference_name}"
+        retrieval_metrics = self.logging_service._load_json_object(
+            final_result.retrieval_metrics_path
+        )
+        reasoning_metrics = self.logging_service._load_json_object(
+            final_result.reasoning_metrics_path
+        )
+        scalar_metrics = self.logging_service.build_scalar_metrics(
+            retrieval_metrics=retrieval_metrics,
+            reasoning_metrics=reasoning_metrics,
+        )
+        payload = {
+            f"{prefix}/evaluated_instances": final_result.evaluated_instances,
+            f"{prefix}/accuracy": final_result.accuracy,
+            f"{prefix}/hit_rate": final_result.hit_rate,
+            f"{prefix}/hits_at_1": final_result.hits_at_1,
+            f"{prefix}/precision": final_result.precision,
+            f"{prefix}/recall": final_result.recall,
+            f"{prefix}/f1": final_result.f1,
+            f"{prefix}/grounded_explanation_rate": (
+                final_result.grounded_explanation_rate
+            ),
+            f"{prefix}/ndcg_at_10": final_result.ndcg_at_10,
+        }
+        payload.update(
+            self.logging_service.build_run_summary_plot_metrics(
+                scalar_metrics=scalar_metrics,
+                wandb_config={},
+            )
+        )
         self.coordinator.log(
-            {
-                f"{prefix}/evaluated_instances": final_result.evaluated_instances,
-                f"{prefix}/accuracy": final_result.accuracy,
-                f"{prefix}/hit_rate": final_result.hit_rate,
-                f"{prefix}/hits_at_1": final_result.hits_at_1,
-                f"{prefix}/precision": final_result.precision,
-                f"{prefix}/recall": final_result.recall,
-                f"{prefix}/f1": final_result.f1,
-                f"{prefix}/grounded_explanation_rate": (
-                    final_result.grounded_explanation_rate
-                ),
-                f"{prefix}/ndcg_at_10": final_result.ndcg_at_10,
-            },
+            payload,
             source_config_path=source_config_path,
         )
         inference_config_value = inference_ref.get("inference_config_path")

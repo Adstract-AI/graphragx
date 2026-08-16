@@ -473,3 +473,44 @@ def test_wandb_step_records_success(tmp_path: Path) -> None:
     assert result.wandb_status == "logged"
     assert result.wandb_run_id == "run-1"
     assert result.wandb_run_url == "https://wandb.test/run-1"
+
+
+def test_shared_experiment_restores_legacy_run_summary_metrics(
+    tmp_path: Path,
+) -> None:
+    final_result = _fake_final_result(tmp_path)
+
+    class CapturingCoordinator:
+        def __init__(self) -> None:
+            self.logged: list[dict] = []
+            self.metadata = SimpleNamespace(
+                status="logged",
+                run_id="run-1",
+                run_url="https://wandb.test/run-1",
+                error_message=None,
+            )
+
+        def log(self, payload, **kwargs) -> None:
+            self.logged.append(payload)
+
+        def persist_metadata(self, path) -> None:
+            return None
+
+        def log_artifact(self, **kwargs) -> None:
+            return None
+
+    coordinator = CapturingCoordinator()
+    result = LogFinalResultsToWandbStep(
+        coordinator=coordinator,
+    ).execute_default(StepContext(result=final_result))
+
+    payload = coordinator.logged[0]
+    assert payload["Run_Summary/retrieval_hits_at_1"] == 0.5
+    assert payload["Run_Summary/retrieval_hits_at_10"] == 1.0
+    assert payload["Run_Summary/retrieval_hits_at_candidate_limit"] == 1.0
+    assert payload["Run_Summary/answer_hit_rate"] == 0.5
+    assert payload["Run_Summary/answer_f1"] == 2 / 3
+    assert payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
+    assert payload["Run_Summary/grounded_explanation_rate"] == 0.5
+    assert payload["Inference/1_inference/f1"] == 2 / 3
+    assert result.wandb_status == "logged"
