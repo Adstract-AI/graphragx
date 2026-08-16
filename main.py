@@ -25,6 +25,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE,
     DEFAULT_TRAINING_GPU_CACHE_RESERVE_GB,
     DEFAULT_TRAINING_WEIGHT_DECAY,
+    DEFAULT_WANDB_TRAINING_LOG_EVERY,
 )
 from helpers.logging_config import get_logger, setup_logger
 from pipeline import (
@@ -107,6 +108,7 @@ class PipelineRuntimeConfig(BaseModel):
     training_max_instances: int | None = None
     training_start_instance: int = 0
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
+    wandb_training_log_every: int = DEFAULT_WANDB_TRAINING_LOG_EVERY
     training_device: str = DEFAULT_TRAINING_DEVICE
     training_profile: bool = DEFAULT_TRAINING_PROFILE
     training_embedding_cache_device: str = DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE
@@ -192,10 +194,18 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         raise PipelineException(
             "--training-start-instance must be greater than or equal to 0."
         )
+    if config.training_log_every < 0:
+        raise PipelineException(
+            "--training-log-every must be greater than or equal to 0."
+        )
     if config.edge_mlp_hidden_dim is not None and config.edge_mlp_hidden_dim <= 0:
         raise PipelineException("--edge-mlp-hidden-dim must be greater than zero.")
     if config.dropout < 0 or config.dropout >= 1:
         raise PipelineException("--dropout must be greater than or equal to 0 and less than 1.")
+    if config.wandb_training_log_every < 0:
+        raise PipelineException(
+            "--wandb-training-log-every must be greater than or equal to 0."
+        )
     if config.run_mode in {"evaluation-only", "inference-only"} and (
         config.continue_training_model_run_name is not None
         or config.continue_training_model_run_number is not None
@@ -291,11 +301,18 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 "entity_embedding_model": saved_model_config.entity_embedding_model,
             }
         )
+    wandb_dataset_id = resolved_config.dataset or WEBQSP_DATASET_ID
+    wandb_loader_definition = DATASET_LOADERS.get(wandb_dataset_id)
+    if wandb_loader_definition is None:
+        raise PipelineException(
+            f"W&B run identifiers do not support dataset {wandb_dataset_id}."
+        )
     wandb_coordinator = WandbExperimentCoordinator(
         project=resolved_config.wandb_project,
         entity=resolved_config.wandb_entity,
         mode=resolved_config.wandb_mode,
         enabled=not resolved_config.no_wandb,
+        run_root=wandb_loader_definition.cache_root / "wandb_runs",
     )
     setup_steps = [
         SelectDatasetStep(
@@ -362,7 +379,8 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             training_service=GnnAnswerRetrieverTrainingService(
                 progress_callback=wandb_coordinator.log_training_progress
                 if not resolved_config.no_wandb
-                else None
+                else None,
+                progress_callback_every=resolved_config.wandb_training_log_every,
             ),
         ),
     ]
@@ -763,7 +781,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--training-log-every",
         type=int,
         default=DEFAULT_TRAINING_LOG_EVERY,
-        help="Log training progress after this many instances.",
+        help="Write console training progress after this many instances. Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--wandb-training-log-every",
+        type=int,
+        default=DEFAULT_WANDB_TRAINING_LOG_EVERY,
+        help="Send live training loss to W&B after this many instances. Use 0 to disable.",
     )
     parser.add_argument(
         "--training-device",
@@ -979,6 +1003,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_max_instances=args.training_max_instances,
         training_start_instance=args.training_start_instance,
         training_log_every=args.training_log_every,
+        wandb_training_log_every=args.wandb_training_log_every,
         training_device=args.training_device,
         training_profile=args.training_profile,
         training_embedding_cache_device=args.training_embedding_cache_device,

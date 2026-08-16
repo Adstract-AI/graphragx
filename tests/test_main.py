@@ -455,6 +455,35 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(len(captured_configs), 1)
         self.assertEqual(captured_configs[0].evaluation_log_every, 25)
 
+    def test_console_and_wandb_training_log_flags_are_parsed_separately(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            exit_code = main.main(
+                [
+                    "--training-log-every",
+                    "20",
+                    "--wandb-training-log-every",
+                    "5",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured_configs[0].training_log_every, 20)
+        self.assertEqual(captured_configs[0].wandb_training_log_every, 5)
+
     def test_evaluation_embedding_and_profile_flags_are_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
 
@@ -616,6 +645,21 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertIsInstance(training_step, TrainGnnAnswerRetrieverStep)
         self.assertTrue(training_step.training_config.profile)
 
+    def test_console_and_wandb_training_intervals_are_wired_separately(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                training_log_every=20,
+                wandb_training_log_every=5,
+            ),
+        )
+
+        training_step = next(
+            step for step in pipeline.preparation_steps
+            if isinstance(step, TrainGnnAnswerRetrieverStep)
+        )
+        self.assertEqual(training_step.training_config.log_every, 20)
+        self.assertEqual(training_step.training_service.progress_callback_every, 5)
+
     def test_embedding_cache_settings_are_wired_into_preparation_step(self) -> None:
         pipeline = main.build_pipeline(
             config=main.PipelineRuntimeConfig(
@@ -670,6 +714,16 @@ class MainEntrypointTests(unittest.TestCase):
         ):
             main.build_pipeline(
                 config=main.PipelineRuntimeConfig(training_start_instance=-1),
+            )
+
+    def test_negative_training_log_intervals_fail_early(self) -> None:
+        with self.assertRaisesRegex(main.PipelineException, "training-log-every"):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(training_log_every=-1),
+            )
+        with self.assertRaisesRegex(main.PipelineException, "wandb-training-log-every"):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(wandb_training_log_every=-1),
             )
 
     def test_evaluation_only_rejects_training_continuation_flags(self) -> None:

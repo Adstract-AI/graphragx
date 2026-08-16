@@ -22,6 +22,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_LOG_EVERY,
     DEFAULT_TRAINING_PROFILE,
     DEFAULT_TRAINING_WEIGHT_DECAY,
+    DEFAULT_WANDB_TRAINING_LOG_EVERY,
     GNN_ANSWER_RETRIEVER_CONFIG_FILENAME,
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
 )
@@ -156,9 +157,11 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         self,
         model_run_service: GnnAnswerRetrieverModelRunService | None = None,
         progress_callback: Callable[[dict[str, float | int]], None] | None = None,
+        progress_callback_every: int = DEFAULT_WANDB_TRAINING_LOG_EVERY,
     ) -> None:
         self.model_run_service = model_run_service or GnnAnswerRetrieverModelRunService()
         self.progress_callback = progress_callback
+        self.progress_callback_every = progress_callback_every
 
     def train(
         self,
@@ -353,10 +356,10 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 detached_loss = loss.detach()
                 epoch_loss += detached_loss
                 if (
-                    training_config.log_every > 0
-                    and (
-                        instance_index % training_config.log_every == 0
-                        or instance_index == len(prepared_training_data.instances)
+                    self._is_progress_due(
+                        instance_index=instance_index,
+                        total_instances=len(prepared_training_data.instances),
+                        interval=training_config.log_every,
                     )
                 ):
                     logger.info(
@@ -371,18 +374,25 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                             processed_instances=instance_index,
                             timings=phase_timings,
                         )
-                    if self.progress_callback is not None:
-                        self.progress_callback(
-                            {
-                                "epoch": epoch,
-                                "instance": instance_index,
-                                "global_step": (
-                                    (epoch - 1) * len(prepared_training_data.instances)
-                                    + instance_index
-                                ),
-                                "loss": float(detached_loss.item()),
-                            }
-                        )
+                if (
+                    self.progress_callback is not None
+                    and self._is_progress_due(
+                        instance_index=instance_index,
+                        total_instances=len(prepared_training_data.instances),
+                        interval=self.progress_callback_every,
+                    )
+                ):
+                    self.progress_callback(
+                        {
+                            "epoch": epoch,
+                            "instance": instance_index,
+                            "global_step": (
+                                (epoch - 1) * len(prepared_training_data.instances)
+                                + instance_index
+                            ),
+                            "loss": float(detached_loss.item()),
+                        }
+                    )
 
             final_loss = (epoch_loss / len(prepared_training_data.instances)).item()
             loss_history.append(
@@ -469,6 +479,18 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             continued_from_model_run_number=(
                 continued_run.run_number if continued_run is not None else None
             ),
+        )
+
+    @staticmethod
+    def _is_progress_due(
+        *,
+        instance_index: int,
+        total_instances: int,
+        interval: int,
+    ) -> bool:
+        """Return whether an interval stream should report this instance."""
+        return interval > 0 and (
+            instance_index % interval == 0 or instance_index == total_instances
         )
 
     @staticmethod

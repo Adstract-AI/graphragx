@@ -27,6 +27,7 @@ from pipeline.evaluation.services.wandb_final_results import (
 )
 from pipeline.evaluation.services.wandb_experiment import (
     WandbExperimentCoordinator,
+    WandbRunIdentifierService,
     WandbTrackingMetadata,
 )
 
@@ -45,5 +46,6 @@ __all__ = [
     "WandbFinalResultsLoggingService",
     "WandbFinalResultsLogResult",
     "WandbExperimentCoordinator",
+    "WandbRunIdentifierService",
     "WandbTrackingMetadata",
 ]

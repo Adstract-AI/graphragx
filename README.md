@@ -137,7 +137,7 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--training-weight-decay TRAINING_WEIGHT_DECAY` | Weight decay for GNN training. |
 | `--training-max-instances TRAINING_MAX_INSTANCES` | Optional limit for how many WebQSP training instances to use. If omitted, the full train split is used. |
 | `--training-start-instance TRAINING_START_INSTANCE` | Zero-based train split index where training starts. With `--training-max-instances 100 --training-start-instance 101`, the slice is `[101:201]`. |
-| `--training-log-every TRAINING_LOG_EVERY` | How often training progress is logged, measured in processed instances. |
+| `--training-log-every TRAINING_LOG_EVERY` | How often training progress is written to the console, measured in processed instances. Use `0` to disable progress messages. |
 | `--training-device {auto,cpu,cuda,mps}` | Device used for GNN training. `auto` selects the best available supported device. |
 | `--training-profile` | Reports synchronized input, forward, loss, backward, and optimizer timings. Use only for short diagnostics because synchronization reduces throughput. |
 | `--training-embedding-cache-device {auto,gpu,cpu}` | Placement for compact frozen embeddings prepared before training. `auto` uses CUDA when the matrices fit after the configured reserve. |
@@ -194,8 +194,9 @@ Evaluation compacts the selected test instances into unique node, relation, and 
 | `--wandb-project WANDB_PROJECT` | W&B project name. Defaults to `WANDB_PROJECT` from the environment, then `graphragx`. |
 | `--wandb-entity WANDB_ENTITY` | Optional W&B entity/team. Defaults to `WANDB_ENTITY` from the environment. |
 | `--wandb-mode {online,offline,disabled}` | W&B mode. Defaults to `WANDB_MODE` from the environment, then `online`. |
+| `--wandb-training-log-every WANDB_TRAINING_LOG_EVERY` | How often live training loss is sent to W&B, measured in processed instances. Use `0` to disable live loss events. |
 
-One W&B run is reused across the logical experiment. Model, retriever, inference, and final-result configs persist the run ID so later evaluation-only or inference-only commands can resume it. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts.
+New W&B runs use a dataset-wide sequential identifier in the form `run_number_YYYYMMDD_HHMMSS`, independent of which pipeline mode creates them. One W&B run is reused across the logical experiment. Model, retriever, inference, and final-result configs persist the run ID and identifier so later evaluation-only or inference-only commands can resume it. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts.
 
 ### Execution Helpers
 

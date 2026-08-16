@@ -9,6 +9,7 @@ import pytest
 
 from pipeline.evaluation.services.wandb_experiment import (
     WandbExperimentCoordinator,
+    WandbRunIdentifierService,
 )
 from pipeline.exceptions import PipelineException
 from pipeline.abstract import StepContext
@@ -60,7 +61,11 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
     fake_wandb = FakeWandb()
     config_path = tmp_path / "model_config.json"
     config_path.write_text("{}", encoding="utf-8")
-    coordinator = WandbExperimentCoordinator(project="project", entity="team")
+    coordinator = WandbExperimentCoordinator(
+        project="project",
+        entity="team",
+        run_root=tmp_path / "wandb_runs",
+    )
 
     with patch(
         "pipeline.evaluation.services.wandb_experiment.importlib.import_module",
@@ -74,10 +79,13 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
         coordinator.finish()
 
     assert len(fake_wandb.init_calls) == 1
+    assert fake_wandb.init_calls[0]["name"].startswith("1_")
+    assert fake_wandb.init_calls[0]["name"] != "gnn-training"
     assert fake_wandb.run.logged[0][0]["Training/global_step"] == 3
     assert fake_wandb.run.finished is True
     tracking = json.loads(config_path.read_text(encoding="utf-8"))["wandb"]
     assert tracking["run_id"] == "wandb-run-id"
+    assert tracking["run_name"] == fake_wandb.init_calls[0]["name"]
     assert tracking["project"] == "project"
 
 
@@ -132,8 +140,11 @@ def test_coordinator_rejects_conflicting_persisted_project(tmp_path) -> None:
         )
 
 
-def test_operational_initialization_failure_is_non_fatal() -> None:
-    coordinator = WandbExperimentCoordinator(project="project")
+def test_operational_initialization_failure_is_non_fatal(tmp_path) -> None:
+    coordinator = WandbExperimentCoordinator(
+        project="project",
+        run_root=tmp_path / "wandb_runs",
+    )
 
     with patch(
         "pipeline.evaluation.services.wandb_experiment.importlib.import_module",
@@ -147,7 +158,10 @@ def test_operational_initialization_failure_is_non_fatal() -> None:
 
 def test_multiple_inference_runs_are_namespaced_on_one_wandb_run(tmp_path) -> None:
     fake_wandb = FakeWandb()
-    coordinator = WandbExperimentCoordinator(project="project")
+    coordinator = WandbExperimentCoordinator(
+        project="project",
+        run_root=tmp_path / "wandb_runs",
+    )
     step = LogInferenceToWandbStep(coordinator=coordinator)
 
     with patch(
@@ -198,3 +212,16 @@ def test_multiple_inference_runs_are_namespaced_on_one_wandb_run(tmp_path) -> No
     }
     assert "Inference/first/total_tokens" in logged_keys
     assert "Inference/second/total_tokens" in logged_keys
+
+
+def test_run_identifier_service_uses_one_global_counter(tmp_path) -> None:
+    service = WandbRunIdentifierService()
+    run_root = tmp_path / "wandb_runs"
+
+    first = service.allocate(run_root)
+    second = service.allocate(run_root)
+
+    assert first.startswith("1_")
+    assert second.startswith("2_")
+    assert (run_root / first).is_dir()
+    assert (run_root / second).is_dir()

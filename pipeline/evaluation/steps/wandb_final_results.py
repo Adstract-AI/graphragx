@@ -140,7 +140,6 @@ class LogFinalResultsToWandbStep(
                 f"{prefix}/ndcg_at_10": final_result.ndcg_at_10,
             },
             source_config_path=source_config_path,
-            run_name=inference_name,
         )
         inference_config_value = inference_ref.get("inference_config_path")
         artifact_paths = [

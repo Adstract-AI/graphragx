@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -21,10 +23,40 @@ class WandbTrackingMetadata(BaseModel):
 
     status: Literal["logged", "failed", "skipped"]
     run_id: str | None = None
+    run_name: str | None = None
     run_url: str | None = None
     project: str | None = None
     entity: str | None = None
     error_message: str | None = None
+
+
+class WandbRunIdentifierService:
+    """Allocate dataset-wide sequential names for newly created W&B runs."""
+
+    def allocate(self, run_root: Path) -> str:
+        """Create and return the next ``number_timestamp`` run identifier."""
+        run_root.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        while True:
+            run_number = max(
+                (
+                    self._extract_run_number(path.name)
+                    for path in run_root.iterdir()
+                    if path.is_dir()
+                ),
+                default=0,
+            ) + 1
+            run_name = f"{run_number}_{timestamp}"
+            try:
+                (run_root / run_name).mkdir(exist_ok=False)
+                return run_name
+            except FileExistsError:
+                continue
+
+    @staticmethod
+    def _extract_run_number(name: str) -> int:
+        match = re.match(r"^(\d+)_", name)
+        return int(match.group(1)) if match else 0
 
 
 class WandbExperimentCoordinator:
@@ -37,6 +69,8 @@ class WandbExperimentCoordinator:
         entity: str | None = None,
         mode: str | None = None,
         enabled: bool = True,
+        run_root: Path | None = None,
+        run_identifier_service: WandbRunIdentifierService | None = None,
     ) -> None:
         self.requested_project = project
         self.requested_entity = entity
@@ -44,6 +78,10 @@ class WandbExperimentCoordinator:
         self.entity = entity if entity is not None else WANDB_ENTITY
         self.mode = mode or WANDB_MODE
         self.enabled = enabled
+        self.run_root = run_root
+        self.run_identifier_service = (
+            run_identifier_service or WandbRunIdentifierService()
+        )
         self._wandb: Any | None = None
         self._run: Any | None = None
         self._metadata = WandbTrackingMetadata(status="skipped")
@@ -63,7 +101,6 @@ class WandbExperimentCoordinator:
         self,
         *,
         source_config_path: Path | None = None,
-        run_name: str | None = None,
     ) -> WandbTrackingMetadata:
         """Initialize or resume the shared run using optional persisted lineage."""
         if not self.enabled:
@@ -76,6 +113,14 @@ class WandbExperimentCoordinator:
             self._validate_lineage(lineage)
             self.project = lineage.project or self.project
             self.entity = lineage.entity if lineage.entity is not None else self.entity
+        run_name = lineage.run_name if lineage is not None else None
+        if lineage is None:
+            if self.run_root is None:
+                raise PipelineException(
+                    "Creating a W&B run requires a configured run identifier root."
+                )
+            run_name = self.run_identifier_service.allocate(self.run_root)
+            logger.info(f"Allocated W&B run identifier: {run_name}")
         try:
             self._wandb = importlib.import_module("wandb")
             init_kwargs: dict[str, Any] = {
@@ -99,6 +144,7 @@ class WandbExperimentCoordinator:
             self._metadata = WandbTrackingMetadata(
                 status="logged",
                 run_id=run_id,
+                run_name=run_name,
                 run_url=run_url,
                 project=self.project,
                 entity=self.entity,
@@ -107,6 +153,7 @@ class WandbExperimentCoordinator:
             logger.warning(f"WandB experiment initialization failed: {error}")
             self._metadata = WandbTrackingMetadata(
                 status="failed",
+                run_name=run_name,
                 project=self.project,
                 entity=self.entity,
                 error_message=str(error),
@@ -118,11 +165,10 @@ class WandbExperimentCoordinator:
         payload: dict[str, float | int | str],
         *,
         source_config_path: Path | None = None,
-        run_name: str | None = None,
         step: int | None = None,
     ) -> None:
         """Best-effort log scalar stage data to the active experiment."""
-        self.ensure_run(source_config_path=source_config_path, run_name=run_name)
+        self.ensure_run(source_config_path=source_config_path)
         if self._run is None:
             return
         try:
@@ -143,7 +189,6 @@ class WandbExperimentCoordinator:
                 "Training/instance": int(payload["instance"]),
                 "Training/global_step": global_step,
             },
-            run_name="gnn-training",
         )
 
     def log_artifact(
@@ -155,7 +200,7 @@ class WandbExperimentCoordinator:
         source_config_path: Path | None = None,
     ) -> None:
         """Best-effort upload a collection of existing local artifact files."""
-        self.ensure_run(source_config_path=source_config_path, run_name=name)
+        self.ensure_run(source_config_path=source_config_path)
         if self._run is None or self._wandb is None:
             return
         try:

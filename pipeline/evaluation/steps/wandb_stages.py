@@ -44,7 +44,7 @@ class LogTrainingToWandbStep(
         result = context.result
         if result is None:
             raise PipelineException("Training W&B logging requires a training result.")
-        self.coordinator.ensure_run(run_name=result.model_run_name)
+        self.coordinator.ensure_run()
         for point in result.loss_history:
             epoch = int(point["epoch"])
             self.coordinator.log(
@@ -108,7 +108,6 @@ class LogRetrieverToWandbStep(
         )
         self.coordinator.ensure_run(
             source_config_path=source_config_path,
-            run_name=result.evaluation_run_name,
         )
         if not had_active_run and result.wandb_run_id is None:
             self._backfill_training(model_config_path)
@@ -238,7 +237,6 @@ class LogInferenceToWandbStep(
         self.coordinator.log(
             payload,
             source_config_path=source_config_path,
-            run_name=result.inference_run_name,
         )
         self.coordinator.persist_metadata(result.inference_config_path)
         self.coordinator.log_artifact(

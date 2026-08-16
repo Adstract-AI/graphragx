@@ -40,6 +40,38 @@ class FakeTorch:
 
 
 class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
+    def test_console_and_wandb_intervals_can_be_evaluated_independently(self) -> None:
+        service = GnnAnswerRetrieverTrainingService()
+
+        self.assertFalse(
+            service._is_progress_due(
+                instance_index=5,
+                total_instances=20,
+                interval=10,
+            )
+        )
+        self.assertTrue(
+            service._is_progress_due(
+                instance_index=5,
+                total_instances=20,
+                interval=5,
+            )
+        )
+        self.assertTrue(
+            service._is_progress_due(
+                instance_index=20,
+                total_instances=20,
+                interval=7,
+            )
+        )
+        self.assertFalse(
+            service._is_progress_due(
+                instance_index=20,
+                total_instances=20,
+                interval=0,
+            )
+        )
+
     def test_select_train_instances_defaults_to_full_split(self) -> None:
         dataset = SimpleNamespace(train_instances=list(range(3)))
 
