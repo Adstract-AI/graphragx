@@ -16,6 +16,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
     DEFAULT_TRAINING_LOG_EVERY,
+    DEFAULT_TRAINING_PROFILE,
     DEFAULT_TRAINING_WEIGHT_DECAY,
 )
 from helpers.logging_config import get_logger, setup_logger
@@ -81,6 +82,7 @@ class PipelineRuntimeConfig(BaseModel):
     training_start_instance: int = 0
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
     training_device: str = DEFAULT_TRAINING_DEVICE
+    training_profile: bool = DEFAULT_TRAINING_PROFILE
     training_run_name: str | None = None
     continue_training_model_run_name: str | None = None
     continue_training_model_run_number: int | None = None
@@ -189,6 +191,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             training_start_instance=resolved_config.training_start_instance,
             training_log_every=resolved_config.training_log_every,
             training_device=resolved_config.training_device,
+            training_profile=resolved_config.training_profile,
             training_run_name=resolved_config.training_run_name,
             continue_training_model_run_name=(
                 resolved_config.continue_training_model_run_name
@@ -534,6 +537,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="PyTorch device used for GNN answer-retriever training.",
     )
     parser.add_argument(
+        "--training-profile",
+        action="store_true",
+        default=DEFAULT_TRAINING_PROFILE,
+        help="Synchronize and report detailed GNN training phase timings.",
+    )
+    parser.add_argument(
         "--training-run-name",
         default=None,
         help="Optional label for the versioned training run folder.",
@@ -682,6 +691,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_start_instance=args.training_start_instance,
         training_log_every=args.training_log_every,
         training_device=args.training_device,
+        training_profile=args.training_profile,
         training_run_name=args.training_run_name,
         continue_training_model_run_name=args.continue_training_model_run_name,
         continue_training_model_run_number=args.continue_training_model_run_number,

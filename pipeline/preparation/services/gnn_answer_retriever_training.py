@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +18,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
     DEFAULT_TRAINING_LOG_EVERY,
+    DEFAULT_TRAINING_PROFILE,
     DEFAULT_TRAINING_WEIGHT_DECAY,
     GNN_ANSWER_RETRIEVER_CONFIG_FILENAME,
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
@@ -43,6 +46,20 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+class SynchronizableDeviceRuntime(Protocol):
+    """Accelerator runtime capable of synchronizing queued operations."""
+
+    def synchronize(self) -> None:
+        """Wait for queued accelerator operations to finish."""
+
+
+class TorchRuntime(Protocol):
+    """Subset of the torch runtime needed by training profiling."""
+
+    cuda: SynchronizableDeviceRuntime
+    mps: SynchronizableDeviceRuntime
+
+
 class GnnAnswerRetrieverTrainingConfig(BaseModel):
     """Runtime training settings for the answer retriever."""
 
@@ -53,9 +70,33 @@ class GnnAnswerRetrieverTrainingConfig(BaseModel):
     start_instance: int = Field(default=0)
     log_every: int = Field(default=DEFAULT_TRAINING_LOG_EVERY)
     device: str = Field(default=DEFAULT_TRAINING_DEVICE)
+    profile: bool = Field(default=DEFAULT_TRAINING_PROFILE)
     run_name: str | None = Field(default=None)
     continue_from_model_run_name: str | None = Field(default=None)
     continue_from_model_run_number: int | None = Field(default=None)
+
+
+@dataclass
+class GnnTrainingPhaseTimings:
+    """Accumulate synchronized wall-clock timings for training phases."""
+
+    input_preparation_seconds: float = 0.0
+    forward_seconds: float = 0.0
+    loss_seconds: float = 0.0
+    backward_seconds: float = 0.0
+    optimizer_seconds: float = 0.0
+    instance_count: int = 0
+
+    @property
+    def total_seconds(self) -> float:
+        """Return total measured time across all training phases."""
+        return (
+            self.input_preparation_seconds
+            + self.forward_seconds
+            + self.loss_seconds
+            + self.backward_seconds
+            + self.optimizer_seconds
+        )
 
 
 class GnnAnswerRetrieverTrainingOutcome(BaseModel):
@@ -132,7 +173,6 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         """Train the built answer retriever on prepared WebQSP instances."""
         import torch
         import torch.nn.functional as torch_functional
-        from torch import nn
 
         (
             train_instances,
@@ -239,9 +279,15 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 f"Training epoch {epoch}/{training_config.epochs} "
                 f"over {len(train_instances)} WebQSP instances"
             )
-            epoch_loss = 0.0
+            epoch_loss = torch.zeros((), dtype=torch.float, device=device)
+            phase_timings = GnnTrainingPhaseTimings()
             for instance_index, instance in enumerate(train_instances, start=1):
-                optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=True)
+                phase_started_at = self._start_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=training_config.profile,
+                )
 
                 entity_features = self._build_entity_feature_tensor(
                     instance=instance,
@@ -274,6 +320,13 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 )
                 edge_index = instance.edge_index.to(device)
                 node_labels = instance.node_labels.to(device)
+                phase_started_at, elapsed_seconds = self._finish_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=training_config.profile,
+                    phase_started_at=phase_started_at,
+                )
+                phase_timings.input_preparation_seconds += elapsed_seconds
 
                 logits = model(
                     entity_features=entity_features,
@@ -282,17 +335,46 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     question_features=question_features,
                     relation_features=relation_features,
                 )
+                phase_started_at, elapsed_seconds = self._finish_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=training_config.profile,
+                    phase_started_at=phase_started_at,
+                )
+                phase_timings.forward_seconds += elapsed_seconds
                 loss = self._compute_loss(
                     logits=logits,
                     node_labels=node_labels,
                     torch=torch,
-                    loss_module=nn,
-                    device=device,
+                    torch_functional=torch_functional,
                 )
+                phase_started_at, elapsed_seconds = self._finish_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=training_config.profile,
+                    phase_started_at=phase_started_at,
+                )
+                phase_timings.loss_seconds += elapsed_seconds
                 loss.backward()
+                phase_started_at, elapsed_seconds = self._finish_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=training_config.profile,
+                    phase_started_at=phase_started_at,
+                )
+                phase_timings.backward_seconds += elapsed_seconds
                 optimizer.step()
+                _, elapsed_seconds = self._finish_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=training_config.profile,
+                    phase_started_at=phase_started_at,
+                )
+                phase_timings.optimizer_seconds += elapsed_seconds
+                phase_timings.instance_count += 1
 
-                epoch_loss += float(loss.detach().cpu().item())
+                detached_loss = loss.detach()
+                epoch_loss += detached_loss
                 if (
                     training_config.log_every > 0
                     and instance_index % training_config.log_every == 0
@@ -300,10 +382,16 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     logger.info(
                         f"Epoch {epoch}/{training_config.epochs} progress: "
                         f"{instance_index}/{len(train_instances)} instances, "
-                        f"latest_loss={float(loss.detach().cpu().item()):.6f}"
+                        f"latest_loss={detached_loss.item():.6f}"
                     )
+                    if training_config.profile:
+                        self._log_phase_timings(
+                            epoch=epoch,
+                            processed_instances=instance_index,
+                            timings=phase_timings,
+                        )
 
-            final_loss = epoch_loss / len(train_instances)
+            final_loss = (epoch_loss / len(train_instances)).item()
             loss_history.append(
                 {
                     "epoch": epoch,
@@ -314,6 +402,15 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 f"Finished epoch {epoch}/{training_config.epochs} "
                 f"with average_loss={final_loss:.6f}"
             )
+            if training_config.profile and (
+                training_config.log_every <= 0
+                or len(train_instances) % training_config.log_every != 0
+            ):
+                self._log_phase_timings(
+                    epoch=epoch,
+                    processed_instances=len(train_instances),
+                    timings=phase_timings,
+                )
 
         model_artifact_path = self._save_model_artifacts(
             model=model,
@@ -572,23 +669,75 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         logits,
         node_labels,
         torch,
-        loss_module,
-        device: str,
+        torch_functional,
     ):
+        """Compute class-balanced binary loss without synchronizing the device."""
         positive_count = node_labels.sum()
-        positive_value = float(positive_count.item())
-        if positive_value <= 0:
-            loss_function = loss_module.BCEWithLogitsLoss()
-            return loss_function(logits, node_labels)
-
-        negative_count = float(node_labels.numel()) - positive_value
-        positive_weight = torch.tensor(
-            [negative_count / positive_value],
-            dtype=torch.float,
-            device=device,
+        negative_count = node_labels.numel() - positive_count
+        positive_weight = torch.where(
+            positive_count > 0,
+            negative_count / positive_count.clamp_min(1),
+            torch.ones_like(positive_count),
         )
-        loss_function = loss_module.BCEWithLogitsLoss(pos_weight=positive_weight)
-        return loss_function(logits, node_labels)
+        return torch_functional.binary_cross_entropy_with_logits(
+            logits,
+            node_labels,
+            pos_weight=positive_weight,
+        )
+
+    @staticmethod
+    def _start_profiled_phase(
+        torch: TorchRuntime,
+        device: str,
+        enabled: bool,
+    ) -> float:
+        """Synchronize the selected device and start one measured phase."""
+        if not enabled:
+            return 0.0
+        GnnAnswerRetrieverTrainingService._synchronize_device(torch, device)
+        return time.perf_counter()
+
+    @staticmethod
+    def _finish_profiled_phase(
+        torch: TorchRuntime,
+        device: str,
+        enabled: bool,
+        phase_started_at: float,
+    ) -> tuple[float, float]:
+        """Finish one measured phase and return its next start and duration."""
+        if not enabled:
+            return 0.0, 0.0
+        GnnAnswerRetrieverTrainingService._synchronize_device(torch, device)
+        elapsed_seconds = time.perf_counter() - phase_started_at
+        return time.perf_counter(), elapsed_seconds
+
+    @staticmethod
+    def _synchronize_device(torch: TorchRuntime, device: str) -> None:
+        """Wait for asynchronous accelerator work before collecting timings."""
+        if device.startswith("cuda"):
+            torch.cuda.synchronize()
+        elif device == "mps":
+            torch.mps.synchronize()
+
+    @staticmethod
+    def _log_phase_timings(
+        epoch: int,
+        processed_instances: int,
+        timings: GnnTrainingPhaseTimings,
+    ) -> None:
+        """Log cumulative and per-instance training phase timings."""
+        if timings.instance_count == 0:
+            return
+        milliseconds_per_instance = 1000.0 / timings.instance_count
+        logger.info(
+            f"Training profile epoch={epoch} instances={processed_instances}: "
+            f"input_ms={timings.input_preparation_seconds * milliseconds_per_instance:.2f} "
+            f"forward_ms={timings.forward_seconds * milliseconds_per_instance:.2f} "
+            f"loss_ms={timings.loss_seconds * milliseconds_per_instance:.2f} "
+            f"backward_ms={timings.backward_seconds * milliseconds_per_instance:.2f} "
+            f"optimizer_ms={timings.optimizer_seconds * milliseconds_per_instance:.2f} "
+            f"total_ms={timings.total_seconds * milliseconds_per_instance:.2f}"
+        )
 
     def _save_model_artifacts(
         self,

@@ -500,6 +500,15 @@ class MainEntrypointTests(unittest.TestCase):
             12,
         )
 
+    def test_training_profile_is_wired_into_training_step(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(training_profile=True),
+        )
+
+        training_step = pipeline.preparation_steps[-1]
+        self.assertIsInstance(training_step, TrainGnnAnswerRetrieverStep)
+        self.assertTrue(training_step.training_config.profile)
+
     def test_gnn_architecture_flags_are_wired_into_configuration_step(self) -> None:
         pipeline = main.build_pipeline(
             config=main.PipelineRuntimeConfig(

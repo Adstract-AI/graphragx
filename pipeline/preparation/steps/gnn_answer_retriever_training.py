@@ -11,6 +11,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
     DEFAULT_TRAINING_LOG_EVERY,
+    DEFAULT_TRAINING_PROFILE,
     DEFAULT_TRAINING_WEIGHT_DECAY,
 )
 from helpers.logging_config import get_logger
@@ -64,6 +65,10 @@ class TrainedGnnAnswerRetriever(StepResult):
     )
     training_log_every: int = Field(..., description="Training progress log interval.")
     training_device: str = Field(..., description="Requested training device.")
+    training_profile: bool = Field(
+        default=DEFAULT_TRAINING_PROFILE,
+        description="Whether detailed synchronized training timings were enabled.",
+    )
     training_run_name: str | None = Field(
         default=None,
         description="Optional user-provided training run label.",
@@ -126,6 +131,7 @@ class TrainGnnAnswerRetrieverStep(
         training_start_instance: int = 0,
         training_log_every: int = DEFAULT_TRAINING_LOG_EVERY,
         training_device: str = DEFAULT_TRAINING_DEVICE,
+        training_profile: bool = DEFAULT_TRAINING_PROFILE,
         training_run_name: str | None = None,
         continue_training_model_run_name: str | None = None,
         continue_training_model_run_number: int | None = None,
@@ -141,6 +147,7 @@ class TrainGnnAnswerRetrieverStep(
             start_instance=training_start_instance,
             log_every=training_log_every,
             device=training_device,
+            profile=training_profile,
             run_name=training_run_name,
             continue_from_model_run_name=continue_training_model_run_name,
             continue_from_model_run_number=continue_training_model_run_number,
@@ -164,6 +171,7 @@ class TrainGnnAnswerRetrieverStep(
             f"epochs={self.training_config.epochs} "
             f"start_instance={self.training_config.start_instance} "
             f"max_instances={self.training_config.max_instances} "
+            f"profile={self.training_config.profile} "
             f"run_name={self.training_config.run_name} "
             f"continue_from_name={self.training_config.continue_from_model_run_name} "
             f"continue_from_number={self.training_config.continue_from_model_run_number}"
@@ -198,6 +206,7 @@ class TrainGnnAnswerRetrieverStep(
             training_end_instance=outcome.training_end_instance,
             training_log_every=self.training_config.log_every,
             training_device=self.training_config.device,
+            training_profile=self.training_config.profile,
             training_run_name=self.training_config.run_name,
             selected_device=outcome.selected_device,
             final_loss=outcome.final_loss,
