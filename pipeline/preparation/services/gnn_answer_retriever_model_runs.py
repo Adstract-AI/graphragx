@@ -14,6 +14,7 @@ from helpers.constants import (
 )
 from helpers.logging_config import get_logger
 from pipeline.preparation.helpers.configuration_definitions import OPENAI_EMBEDDING_MODELS
+from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
 from pipeline.preparation.exceptions import GnnAnswerRetrieverModelRunException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
@@ -32,6 +33,7 @@ class SavedGnnAnswerRetrieverTrainingConfig(BaseModel):
     start_instance: int = 0
     log_every: int
     device: str
+    gnn_architecture: str | None = None
     gnn_layer_count: int | None = None
     hidden_dimension: int | None = None
     loss_function: str | None = None
@@ -47,6 +49,7 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     """Architecture and training metadata loaded from a saved model run."""
 
     dataset_id: str
+    gnn_architecture: str | None = None
     entity_embedding_model: str
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
@@ -82,6 +85,10 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     @property
     def resolved_gnn_layer_count(self) -> int:
         return self.gnn_layer_count or self.training.gnn_layer_count or 0
+
+    @property
+    def resolved_gnn_architecture(self) -> str:
+        return infer_gnn_architecture(self.model_dump())
 
     @property
     def resolved_edge_mlp_hidden_dim(self) -> int:
@@ -173,9 +180,10 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
             run_name=run_name,
             run_number=run_number,
         )
-        from pipeline.preparation.models.gnn_answer_retriever import GnnAnswerRetriever
+        from pipeline.preparation.models.gnn_answer_retriever import build_gnn_answer_retriever
 
-        model = GnnAnswerRetriever(
+        model = build_gnn_answer_retriever(
+            gnn_architecture=saved_run.config.resolved_gnn_architecture,
             entity_embedding_dimension=saved_run.config.entity_embedding_dimension,
             question_embedding_dimension=self._embedding_dimension(
                 saved_run.config.question_embedding_model,

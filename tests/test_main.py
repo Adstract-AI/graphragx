@@ -62,6 +62,7 @@ class FakeGnnAnswerRetrieverStep(BuildGnnAnswerRetrieverStep):
     def execute_default(self, context):
         return BuiltGnnAnswerRetriever(
             dataset_id=context.result.dataset_id,
+            gnn_architecture="graphsage",
             entity_embedding_model="text-embedding-3-small",
             entity_embedding_dimension=1536,
             question_embedding_dimension=1536,
@@ -96,6 +97,7 @@ class FakeTrainGnnAnswerRetrieverStep(TrainGnnAnswerRetrieverStep):
         built_retriever = context.result.built_retriever
         return TrainedGnnAnswerRetriever(
             dataset_id=built_retriever.dataset_id,
+            gnn_architecture=built_retriever.gnn_architecture,
             hidden_dimension=built_retriever.hidden_dimension,
             gnn_layer_count=built_retriever.gnn_layer_count,
             node_classifier=built_retriever.node_classifier,
@@ -305,7 +307,7 @@ class MainEntrypointTests(unittest.TestCase):
     def test_main_interactively_prompts_missing_configuration_flags(self) -> None:
         with self._patch_dataset_loading_step(), self._patch_webqsp_local_graph_step(), self._patch_gnn_builder_step(), self._patch_training_step(), self._patch_evaluation_step(), patch(
             "builtins.input",
-            side_effect=["1", "2", "1", "1", "1", "1", "1", "1", "1"],
+            side_effect=["1", "1", "2", "1", "2", "1", "1", "1", "1", "1", "1"],
         ), patch(
             "sys.stdout",
             new_callable=StringIO,
@@ -413,25 +415,58 @@ class MainEntrypointTests(unittest.TestCase):
         ):
             exit_code = main.main(
                 [
+                    "--gnn-architecture",
+                    "aa-graphsage",
                     "--use-edge-mlp",
                     "--question-aware-classifier",
                     "--use-reverse-edges",
                     "--add-layer-normalization",
                     "--edge-mlp-hidden-dim",
-                    "64",
+                    "128",
                     "--dropout",
-                    "0.25",
+                    "0.2",
                 ]
             )
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(captured_configs), 1)
+        self.assertEqual(captured_configs[0].gnn_architecture, "aa-graphsage")
         self.assertTrue(captured_configs[0].use_edge_mlp)
         self.assertTrue(captured_configs[0].question_aware_classifier)
         self.assertTrue(captured_configs[0].use_reverse_edges)
         self.assertTrue(captured_configs[0].add_layer_normalization)
-        self.assertEqual(captured_configs[0].edge_mlp_hidden_dim, 64)
-        self.assertEqual(captured_configs[0].dropout, 0.25)
+        self.assertEqual(captured_configs[0].edge_mlp_hidden_dim, 128)
+        self.assertEqual(captured_configs[0].dropout, 0.2)
+
+    def test_aa_architecture_defaults_enable_all_advanced_features(self) -> None:
+        resolved = main.PipelineRuntimeConfig(
+            gnn_architecture="aa-graphsage",
+            use_default_config_values=True,
+        ).with_defaulted_user_inputs()
+
+        self.assertEqual(resolved.gnn_architecture, "aa-graphsage")
+        self.assertTrue(resolved.use_edge_mlp)
+        self.assertTrue(resolved.use_reverse_edges)
+        self.assertTrue(resolved.question_aware_classifier)
+        self.assertTrue(resolved.add_layer_normalization)
+        self.assertEqual(resolved.edge_mlp_hidden_dim, 256)
+        self.assertEqual(resolved.dropout, 0.1)
+
+    def test_aa_boolean_negative_forms_are_parsed(self) -> None:
+        args = main.build_parser().parse_args(
+            [
+                "--gnn-architecture", "aa-graphsage",
+                "--no-use-edge-mlp",
+                "--no-use-reverse-edges",
+                "--no-question-aware-classifier",
+                "--no-add-layer-normalization",
+            ]
+        )
+
+        self.assertFalse(args.use_edge_mlp)
+        self.assertFalse(args.use_reverse_edges)
+        self.assertFalse(args.question_aware_classifier)
+        self.assertFalse(args.add_layer_normalization)
 
     def test_evaluation_log_every_flag_is_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
@@ -608,14 +643,31 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(evaluation_step.evaluation_config.gpu_cache_reserve_gb, 4.5)
 
     def test_training_continuation_is_wired_into_training_step(self) -> None:
-        pipeline = main.build_pipeline(
-            config=main.PipelineRuntimeConfig(
-                training_start_instance=101,
-                training_max_instances=100,
-                continue_training_model_run_name="12_old",
-                continue_training_model_run_number=12,
-            ),
+        saved_config = SavedGnnAnswerRetrieverConfig(
+            dataset_id="WebQSP", entity_embedding_model="text-embedding-3-small",
+            question_embedding_model="text-embedding-3-small",
+            relation_embedding_model="text-embedding-3-small",
+            entity_embedding_dimension=1536, question_embedding_dimension=1536,
+            relation_embedding_dimension=1536, hidden_dimension=256,
+            gnn_layer_count=2, node_classifier="mlp",
+            training=SavedGnnAnswerRetrieverTrainingConfig(
+                epochs=1, learning_rate=0.001, weight_decay=0.0,
+                log_every=3, device="cpu",
+            ), final_loss=0.5, trained_instances=3,
         )
+        with patch.object(
+            main.GnnAnswerRetrieverModelRunService,
+            "resolve_run",
+            return_value=type("Run", (), {"config": saved_config})(),
+        ):
+            pipeline = main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    training_start_instance=101,
+                    training_max_instances=100,
+                    continue_training_model_run_name="12_old",
+                    continue_training_model_run_number=12,
+                ),
+            )
 
         training_step = next(
             step for step in pipeline.preparation_steps
@@ -690,12 +742,13 @@ class MainEntrypointTests(unittest.TestCase):
     def test_gnn_architecture_flags_are_wired_into_configuration_step(self) -> None:
         pipeline = main.build_pipeline(
             config=main.PipelineRuntimeConfig(
+                gnn_architecture="aa-graphsage",
                 use_edge_mlp=True,
                 question_aware_classifier=True,
                 use_reverse_edges=True,
                 add_layer_normalization=True,
-                edge_mlp_hidden_dim=64,
-                dropout=0.25,
+                edge_mlp_hidden_dim=128,
+                dropout=0.2,
             ),
         )
 
@@ -704,8 +757,9 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertTrue(configuration_step.configuration_input.question_aware_classifier)
         self.assertTrue(configuration_step.configuration_input.use_reverse_edges)
         self.assertTrue(configuration_step.configuration_input.add_layer_normalization)
-        self.assertEqual(configuration_step.configuration_input.edge_mlp_hidden_dim, 64)
-        self.assertEqual(configuration_step.configuration_input.dropout, 0.25)
+        self.assertEqual(configuration_step.configuration_input.gnn_architecture, "aa-graphsage")
+        self.assertEqual(configuration_step.configuration_input.edge_mlp_hidden_dim, 128)
+        self.assertEqual(configuration_step.configuration_input.dropout, 0.2)
 
     def test_negative_training_start_instance_fails_early(self) -> None:
         with self.assertRaisesRegex(
@@ -739,12 +793,35 @@ class MainEntrypointTests(unittest.TestCase):
             )
 
     def test_evaluation_only_uses_a_new_wandb_run(self) -> None:
-        pipeline = main.build_pipeline(
-            config=main.PipelineRuntimeConfig(
-                run_mode="evaluation-only",
-                evaluation_model_run_number=7,
-            )
+        saved_config = SavedGnnAnswerRetrieverConfig(
+            dataset_id="WebQSP",
+            entity_embedding_model="text-embedding-3-small",
+            question_embedding_model="text-embedding-3-small",
+            relation_embedding_model="text-embedding-3-small",
+            entity_embedding_dimension=1536,
+            question_embedding_dimension=1536,
+            relation_embedding_dimension=1536,
+            hidden_dimension=256,
+            gnn_layer_count=2,
+            node_classifier="mlp",
+            training=SavedGnnAnswerRetrieverTrainingConfig(
+                epochs=1, learning_rate=0.001, weight_decay=0.0,
+                log_every=3, device="cpu",
+            ),
+            final_loss=0.5,
+            trained_instances=3,
         )
+        with patch.object(
+            main.GnnAnswerRetrieverModelRunService,
+            "resolve_run",
+            return_value=type("Run", (), {"config": saved_config})(),
+        ):
+            pipeline = main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    run_mode="evaluation-only",
+                    evaluation_model_run_number=7,
+                )
+            )
 
         retriever_wandb_step = pipeline.evaluation_steps[1]
         self.assertIsInstance(retriever_wandb_step, LogRetrieverToWandbStep)

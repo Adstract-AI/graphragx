@@ -34,6 +34,7 @@ from pipeline.evaluation.models.final_results import ExplanationGroundingMetrics
 from pipeline.evaluation.services.gnn_retriever_results import (
     GnnRetrieverResultsService,
 )
+from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
 from pipeline.services import AbstractService
 
 
@@ -136,14 +137,14 @@ class FinalResultsEvaluationService(AbstractService):
         model_config_path = (
             gnn_evaluation_result.model_run_directory / "model_config.json"
         )
-        gnn_id = self._build_gnn_id(model_config_path)
+        gnn_architecture = self._build_gnn_architecture(model_config_path)
         results_config = FinalResultsConfig(
             dataset_id=llm_inference_run.dataset_id,
             model_run_name=gnn_evaluation_result.model_run_name,
             evaluation_run_name=gnn_evaluation_result.evaluation_run_name,
             inference_run_name=llm_inference_run.inference_run_name,
             model_id=llm_inference_run.model_id,
-            gnn_id=gnn_id,
+            gnn_architecture=gnn_architecture,
             configs={
                 "model_config_path": model_config_path,
                 "evaluation_config_path": gnn_evaluation_result.evaluation_config_path,
@@ -630,7 +631,7 @@ class FinalResultsEvaluationService(AbstractService):
         return 10
 
     @classmethod
-    def _build_gnn_id(cls, model_config_path: Path) -> str:
+    def _build_gnn_architecture(cls, model_config_path: Path) -> str:
         if not model_config_path.exists():
             for legacy_filename in ["model.config", "gnn_answer_retriever_config.json"]:
                 legacy_config_path = model_config_path.with_name(legacy_filename)
@@ -640,16 +641,10 @@ class FinalResultsEvaluationService(AbstractService):
         if model_config_path.exists():
             try:
                 model_config = cls._load_json_object(model_config_path)
-                training_config = model_config.get("training", {})
-                if not isinstance(training_config, dict):
-                    training_config = {}
-                layers = training_config.get("gnn_layer_count") or model_config.get("gnn_layer_count")
-                hidden = training_config.get("hidden_dimension") or model_config.get("hidden_dimension")
-                if isinstance(layers, int) and isinstance(hidden, int):
-                    return f"{layers}-{hidden}-gnn"
+                return infer_gnn_architecture(model_config)
             except FinalResultsEvaluationException:
                 pass
-        return "unknown-gnn"
+        return "graphsage"
 
     def _create_results_run_directory(self, results_root: Path) -> Path:
         results_root.mkdir(parents=True, exist_ok=True)

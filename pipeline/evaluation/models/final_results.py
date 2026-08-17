@@ -18,7 +18,7 @@ class FinalResultsConfig(BaseModel):
     evaluation_run_name: str | None = Field(default=None)
     inference_run_name: str | None = Field(default=None)
     model_id: str = Field(..., description="LLM model used for answer generation.")
-    gnn_id: str = Field(..., description="Compact GNN architecture id.")
+    gnn_architecture: str = Field(..., description="Stable GNN architecture id.")
     run_name: str | None = Field(default=None, description="Created results run name.")
     run_number: int | None = Field(default=None, description="Created results run number.")
     configs: dict[str, Path] = Field(default_factory=dict)
@@ -182,6 +182,7 @@ class FinalResultsEvaluationResult(StepResult):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     dataset_id: str = Field(..., description="Evaluated dataset identifier.")
+    gnn_architecture: str = Field(default="graphsage")
     model_run_name: str | None = Field(default=None)
     evaluation_run_name: str | None = Field(default=None)
     inference_run_name: str | None = Field(default=None)

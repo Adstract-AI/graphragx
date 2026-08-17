@@ -171,6 +171,7 @@ class GnnAnswerRetrieverEvaluationResult(StepResult):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     dataset_id: str = Field(..., description="Evaluated dataset identifier.")
+    gnn_architecture: str = Field(default="graphsage")
     model_run_directory: Path = Field(..., description="Selected model run directory.")
     model_run_name: str = Field(..., description="Selected model run folder name.")
     model_run_number: int = Field(..., description="Selected model run number.")

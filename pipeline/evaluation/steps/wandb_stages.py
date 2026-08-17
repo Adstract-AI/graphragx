@@ -23,6 +23,7 @@ from pipeline.evaluation.services.wandb_final_results import (
 from pipeline.preparation.steps.gnn_answer_retriever_training import (
     TrainedGnnAnswerRetriever,
 )
+from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
 
 logger = get_logger(__name__)
 LEGACY_GNN_CONFIG_FILENAME = "gnn_answer_retriever_config.json"
@@ -111,10 +112,7 @@ def _build_available_wandb_config(
     if model_config:
         runs["model"] = _run_reference(model_config)
         configs["model"] = model_config
-        layers = model_config.get("gnn_layer_count")
-        hidden = model_config.get("hidden_dimension")
-        if layers is not None and hidden is not None:
-            payload["gnn_id"] = f"{layers}-{hidden}-gnn"
+        payload["gnn_architecture"] = infer_gnn_architecture(model_config)
     if model_config_path is not None:
         source_paths["model_config_path"] = model_config_path
         source_paths["training_model_config_path"] = model_config_path

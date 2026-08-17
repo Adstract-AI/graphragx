@@ -35,6 +35,7 @@ class TrainedGnnAnswerRetriever(StepResult):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     dataset_id: str = Field(..., description="Selected dataset identifier.")
+    gnn_architecture: str = Field(default="graphsage")
     hidden_dimension: int = Field(
         ...,
         description="Shared hidden dimension used by the trained retriever.",
@@ -204,6 +205,7 @@ class TrainGnnAnswerRetrieverStep(
         )
         return TrainedGnnAnswerRetriever(
             dataset_id=outcome.dataset_id,
+            gnn_architecture=outcome.gnn_architecture,
             hidden_dimension=outcome.hidden_dimension,
             gnn_layer_count=outcome.gnn_layer_count,
             node_classifier=outcome.node_classifier,

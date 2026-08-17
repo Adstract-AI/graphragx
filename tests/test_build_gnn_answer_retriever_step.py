@@ -57,9 +57,11 @@ class BuildGnnAnswerRetrieverStepTests(unittest.TestCase):
     @staticmethod
     def make_configuration(
         node_classifier: str = "mlp",
+        gnn_architecture: str = "graphsage",
     ) -> BuiltPipelineConfiguration:
         return BuiltPipelineConfiguration(
             dataset_id="WebQSP",
+            gnn_architecture=gnn_architecture,
             main_llm_model="gpt-5.4",
             subgraph_construction_algorithm="shortest_path",
             context_construction_strategy="structured_triples",
@@ -121,6 +123,38 @@ class BuildGnnAnswerRetrieverStepTests(unittest.TestCase):
         result = step.execute(self.make_loaded_dataset_context(builder))
 
         self.assertIsInstance(result.model.classifier, nn.Sequential)
+
+    @unittest.skipIf(torch is None, "PyTorch is not installed.")
+    def test_factory_builds_distinct_architecture_types(self) -> None:
+        from pipeline.preparation.models.gnn_answer_retriever import (
+            AdvancedGraphSageAnswerRetriever,
+            GraphSageAnswerRetriever,
+            build_gnn_answer_retriever,
+        )
+
+        shared = dict(
+            entity_embedding_dimension=8,
+            question_embedding_dimension=6,
+            relation_embedding_dimension=6,
+            hidden_dimension=4,
+            gnn_layer_count=2,
+            node_classifier="mlp",
+            dropout=0.1,
+        )
+        baseline = build_gnn_answer_retriever("graphsage", **shared)
+        advanced = build_gnn_answer_retriever(
+            "aa-graphsage",
+            **shared,
+            use_edge_mlp=True,
+            question_aware_classifier=True,
+            add_layer_normalization=True,
+            edge_mlp_hidden_dim=128,
+        )
+
+        self.assertIsInstance(baseline, GraphSageAnswerRetriever)
+        self.assertIsInstance(advanced, AdvancedGraphSageAnswerRetriever)
+        self.assertFalse(baseline.use_edge_mlp)
+        self.assertTrue(advanced.use_edge_mlp)
 
     @unittest.skipIf(torch is None, "PyTorch is not installed.")
     def test_model_forward_returns_one_logit_per_node(self) -> None:

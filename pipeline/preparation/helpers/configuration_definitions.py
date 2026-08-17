@@ -73,6 +73,31 @@ class NodeClassifierDefinition(BaseModel):
     description: str = Field(..., description="Short description of the classifier.")
 
 
+class GnnArchitectureDefinition(BaseModel):
+    """Typed definition and defaults for one supported GNN architecture."""
+
+    model_config = ConfigDict(frozen=True)
+
+    architecture_id: str
+    display_name: str
+    description: str
+    supported_layer_counts: tuple[int, ...] = (2, 3)
+    supported_hidden_dimensions: tuple[int, ...] = (128, 256, 512)
+    supported_classifiers: tuple[str, ...] = ("mlp", "linear")
+    supported_dropouts: tuple[float, ...] = (0.0, 0.1, 0.2, 0.3, 0.5)
+    default_layer_count: int = 2
+    default_hidden_dimension: int = 256
+    default_classifier: str = "mlp"
+    default_dropout: float = 0.1
+    supports_advanced_options: bool = False
+    default_use_edge_mlp: bool = False
+    default_use_reverse_edges: bool = False
+    default_question_aware_classifier: bool = False
+    default_add_layer_normalization: bool = False
+    supported_edge_mlp_hidden_dimensions: tuple[int, ...] = ()
+    default_edge_mlp_hidden_dimension: int | None = None
+
+
 class OpenAiEmbeddingModelDefinition(BaseModel):
     """Typed definition of an available OpenAI embedding model option."""
 
@@ -210,6 +235,29 @@ NODE_CLASSIFIERS: Final[dict[str, NodeClassifierDefinition]] = {
     ),
 }
 
+GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "graphsage"
+AA_GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "aa-graphsage"
+
+GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
+    GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=GRAPH_SAGE_ARCHITECTURE_ID,
+        display_name="GraphSAGE",
+        description="Baseline GraphSAGE with configurable depth, width, classifier, and dropout.",
+    ),
+    AA_GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=AA_GRAPH_SAGE_ARCHITECTURE_ID,
+        display_name="AA-GraphSAGE",
+        description="Advanced answer-aware GraphSAGE with relational and question-aware components.",
+        supports_advanced_options=True,
+        default_use_edge_mlp=True,
+        default_use_reverse_edges=True,
+        default_question_aware_classifier=True,
+        default_add_layer_normalization=True,
+        supported_edge_mlp_hidden_dimensions=(128, 256, 512),
+        default_edge_mlp_hidden_dimension=256,
+    ),
+}
+
 OPENAI_EMBEDDING_MODELS: Final[dict[str, OpenAiEmbeddingModelDefinition]] = {
     "text-embedding-3-small": OpenAiEmbeddingModelDefinition(
         model_id="text-embedding-3-small",
@@ -231,6 +279,7 @@ RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID: Final[str] = "structured_triples"
 RECOMMENDED_GNN_LAYER_COUNT: Final[int] = 2
 RECOMMENDED_GNN_HIDDEN_DIMENSION: Final[int] = 256
 RECOMMENDED_NODE_CLASSIFIER_ID: Final[str] = "mlp"
+RECOMMENDED_GNN_ARCHITECTURE_ID: Final[str] = GRAPH_SAGE_ARCHITECTURE_ID
 RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"
 RECOMMENDED_RELATION_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"
 RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"

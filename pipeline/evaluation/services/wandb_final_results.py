@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from helpers.logging_config import get_logger
 from helpers.path_serialization import project_absolute_path
 from pipeline.evaluation.models import FinalResultsEvaluationResult
+from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
 from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
@@ -371,7 +372,8 @@ class WandbFinalResultsLoggingService(AbstractService):
             {
                 "dataset_id": results_config.get("dataset_id"),
                 "model_id": results_config.get("model_id"),
-                "gnn_id": results_config.get("gnn_id"),
+                "gnn_architecture": results_config.get("gnn_architecture")
+                or infer_gnn_architecture(model_config),
                 "runs": {
                     "model": {
                         "name": model_run_name,
@@ -519,13 +521,16 @@ class WandbFinalResultsLoggingService(AbstractService):
             value = results_config.get(key)
             if value:
                 tags.append(str(value))
-        if results_config.get("gnn_id"):
-            tags.append(str(results_config["gnn_id"]))
+        architecture = results_config.get("gnn_architecture")
+        if architecture:
+            tags.append(str(architecture))
 
         model_config_path = cls._result_config_path(results_config, "model_config_path")
         if isinstance(model_config_path, str):
             try:
                 model_config = cls._load_json_object(project_absolute_path(model_config_path))
+                if not architecture:
+                    tags.append(infer_gnn_architecture(model_config))
                 for key in [
                     "entity_embedding_model",
                     "question_embedding_model",

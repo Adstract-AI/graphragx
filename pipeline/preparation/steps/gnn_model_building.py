@@ -21,6 +21,7 @@ class BuiltGnnAnswerRetriever(StepResult):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     dataset_id: str = Field(..., description="Selected dataset identifier.")
+    gnn_architecture: str = Field(default="graphsage")
     entity_embedding_model: str = Field(
         ...,
         description="OpenAI embedding model used for entity text.",
@@ -47,7 +48,7 @@ class BuiltGnnAnswerRetriever(StepResult):
     question_aware_classifier: bool = Field(default=False)
     use_reverse_edges: bool = Field(default=False)
     add_layer_normalization: bool = Field(default=False)
-    edge_mlp_hidden_dim: int = Field(..., description="Hidden dimension for edge MLP.")
+    edge_mlp_hidden_dim: int | None = Field(default=None, description="Hidden dimension for edge MLP.")
     dropout: float = Field(default=0.1)
     model: AnswerRetrieverModel = Field(
         ...,
@@ -86,7 +87,7 @@ class BuildGnnAnswerRetrieverStep(
             )
 
         configuration = context.pipeline_configuration
-        from pipeline.preparation.models.gnn_answer_retriever import GnnAnswerRetriever
+        from pipeline.preparation.models.gnn_answer_retriever import build_gnn_answer_retriever
 
         entity_embedding_definition = OPENAI_EMBEDDING_MODELS[
             configuration.entity_embedding_model
@@ -100,6 +101,7 @@ class BuildGnnAnswerRetrieverStep(
 
         logger.info(
             f"Building GNN answer retriever: dataset={prepared_dataset.dataset_id} "
+            f"gnn_architecture={configuration.gnn_architecture} "
             f"entity_embedding_dimension={entity_embedding_definition.dimensions} "
             f"hidden_dimension={configuration.gnn_hidden_dimension} "
             f"gnn_layers={configuration.gnn_layer_count} "
@@ -109,7 +111,8 @@ class BuildGnnAnswerRetrieverStep(
             f"add_layer_normalization={configuration.add_layer_normalization} "
             f"dropout={configuration.dropout}"
         )
-        model = GnnAnswerRetriever(
+        model = build_gnn_answer_retriever(
+            gnn_architecture=configuration.gnn_architecture,
             entity_embedding_dimension=entity_embedding_definition.dimensions,
             question_embedding_dimension=question_embedding_definition.dimensions,
             relation_embedding_dimension=relation_embedding_definition.dimensions,
@@ -119,16 +122,14 @@ class BuildGnnAnswerRetrieverStep(
             use_edge_mlp=configuration.use_edge_mlp,
             question_aware_classifier=configuration.question_aware_classifier,
             add_layer_normalization=configuration.add_layer_normalization,
-            edge_mlp_hidden_dim=(
-                configuration.edge_mlp_hidden_dim
-                or configuration.gnn_hidden_dimension
-            ),
+            edge_mlp_hidden_dim=configuration.edge_mlp_hidden_dim,
             dropout=configuration.dropout,
         )
 
         logger.info(f"Built GNN answer retriever architecture")
         return BuiltGnnAnswerRetriever(
             dataset_id=prepared_dataset.dataset_id,
+            gnn_architecture=configuration.gnn_architecture,
             entity_embedding_model=configuration.entity_embedding_model,
             entity_embedding_dimension=entity_embedding_definition.dimensions,
             question_embedding_dimension=question_embedding_definition.dimensions,
@@ -140,10 +141,7 @@ class BuildGnnAnswerRetrieverStep(
             question_aware_classifier=configuration.question_aware_classifier,
             use_reverse_edges=configuration.use_reverse_edges,
             add_layer_normalization=configuration.add_layer_normalization,
-            edge_mlp_hidden_dim=(
-                configuration.edge_mlp_hidden_dim
-                or configuration.gnn_hidden_dimension
-            ),
+            edge_mlp_hidden_dim=configuration.edge_mlp_hidden_dim,
             dropout=configuration.dropout,
             model=model,
         )

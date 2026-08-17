@@ -22,6 +22,14 @@ class InvalidGnnLayerCountSelectionException(PipelineException):
     """Raised when an invalid GNN layer count option is provided."""
 
 
+class InvalidGnnArchitectureSelectionException(PipelineException):
+    """Raised when an invalid GNN architecture is selected."""
+
+
+class InvalidGnnArchitectureConfigurationException(PipelineException):
+    """Raised when options are incompatible with the selected architecture."""
+
+
 class InvalidGnnHiddenDimensionSelectionException(PipelineException):
     """Raised when an invalid GNN hidden dimension option is provided."""
 

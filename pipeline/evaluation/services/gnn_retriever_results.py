@@ -22,6 +22,7 @@ from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationExceptio
 from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
     SavedGnnAnswerRetrieverConfig,
 )
+from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
 from pipeline.services import AbstractService
 
 
@@ -182,8 +183,16 @@ class GnnRetrieverResultsService(AbstractService):
         tracking = config.get("wandb", {})
         if not isinstance(tracking, dict):
             tracking = {}
+        model_config_payload = self._load_json(
+            model_config_path,
+            "retriever model config",
+        )
         return GnnAnswerRetrieverEvaluationResult(
             dataset_id=dataset_id,
+            gnn_architecture=str(
+                config.get("gnn_architecture")
+                or infer_gnn_architecture(model_config_payload)
+            ),
             model_run_directory=model_run_directory,
             model_run_name=model_run_name,
             model_run_number=model_run_number,

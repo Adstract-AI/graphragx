@@ -95,6 +95,12 @@ To train and evaluate only the retriever:
 uv run python main.py --retriever-only --default
 ```
 
+To run the advanced architecture with its recommended feature set:
+
+```bash
+uv run python main.py --retriever-only --gnn-architecture aa-graphsage --default
+```
+
 To run LLM inference from an existing retriever evaluation:
 
 ```bash
@@ -121,9 +127,11 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. |
 | `--subgraph-algorithm SUBGRAPH_ALGORITHM` | Subgraph construction algorithm. The current supported option is `shortest_path`. |
 | `--context-strategy CONTEXT_STRATEGY` | How the reasoning subgraph is represented for the LLM. The current supported option is `structured_triples`. |
-| `--gnn-layers GNN_LAYERS` | Number of GNN message-passing layers. |
-| `--gnn-hidden-dim GNN_HIDDEN_DIM` | Hidden dimension used inside the GNN. |
+| `--gnn-architecture {graphsage,aa-graphsage}` | Select baseline GraphSAGE or advanced answer-aware GraphSAGE. GraphSAGE is the default. |
+| `--gnn-layers {2,3}` | Number of GNN message-passing layers. Default: `2`. |
+| `--gnn-hidden-dim {128,256,512}` | Hidden dimension used inside the GNN. Default: `256`. |
 | `--node-classifier NODE_CLASSIFIER` | Node classifier head used after the GNN. Supported options include `mlp` and `linear`. |
+| `--dropout {0.0,0.1,0.2,0.3,0.5}` | Shared architecture dropout. Default: `0.1`. |
 | `--question-embedding-model QUESTION_EMBEDDING_MODEL` | OpenAI embedding model used for question text. |
 | `--relation-embedding-model RELATION_EMBEDDING_MODEL` | OpenAI embedding model used for relation text. |
 | `--entity-embedding-model ENTITY_EMBEDDING_MODEL` | OpenAI embedding model used for entity text. |
@@ -146,12 +154,11 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--training-run-name TRAINING_RUN_NAME` | Optional label for the saved training run folder. |
 | `--continue-training-model-run-name CONTINUE_TRAINING_MODEL_RUN_NAME` | Continue training from a saved GNN model run folder name or suffix. Valid in full and train-only runs. |
 | `--continue-training-model-run-number CONTINUE_TRAINING_MODEL_RUN_NUMBER` | Continue training from a saved GNN model run numeric prefix. Valid in full and train-only runs. |
-| `--use-edge-mlp` | Use a trainable question-relation MLP instead of fixed cosine edge weights. |
-| `--question-aware-classifier` | Classify nodes from `h_v`, projected question embedding, and their element-wise product. |
-| `--use-reverse-edges` | Materialize reverse edges in prepared WebQSP graphs and use a separate processed cache variant. |
-| `--add-layer-normalization` | Apply residual connection plus LayerNorm after each GNN layer. |
-| `--edge-mlp-hidden-dim EDGE_MLP_HIDDEN_DIM` | Hidden dimension for the edge MLP. Defaults to the selected GNN hidden dimension. |
-| `--dropout DROPOUT` | Dropout used by upgraded GNN components. Default: `0.1`. |
+| `--use-edge-mlp` / `--no-use-edge-mlp` | Enable or disable AA-GraphSAGE's trainable question-relation edge scorer. |
+| `--question-aware-classifier` / `--no-question-aware-classifier` | Enable or disable AA-GraphSAGE's question-aware node head. A linear classifier requires the negative form. |
+| `--use-reverse-edges` / `--no-use-reverse-edges` | Enable or disable reverse-edge graph preparation for AA-GraphSAGE. |
+| `--add-layer-normalization` / `--no-add-layer-normalization` | Enable or disable AA-GraphSAGE residual LayerNorm blocks. |
+| `--edge-mlp-hidden-dim {128,256,512}` | AA-GraphSAGE edge-MLP width. Valid only when edge MLP is enabled. Default: `256`. |
 
 Before the epoch loop, training deduplicates embeddings used by the selected instance slice and builds compact integer-indexed matrices. Retrieved vectors are also persisted under `data/webqsp/training_embedding_tensors` as append-only local tensor shards. A full local hit bypasses Qdrant; a partial hit retrieves and appends only vectors that have not been persisted yet. For example, training first on 100 instances and then on 300 reuses the vectors from the first run and fills only embeddings introduced by the additional 200 instances. Separate local caches are maintained for each dataset, embedding model, text category, vector dimension, and storage dtype.
 
@@ -198,7 +205,7 @@ Evaluation compacts the selected test instances into unique node, relation, and 
 
 New W&B runs use a dataset-wide sequential identifier in the form `run_number_YYYYMMDD_HHMMSS`, independent of which pipeline mode creates them. Full, training, and retriever stages reuse their logical experiment within the command. Every evaluation-only command creates a new W&B run and copies the selected model's training metrics, configuration, tags, and artifact before adding retrieval and optional inference results. Every inference-only command creates a new W&B run and copies the selected retriever metrics and configuration into it. This keeps repeated evaluations and LLM inference runs independently comparable without modifying their upstream W&B runs. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts.
 
-W&B tags are populated incrementally from the stages available in each mode. Depending on the completed stages, tags include the dataset, GNN id, LLM id, embedding models, trained/evaluated instance counts, and model, evaluation, and inference run numbers. Resumed runs preserve their existing tags, and duplicate values are removed.
+W&B tags are populated incrementally from the stages available in each mode. Depending on the completed stages, tags include the dataset, GNN architecture (`graphsage` or `aa-graphsage`), LLM id, embedding models, trained/evaluated instance counts, and model, evaluation, and inference run numbers. Resumed runs preserve their existing tags, and duplicate values are removed.
 
 ### Execution Helpers
 

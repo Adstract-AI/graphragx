@@ -7,6 +7,10 @@ import torch.nn.functional as torch_functional
 from torch import Tensor, nn
 
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
+from pipeline.preparation.helpers.configuration_definitions import (
+    AA_GRAPH_SAGE_ARCHITECTURE_ID,
+    GRAPH_SAGE_ARCHITECTURE_ID,
+)
 
 
 class WeightedMessagePassingLayer(nn.Module):
@@ -240,3 +244,44 @@ class GnnAnswerRetriever(nn.Module, AnswerRetrieverModel):
             relation_features,
             dim=1,
         )
+
+
+class GraphSageAnswerRetriever(GnnAnswerRetriever):
+    """Concrete baseline GraphSAGE retriever."""
+
+    def __init__(self, **kwargs):
+        kwargs.update(
+            use_edge_mlp=False,
+            question_aware_classifier=False,
+            add_layer_normalization=False,
+            edge_mlp_hidden_dim=None,
+        )
+        super().__init__(**kwargs)
+        self.gnn_architecture = GRAPH_SAGE_ARCHITECTURE_ID
+
+
+class AdvancedGraphSageAnswerRetriever(GnnAnswerRetriever):
+    """Concrete advanced answer-aware GraphSAGE retriever."""
+
+    def __init__(self, **kwargs):
+        if kwargs.get("node_classifier") == "linear" and kwargs.get(
+            "question_aware_classifier", False
+        ):
+            raise ValueError(
+                "AA-GraphSAGE linear classification requires question-aware "
+                "classification to be disabled."
+            )
+        super().__init__(**kwargs)
+        self.gnn_architecture = AA_GRAPH_SAGE_ARCHITECTURE_ID
+
+
+def build_gnn_answer_retriever(
+    gnn_architecture: str,
+    **kwargs,
+) -> GnnAnswerRetriever:
+    """Build a concrete retriever without changing checkpoint parameter names."""
+    if gnn_architecture == GRAPH_SAGE_ARCHITECTURE_ID:
+        return GraphSageAnswerRetriever(**kwargs)
+    if gnn_architecture == AA_GRAPH_SAGE_ARCHITECTURE_ID:
+        return AdvancedGraphSageAnswerRetriever(**kwargs)
+    raise ValueError(f"Unsupported GNN architecture: {gnn_architecture}")

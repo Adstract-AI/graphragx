@@ -648,6 +648,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         requested_run_name = evaluation_payload.pop("run_name", None)
         return {
             "dataset_id": pipeline_configuration.dataset_id,
+            "gnn_architecture": loaded_model_run.config.resolved_gnn_architecture,
             "run_name": requested_run_name,
             "selected_device": device,
             "embedding_cache_device": (

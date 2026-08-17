@@ -54,16 +54,16 @@ from pipeline import (
     PipelineException,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
+    GNN_ARCHITECTURES,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
-    RECOMMENDED_GNN_HIDDEN_DIMENSION,
-    RECOMMENDED_GNN_LAYER_COUNT,
+    RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
-    RECOMMENDED_NODE_CLASSIFIER_ID,
     RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
     RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
 )
+from pipeline.preparation.helpers.gnn_architecture import architecture_defaults
 from pipeline.preparation.helpers.dataset_definitions import (
     DATASET_LOADERS,
     WEBQSP_DATASET_ID,
@@ -72,8 +72,105 @@ from pipeline.evaluation.services.wandb_experiment import WandbExperimentCoordin
 from pipeline.preparation.services.gnn_answer_retriever_training import (
     GnnAnswerRetrieverTrainingService,
 )
+from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
+    GnnAnswerRetrieverModelRunService,
+    SavedGnnAnswerRetrieverConfig,
+)
 
 logger = get_logger(__name__)
+
+
+def _saved_model_conflicts(
+    requested: "PipelineRuntimeConfig",
+    saved: SavedGnnAnswerRetrieverConfig,
+) -> list[str]:
+    """Return explicitly requested fields that disagree with saved lineage."""
+    comparisons = {
+        "gnn_architecture": (requested.gnn_architecture, saved.resolved_gnn_architecture),
+        "gnn_layer_count": (requested.gnn_layer_count, saved.resolved_gnn_layer_count),
+        "gnn_hidden_dimension": (
+            requested.gnn_hidden_dimension,
+            saved.resolved_hidden_dimension,
+        ),
+        "node_classifier": (requested.node_classifier, saved.node_classifier),
+        "question_embedding_model": (
+            requested.question_embedding_model,
+            saved.question_embedding_model,
+        ),
+        "relation_embedding_model": (
+            requested.relation_embedding_model,
+            saved.relation_embedding_model,
+        ),
+        "entity_embedding_model": (
+            requested.entity_embedding_model,
+            saved.entity_embedding_model,
+        ),
+        "use_edge_mlp": (requested.use_edge_mlp, saved.use_edge_mlp),
+        "question_aware_classifier": (
+            requested.question_aware_classifier,
+            saved.question_aware_classifier,
+        ),
+        "use_reverse_edges": (requested.use_reverse_edges, saved.use_reverse_edges),
+        "add_layer_normalization": (
+            requested.add_layer_normalization,
+            saved.add_layer_normalization,
+        ),
+        "dropout": (requested.dropout, saved.dropout),
+    }
+    if requested.edge_mlp_hidden_dim is not None:
+        comparisons["edge_mlp_hidden_dim"] = (
+            requested.edge_mlp_hidden_dim,
+            saved.resolved_edge_mlp_hidden_dim,
+        )
+    conflicts = {
+        name
+        for name, (requested_value, saved_value) in comparisons.items()
+        if requested_value is not None and requested_value != saved_value
+    }
+    if saved.resolved_gnn_architecture == "graphsage":
+        for field_name in (
+            "use_edge_mlp",
+            "question_aware_classifier",
+            "use_reverse_edges",
+            "add_layer_normalization",
+            "edge_mlp_hidden_dim",
+        ):
+            if getattr(requested, field_name) is not None:
+                conflicts.add(field_name)
+    return sorted(conflicts)
+
+
+def _apply_saved_model_config(
+    resolved: "PipelineRuntimeConfig",
+    saved: SavedGnnAnswerRetrieverConfig,
+) -> "PipelineRuntimeConfig":
+    is_advanced = saved.resolved_gnn_architecture == "aa-graphsage"
+    return resolved.model_copy(
+        update={
+            "dataset": saved.dataset_id,
+            "gnn_architecture": saved.resolved_gnn_architecture,
+            "gnn_layer_count": saved.resolved_gnn_layer_count,
+            "gnn_hidden_dimension": saved.resolved_hidden_dimension,
+            "node_classifier": saved.node_classifier,
+            "use_edge_mlp": saved.use_edge_mlp if is_advanced else None,
+            "question_aware_classifier": (
+                saved.question_aware_classifier if is_advanced else None
+            ),
+            "use_reverse_edges": saved.use_reverse_edges if is_advanced else None,
+            "add_layer_normalization": (
+                saved.add_layer_normalization if is_advanced else None
+            ),
+            "edge_mlp_hidden_dim": (
+                saved.resolved_edge_mlp_hidden_dim
+                if is_advanced and saved.use_edge_mlp
+                else None
+            ),
+            "dropout": saved.dropout,
+            "question_embedding_model": saved.question_embedding_model,
+            "relation_embedding_model": saved.relation_embedding_model,
+            "entity_embedding_model": saved.entity_embedding_model,
+        }
+    )
 
 
 class PipelineRuntimeConfig(BaseModel):
@@ -90,15 +187,16 @@ class PipelineRuntimeConfig(BaseModel):
     main_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
+    gnn_architecture: str | None = None
     gnn_layer_count: int | None = None
     gnn_hidden_dimension: int | None = None
     node_classifier: str | None = None
-    use_edge_mlp: bool = False
-    question_aware_classifier: bool = False
-    use_reverse_edges: bool = False
-    add_layer_normalization: bool = False
+    use_edge_mlp: bool | None = None
+    question_aware_classifier: bool | None = None
+    use_reverse_edges: bool | None = None
+    add_layer_normalization: bool | None = None
     edge_mlp_hidden_dim: int | None = None
-    dropout: float = 0.1
+    dropout: float | None = None
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
     entity_embedding_model: str | None = None
@@ -146,6 +244,27 @@ class PipelineRuntimeConfig(BaseModel):
         if not self.use_default_config_values:
             return self
 
+        architecture_id = self.gnn_architecture or RECOMMENDED_GNN_ARCHITECTURE_ID
+        defaults = architecture_defaults(architecture_id)
+        architecture_updates = {
+            key: getattr(self, key) if getattr(self, key) is not None else value
+            for key, value in defaults.items()
+        }
+        if architecture_id == RECOMMENDED_GNN_ARCHITECTURE_ID:
+            for advanced_key in (
+                "use_edge_mlp",
+                "use_reverse_edges",
+                "question_aware_classifier",
+                "add_layer_normalization",
+                "edge_mlp_hidden_dim",
+            ):
+                if getattr(self, advanced_key) is None:
+                    architecture_updates.pop(advanced_key, None)
+        elif (
+            architecture_updates.get("use_edge_mlp") is False
+            and self.edge_mlp_hidden_dim is None
+        ):
+            architecture_updates["edge_mlp_hidden_dim"] = None
         return self.model_copy(
             update={
                 "dataset": self.dataset or WEBQSP_DATASET_ID,
@@ -154,12 +273,7 @@ class PipelineRuntimeConfig(BaseModel):
                 or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
                 "context_strategy": self.context_strategy
                 or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
-                "gnn_layer_count": self.gnn_layer_count
-                or RECOMMENDED_GNN_LAYER_COUNT,
-                "gnn_hidden_dimension": self.gnn_hidden_dimension
-                or RECOMMENDED_GNN_HIDDEN_DIMENSION,
-                "node_classifier": self.node_classifier
-                or RECOMMENDED_NODE_CLASSIFIER_ID,
+                **architecture_updates,
                 "question_embedding_model": self.question_embedding_model
                 or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
                 "relation_embedding_model": self.relation_embedding_model
@@ -198,10 +312,6 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         raise PipelineException(
             "--training-log-every must be greater than or equal to 0."
         )
-    if config.edge_mlp_hidden_dim is not None and config.edge_mlp_hidden_dim <= 0:
-        raise PipelineException("--edge-mlp-hidden-dim must be greater than zero.")
-    if config.dropout < 0 or config.dropout >= 1:
-        raise PipelineException("--dropout must be greater than or equal to 0 and less than 1.")
     if config.wandb_training_log_every < 0:
         raise PipelineException(
             "--wandb-training-log-every must be greater than or equal to 0."
@@ -223,83 +333,53 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         )
 
     resolved_config = config.with_defaulted_user_inputs()
+    dataset_id = resolved_config.dataset or WEBQSP_DATASET_ID
+    loader_definition = DATASET_LOADERS.get(dataset_id)
+    if loader_definition is None:
+        raise PipelineException(f"Unsupported dataset {dataset_id}.")
+
+    saved_model_config: SavedGnnAnswerRetrieverConfig | None = None
+    lineage_label: str | None = None
     if resolved_config.run_mode == "inference-only":
-        dataset_id = resolved_config.dataset or WEBQSP_DATASET_ID
-        loader_definition = DATASET_LOADERS.get(dataset_id)
-        if loader_definition is None:
-            raise PipelineException(
-                f"Inference-only mode does not support dataset {dataset_id}."
-            )
         saved_model_config = GnnRetrieverResultsService().load_model_config(
             evaluation_root=loader_definition.cache_root / "evaluations",
             run_name=resolved_config.retriever_run_name,
             run_number=resolved_config.retriever_run_number,
         )
+        lineage_label = "saved retriever run"
+    elif resolved_config.run_mode == "evaluation-only":
+        saved_model_config = GnnAnswerRetrieverModelRunService().resolve_run(
+            model_root=loader_definition.cache_root / "models",
+            run_name=resolved_config.evaluation_model_run_name,
+            run_number=resolved_config.evaluation_model_run_number,
+        ).config
+        lineage_label = "saved model run"
+    elif (
+        resolved_config.continue_training_model_run_name is not None
+        or resolved_config.continue_training_model_run_number is not None
+    ):
+        saved_model_config = GnnAnswerRetrieverModelRunService().resolve_run(
+            model_root=loader_definition.cache_root / "models",
+            run_name=resolved_config.continue_training_model_run_name,
+            run_number=resolved_config.continue_training_model_run_number,
+        ).config
+        lineage_label = "continued model run"
+
+    if saved_model_config is not None:
         if config.dataset is not None and config.dataset != saved_model_config.dataset_id:
             raise PipelineException(
-                f"Inference-only dataset {config.dataset} conflicts with retriever "
-                f"dataset {saved_model_config.dataset_id}."
+                f"Dataset {config.dataset} conflicts with {lineage_label} dataset "
+                f"{saved_model_config.dataset_id}."
             )
-        conflicts = {
-            "gnn_layer_count": (config.gnn_layer_count, saved_model_config.resolved_gnn_layer_count),
-            "gnn_hidden_dimension": (
-                config.gnn_hidden_dimension,
-                saved_model_config.resolved_hidden_dimension,
-            ),
-            "node_classifier": (config.node_classifier, saved_model_config.node_classifier),
-            "question_embedding_model": (
-                config.question_embedding_model,
-                saved_model_config.question_embedding_model,
-            ),
-            "relation_embedding_model": (
-                config.relation_embedding_model,
-                saved_model_config.relation_embedding_model,
-            ),
-            "entity_embedding_model": (
-                config.entity_embedding_model,
-                saved_model_config.entity_embedding_model,
-            ),
-            "edge_mlp_hidden_dim": (
-                config.edge_mlp_hidden_dim,
-                saved_model_config.edge_mlp_hidden_dim,
-            ),
-        }
-        conflicting_fields = [
-            name
-            for name, (requested, saved) in conflicts.items()
-            if requested is not None and requested != saved
-        ]
-        if config.use_edge_mlp and not saved_model_config.use_edge_mlp:
-            conflicting_fields.append("use_edge_mlp")
-        if config.question_aware_classifier and not saved_model_config.question_aware_classifier:
-            conflicting_fields.append("question_aware_classifier")
-        if config.use_reverse_edges and not saved_model_config.use_reverse_edges:
-            conflicting_fields.append("use_reverse_edges")
-        if config.add_layer_normalization and not saved_model_config.add_layer_normalization:
-            conflicting_fields.append("add_layer_normalization")
-        if config.dropout != 0.1 and config.dropout != saved_model_config.dropout:
-            conflicting_fields.append("dropout")
+        conflicting_fields = _saved_model_conflicts(config, saved_model_config)
         if conflicting_fields:
             raise PipelineException(
-                "Inference-only configuration conflicts with the saved retriever run: "
-                + ", ".join(sorted(conflicting_fields))
+                f"Configuration conflicts with the {lineage_label}: "
+                + ", ".join(conflicting_fields)
             )
-        resolved_config = resolved_config.model_copy(
-            update={
-                "dataset": saved_model_config.dataset_id,
-                "gnn_layer_count": saved_model_config.resolved_gnn_layer_count,
-                "gnn_hidden_dimension": saved_model_config.resolved_hidden_dimension,
-                "node_classifier": saved_model_config.node_classifier,
-                "use_edge_mlp": saved_model_config.use_edge_mlp,
-                "question_aware_classifier": saved_model_config.question_aware_classifier,
-                "use_reverse_edges": saved_model_config.use_reverse_edges,
-                "add_layer_normalization": saved_model_config.add_layer_normalization,
-                "edge_mlp_hidden_dim": saved_model_config.edge_mlp_hidden_dim,
-                "dropout": saved_model_config.dropout,
-                "question_embedding_model": saved_model_config.question_embedding_model,
-                "relation_embedding_model": saved_model_config.relation_embedding_model,
-                "entity_embedding_model": saved_model_config.entity_embedding_model,
-            }
+        resolved_config = _apply_saved_model_config(
+            resolved_config,
+            saved_model_config,
         )
     wandb_dataset_id = resolved_config.dataset or WEBQSP_DATASET_ID
     wandb_loader_definition = DATASET_LOADERS.get(wandb_dataset_id)
@@ -324,6 +404,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             main_llm_model=resolved_config.main_llm_model,
             subgraph_algorithm=resolved_config.subgraph_algorithm,
             context_strategy=resolved_config.context_strategy,
+            gnn_architecture=resolved_config.gnn_architecture,
             gnn_layer_count=resolved_config.gnn_layer_count,
             gnn_hidden_dimension=resolved_config.gnn_hidden_dimension,
             node_classifier=resolved_config.node_classifier,
@@ -558,6 +639,7 @@ def _build_success_summary_lines(result: PipelineExecutionResult) -> list[str]:
         return lines
 
     summary_fields = [
+        "gnn_architecture",
         "model_run_name",
         "evaluation_run_name",
         "inference_run_name",
@@ -691,52 +773,67 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional context construction strategy id for non-interactive configuration.",
     )
     parser.add_argument(
+        "--gnn-architecture",
+        choices=tuple(GNN_ARCHITECTURES),
+        default=None,
+        help="GNN architecture. Defaults to graphsage.",
+    )
+    parser.add_argument(
         "--gnn-layers",
         type=int,
+        choices=(2, 3),
         default=None,
         help="Optional number of GNN layers for non-interactive configuration.",
     )
     parser.add_argument(
         "--gnn-hidden-dim",
         type=int,
+        choices=(128, 256, 512),
         default=None,
         help="Optional GNN hidden dimension for non-interactive configuration.",
     )
     parser.add_argument(
         "--node-classifier",
+        choices=("mlp", "linear"),
         default=None,
         help="Optional node classifier id for non-interactive configuration.",
     )
     parser.add_argument(
         "--use-edge-mlp",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Use a trainable question-relation MLP to score edge weights.",
     )
     parser.add_argument(
         "--question-aware-classifier",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Make answer-node classification depend on node and question embeddings.",
     )
     parser.add_argument(
         "--use-reverse-edges",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Materialize reverse edges in prepared WebQSP graphs.",
     )
     parser.add_argument(
         "--add-layer-normalization",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Apply residual connection plus LayerNorm after each GNN layer.",
     )
     parser.add_argument(
         "--edge-mlp-hidden-dim",
         type=int,
+        choices=(128, 256, 512),
         default=None,
         help="Hidden dimension for the trainable edge MLP. Defaults to GNN hidden dimension.",
     )
     parser.add_argument(
         "--dropout",
         type=float,
-        default=0.1,
+        choices=(0.0, 0.1, 0.2, 0.3, 0.5),
+        default=None,
         help="Dropout used by upgraded GNN components.",
     )
     parser.add_argument(
@@ -992,6 +1089,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         main_llm_model=args.main_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,
+        gnn_architecture=args.gnn_architecture,
         gnn_layer_count=args.gnn_layers,
         gnn_hidden_dimension=args.gnn_hidden_dim,
         node_classifier=args.node_classifier,

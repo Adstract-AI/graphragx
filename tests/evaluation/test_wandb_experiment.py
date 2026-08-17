@@ -255,7 +255,7 @@ def test_config_updates_add_all_available_stage_tags(tmp_path) -> None:
         coordinator.update_config(
             {
                 "dataset_id": "WebQSP",
-                "gnn_id": "3-256-gnn",
+                "gnn_architecture": "aa-graphsage",
                 "model_id": "gpt-5.4-mini",
                 "runs": {
                     "model": {"number": 59},
@@ -277,7 +277,7 @@ def test_config_updates_add_all_available_stage_tags(tmp_path) -> None:
     assert set(fake_wandb.run.tags) == {
         "graphragx",
         "WebQSP",
-        "3-256-gnn",
+        "aa-graphsage",
         "gpt-5.4-mini",
         "text-embedding-3-small",
         "trained_instances:100",
@@ -445,7 +445,8 @@ def test_training_epoch_average_uses_legacy_metric_name(tmp_path) -> None:
         {"Training/gnn_training_loss": 0.75, "Training/epoch": 1}
     ]
     assert coordinator.config_updates[0]["dataset_id"] == "WebQSP"
-    assert coordinator.config_updates[0]["gnn_id"] == "2-256-gnn"
+    assert coordinator.config_updates[0]["gnn_architecture"] == "graphsage"
+    assert "gnn_id" not in coordinator.config_updates[0]
     assert coordinator.config_updates[0]["configs"]["model"]["training"] == {
         "epochs": 1
     }

@@ -120,6 +120,7 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
     embedding_cache_device: str = Field(..., description="Resolved embedding location.")
     embedding_cache_dtype: str = Field(..., description="Frozen embedding precision.")
     dataset_id: str = Field(..., description="Dataset id used by the trained model.")
+    gnn_architecture: str = Field(default="graphsage")
     entity_embedding_model: str = Field(..., description="Entity embedding model id.")
     question_embedding_model: str = Field(..., description="Question embedding model id.")
     relation_embedding_model: str = Field(..., description="Relation embedding model id.")
@@ -133,7 +134,7 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
     question_aware_classifier: bool = Field(default=False)
     use_reverse_edges: bool = Field(default=False)
     add_layer_normalization: bool = Field(default=False)
-    edge_mlp_hidden_dim: int = Field(..., description="Edge MLP hidden dimension.")
+    edge_mlp_hidden_dim: int | None = Field(default=None, description="Edge MLP hidden dimension.")
     dropout: float = Field(default=0.1)
     model: object = Field(..., description="Trained model instance.")
     is_fine_tuned_model: bool = Field(..., description="Whether training continued a saved run.")
@@ -456,6 +457,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             embedding_cache_device=prepared_training_data.embedding_cache_device,
             embedding_cache_dtype=prepared_training_data.embedding_cache_dtype,
             dataset_id=effective_retriever.dataset_id,
+            gnn_architecture=effective_retriever.gnn_architecture,
             entity_embedding_model=effective_retriever.entity_embedding_model,
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
@@ -536,8 +538,16 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         if continued_run is None:
             return built_retriever
 
+        if built_retriever.gnn_architecture != continued_run.config.resolved_gnn_architecture:
+            raise GnnAnswerRetrieverTrainingException(
+                "Continued training cannot change GNN architecture from "
+                f"{continued_run.config.resolved_gnn_architecture} to "
+                f"{built_retriever.gnn_architecture}."
+            )
+
         return BuiltGnnAnswerRetriever(
             dataset_id=continued_run.config.dataset_id,
+            gnn_architecture=continued_run.config.resolved_gnn_architecture,
             entity_embedding_model=continued_run.config.entity_embedding_model,
             entity_embedding_dimension=continued_run.config.entity_embedding_dimension,
             question_embedding_dimension=(
@@ -710,6 +720,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         )
         training_payload["device"] = selected_device
         training_payload["gnn_layer_count"] = built_retriever.gnn_layer_count
+        training_payload["gnn_architecture"] = built_retriever.gnn_architecture
         training_payload["hidden_dimension"] = built_retriever.hidden_dimension
         training_payload["loss_function"] = "BCEWithLogitsLoss"
         training_payload["use_edge_mlp"] = built_retriever.use_edge_mlp
@@ -727,6 +738,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         is_fine_tuned_model = continued_run is not None
         config_payload = {
             "dataset_id": built_retriever.dataset_id,
+            "gnn_architecture": built_retriever.gnn_architecture,
             "run_name": model_run_name,
             "run_number": model_run_number,
             "entity_embedding_model": built_retriever.entity_embedding_model,

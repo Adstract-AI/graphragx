@@ -117,7 +117,7 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
         {
             "dataset_id": "webqsp",
             "model_id": "test-model",
-            "gnn_id": "2-256-gnn",
+            "gnn_architecture": "graphsage",
             "run_name": "1_test",
             "run_number": 1,
             "configs": {
@@ -278,7 +278,7 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert set(wandb_config) == {
         "configs",
         "dataset_id",
-        "gnn_id",
+        "gnn_architecture",
         "model_id",
         "runs",
         "source_paths",
@@ -396,7 +396,7 @@ def test_wandb_logging_success_with_fake_module(
     assert "trained_instances:123" in captured["init"]["tags"]
     assert "evaluated_instances:1" in captured["init"]["tags"]
     assert "text-embedding-3-small" in captured["init"]["tags"]
-    assert "2-256-gnn" in captured["init"]["tags"]
+    assert "graphsage" in captured["init"]["tags"]
     assert "7_model" not in captured["init"]["tags"]
     assert "1_eval" not in captured["init"]["tags"]
     assert "1_inference" not in captured["init"]["tags"]
