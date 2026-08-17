@@ -327,7 +327,7 @@ GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
     ),
     AA_GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
         architecture_id=AA_GRAPH_SAGE_ARCHITECTURE_ID,
-        display_name="AA-GraphSAGE",
+        display_name="Advance GraphSAGE",
         description="Advanced answer-aware GraphSAGE with relational and question-aware components.",
         options=(*GNN_SHARED_OPTIONS, *AA_GRAPH_SAGE_OPTIONS),
         model_builder_path=(

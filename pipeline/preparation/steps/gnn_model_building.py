@@ -93,15 +93,11 @@ class BuildGnnAnswerRetrieverStep(
         configuration = context.pipeline_configuration
         from pipeline.preparation.models.gnn_answer_retriever import build_gnn_answer_retriever
 
-        entity_embedding_definition = OPENAI_EMBEDDING_MODELS[
-            configuration.entity_embedding_model
-        ]
-        question_embedding_definition = OPENAI_EMBEDDING_MODELS[
-            configuration.question_embedding_model
-        ]
-        relation_embedding_definition = OPENAI_EMBEDDING_MODELS[
-            configuration.relation_embedding_model
-        ]
+        embedding_model = (
+            configuration.embedding_model
+            or configuration.entity_embedding_model
+        )
+        embedding_definition = OPENAI_EMBEDDING_MODELS[embedding_model]
         architecture_options = dict(configuration.gnn_architecture_options)
         supported_option_ids = set(
             GNN_ARCHITECTURES[configuration.gnn_architecture].option_map
@@ -123,7 +119,8 @@ class BuildGnnAnswerRetrieverStep(
         logger.info(
             f"Building GNN answer retriever: dataset={prepared_dataset.dataset_id} "
             f"gnn_architecture={configuration.gnn_architecture} "
-            f"entity_embedding_dimension={entity_embedding_definition.dimensions} "
+            f"embedding_model={embedding_model} "
+            f"embedding_dimension={embedding_definition.dimensions} "
             f"hidden_dimension={configuration.gnn_hidden_dimension} "
             f"gnn_layers={configuration.gnn_layer_count} "
             f"node_classifier={configuration.node_classifier} "
@@ -135,9 +132,9 @@ class BuildGnnAnswerRetrieverStep(
         model = build_gnn_answer_retriever(
             gnn_architecture=configuration.gnn_architecture,
             architecture_options=architecture_options,
-            entity_embedding_dimension=entity_embedding_definition.dimensions,
-            question_embedding_dimension=question_embedding_definition.dimensions,
-            relation_embedding_dimension=relation_embedding_definition.dimensions,
+            entity_embedding_dimension=embedding_definition.dimensions,
+            question_embedding_dimension=embedding_definition.dimensions,
+            relation_embedding_dimension=embedding_definition.dimensions,
         )
 
         logger.info(f"Built GNN answer retriever architecture")
@@ -145,10 +142,10 @@ class BuildGnnAnswerRetrieverStep(
             dataset_id=prepared_dataset.dataset_id,
             gnn_architecture=configuration.gnn_architecture,
             gnn_architecture_options=architecture_options,
-            entity_embedding_model=configuration.entity_embedding_model,
-            entity_embedding_dimension=entity_embedding_definition.dimensions,
-            question_embedding_dimension=question_embedding_definition.dimensions,
-            relation_embedding_dimension=relation_embedding_definition.dimensions,
+            entity_embedding_model=embedding_model,
+            entity_embedding_dimension=embedding_definition.dimensions,
+            question_embedding_dimension=embedding_definition.dimensions,
+            relation_embedding_dimension=embedding_definition.dimensions,
             hidden_dimension=configuration.gnn_hidden_dimension,
             gnn_layer_count=configuration.gnn_layer_count,
             node_classifier=configuration.node_classifier,

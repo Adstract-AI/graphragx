@@ -127,14 +127,12 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. |
 | `--subgraph-algorithm SUBGRAPH_ALGORITHM` | Subgraph construction algorithm. The current supported option is `shortest_path`. |
 | `--context-strategy CONTEXT_STRATEGY` | How the reasoning subgraph is represented for the LLM. The current supported option is `structured_triples`. |
-| `--gnn-architecture {graphsage,aa-graphsage}` | Select baseline GraphSAGE or advanced answer-aware GraphSAGE. GraphSAGE is the default. |
+| `--gnn-architecture {graphsage,aa-graphsage}` | Select GraphSAGE or Advance GraphSAGE. GraphSAGE is the default; `aa-graphsage` remains the stable CLI/configuration id. |
 | `--gnn-layers {2,3}` | Number of GNN message-passing layers. Default: `2`. |
 | `--gnn-hidden-dim {128,256,512}` | Hidden dimension used inside the GNN. Default: `256`. |
 | `--node-classifier NODE_CLASSIFIER` | Node classifier head used after the GNN. Supported options include `mlp` and `linear`. |
 | `--dropout {0.0,0.1,0.2,0.3,0.5}` | Shared architecture dropout. Default: `0.1`. |
-| `--question-embedding-model QUESTION_EMBEDDING_MODEL` | OpenAI embedding model used for question text. |
-| `--relation-embedding-model RELATION_EMBEDDING_MODEL` | OpenAI embedding model used for relation text. |
-| `--entity-embedding-model ENTITY_EMBEDDING_MODEL` | OpenAI embedding model used for entity text. |
+| `--embedding-model EMBEDDING_MODEL` | OpenAI embedding model used consistently for question, relation, and entity text. |
 
 ### Training
 
@@ -154,11 +152,11 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--training-run-name TRAINING_RUN_NAME` | Optional label for the saved training run folder. |
 | `--continue-training-model-run-name CONTINUE_TRAINING_MODEL_RUN_NAME` | Continue training from a saved GNN model run folder name or suffix. Valid in full and train-only runs. |
 | `--continue-training-model-run-number CONTINUE_TRAINING_MODEL_RUN_NUMBER` | Continue training from a saved GNN model run numeric prefix. Valid in full and train-only runs. |
-| `--use-edge-mlp` / `--no-use-edge-mlp` | Enable or disable AA-GraphSAGE's trainable question-relation edge scorer. |
-| `--question-aware-classifier` / `--no-question-aware-classifier` | Enable or disable AA-GraphSAGE's question-aware node head. A linear classifier requires the negative form. |
-| `--use-reverse-edges` / `--no-use-reverse-edges` | Enable or disable reverse-edge graph preparation for AA-GraphSAGE. |
-| `--add-layer-normalization` / `--no-add-layer-normalization` | Enable or disable AA-GraphSAGE residual LayerNorm blocks. |
-| `--edge-mlp-hidden-dim {128,256,512}` | AA-GraphSAGE edge-MLP width. Valid only when edge MLP is enabled. Default: `256`. |
+| `--use-edge-mlp` / `--no-use-edge-mlp` | Enable or disable Advance GraphSAGE's trainable question-relation edge scorer. |
+| `--question-aware-classifier` / `--no-question-aware-classifier` | Enable or disable Advance GraphSAGE's question-aware node head. A linear classifier requires the negative form. |
+| `--use-reverse-edges` / `--no-use-reverse-edges` | Enable or disable reverse-edge graph preparation for Advance GraphSAGE. |
+| `--add-layer-normalization` / `--no-add-layer-normalization` | Enable or disable Advance GraphSAGE residual LayerNorm blocks. |
+| `--edge-mlp-hidden-dim {128,256,512}` | Advance GraphSAGE edge-MLP width. Valid only when edge MLP is enabled. Default: `256`. |
 
 #### Adding another GNN architecture
 

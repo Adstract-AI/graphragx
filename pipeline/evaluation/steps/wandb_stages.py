@@ -20,6 +20,9 @@ from pipeline.evaluation.services.wandb_experiment import WandbExperimentCoordin
 from pipeline.evaluation.services.wandb_final_results import (
     WandbFinalResultsLoggingService,
 )
+from pipeline.evaluation.services.model_config_normalization import (
+    normalize_model_config,
+)
 from pipeline.preparation.steps.gnn_answer_retriever_training import (
     TrainedGnnAnswerRetriever,
 )
@@ -96,6 +99,7 @@ def _build_available_wandb_config(
                 retrieval_metrics_path = project_absolute_path(value)
 
     model_config = _load_config(model_config_path)
+    normalized_model_config = normalize_model_config(model_config)
     runs: dict[str, Any] = {}
     configs: dict[str, Any] = {}
     source_paths: dict[str, Any] = {}
@@ -109,10 +113,12 @@ def _build_available_wandb_config(
     if dataset_id is not None:
         payload["dataset_id"] = dataset_id
 
-    if model_config:
-        runs["model"] = _run_reference(model_config)
-        configs["model"] = model_config
-        payload["gnn_architecture"] = infer_gnn_architecture(model_config)
+    if normalized_model_config:
+        runs["model"] = _run_reference(normalized_model_config)
+        configs["model"] = normalized_model_config
+        payload["gnn_architecture"] = normalized_model_config.get(
+            "gnn_architecture", infer_gnn_architecture(model_config)
+        )
     if model_config_path is not None:
         source_paths["model_config_path"] = model_config_path
         source_paths["training_model_config_path"] = model_config_path
@@ -325,7 +331,13 @@ class LogRetrieverToWandbStep(
             )
         except (OSError, json.JSONDecodeError):
             return
-        for point in payload.get("loss_history", []):
+        training_payload = payload.get("training", {})
+        if not isinstance(training_payload, dict):
+            training_payload = {}
+        for point in (
+            training_payload.get("loss_history")
+            or payload.get("loss_history", [])
+        ):
             if not isinstance(point, dict):
                 continue
             epoch = point.get("epoch")

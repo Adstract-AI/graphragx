@@ -14,6 +14,9 @@ from helpers.logging_config import get_logger
 from helpers.path_serialization import project_absolute_path
 from pipeline.evaluation.models import FinalResultsEvaluationResult
 from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
+from pipeline.evaluation.services.model_config_normalization import (
+    normalize_model_config,
+)
 from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
@@ -264,7 +267,10 @@ class WandbFinalResultsLoggingService(AbstractService):
         model_config: dict[str, Any],
     ) -> list[dict[str, float | int]]:
         """Build scalar loss history points for WandB logging."""
-        loss_history = model_config.get("loss_history")
+        training = model_config.get("training", {})
+        if not isinstance(training, dict):
+            training = {}
+        loss_history = training.get("loss_history") or model_config.get("loss_history")
         if not isinstance(loss_history, list):
             return []
 
@@ -449,8 +455,10 @@ class WandbFinalResultsLoggingService(AbstractService):
         if isinstance(model_config_path_value, str):
             model_config_path = project_absolute_path(model_config_path_value)
             if model_config_path.exists():
-                return self._without_wandb_tracking(
-                    self._load_json_object(model_config_path)
+                return normalize_model_config(
+                    self._without_wandb_tracking(
+                        self._load_json_object(model_config_path)
+                    )
                 )
 
         model_run_directory = results_config.get("model_run_directory")
@@ -462,13 +470,17 @@ class WandbFinalResultsLoggingService(AbstractService):
             ]:
                 model_config_path = project_absolute_path(model_run_directory) / filename
                 if model_config_path.exists():
-                    return self._without_wandb_tracking(
-                        self._load_json_object(model_config_path)
+                    return normalize_model_config(
+                        self._without_wandb_tracking(
+                            self._load_json_object(model_config_path)
+                        )
                     )
 
         model_configuration = evaluation_config.get("model_configuration")
         if isinstance(model_configuration, dict):
-            return self._without_wandb_tracking(model_configuration)
+            return normalize_model_config(
+                self._without_wandb_tracking(model_configuration)
+            )
 
         return {}
 
@@ -528,19 +540,22 @@ class WandbFinalResultsLoggingService(AbstractService):
         model_config_path = cls._result_config_path(results_config, "model_config_path")
         if isinstance(model_config_path, str):
             try:
-                model_config = cls._load_json_object(project_absolute_path(model_config_path))
+                model_config = normalize_model_config(
+                    cls._load_json_object(project_absolute_path(model_config_path))
+                )
                 if not architecture:
                     tags.append(infer_gnn_architecture(model_config))
-                for key in [
-                    "entity_embedding_model",
-                    "question_embedding_model",
-                    "relation_embedding_model",
-                ]:
-                    embedding_model_id = model_config.get(key)
-                    if embedding_model_id:
-                        tags.append(str(embedding_model_id))
-                if model_config.get("trained_instances") is not None:
-                    tags.append(f"trained_instances:{model_config['trained_instances']}")
+                embedding_model_id = model_config.get("embedding_model")
+                if embedding_model_id:
+                    tags.append(str(embedding_model_id))
+                training = model_config.get("training", {})
+                trained_instances = model_config.get("trained_instances")
+                if isinstance(training, dict):
+                    trained_instances = training.get(
+                        "trained_instances", trained_instances
+                    )
+                if trained_instances is not None:
+                    tags.append(f"trained_instances:{trained_instances}")
             except (OSError, ValueError, json.JSONDecodeError):
                 pass
 

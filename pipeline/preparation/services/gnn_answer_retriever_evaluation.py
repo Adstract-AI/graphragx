@@ -183,7 +183,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             test_instances=test_instances,
             cache_root=cache_root,
             dataset_id=prepared_dataset.dataset_id,
-            entity_embedding_model=loaded_model_run.config.entity_embedding_model,
+            entity_embedding_model=loaded_model_run.config.resolved_embedding_model,
             relation_embedding_model=loaded_model_run.relation_embedding_model,
             question_embedding_model=loaded_model_run.question_embedding_model,
             selected_device=device,

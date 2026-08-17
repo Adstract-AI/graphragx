@@ -365,15 +365,24 @@ class WandbExperimentCoordinator:
         configs = config.get("configs", {})
         model_config = configs.get("model", {}) if isinstance(configs, dict) else {}
         if isinstance(model_config, dict):
-            for key in [
-                "entity_embedding_model",
-                "question_embedding_model",
-                "relation_embedding_model",
-            ]:
-                value = model_config.get(key)
-                if value:
-                    tags.append(str(value))
+            embedding_model = model_config.get("embedding_model")
+            if embedding_model:
+                tags.append(str(embedding_model))
+            else:
+                # Historical payload compatibility until old runs age out.
+                for key in [
+                    "entity_embedding_model",
+                    "question_embedding_model",
+                    "relation_embedding_model",
+                ]:
+                    value = model_config.get(key)
+                    if value:
+                        tags.append(str(value))
+            training = model_config.get("training", {})
+            if not isinstance(training, dict):
+                training = {}
             trained_instances = model_config.get("trained_instances")
+            trained_instances = training.get("trained_instances", trained_instances)
             if trained_instances is not None:
                 tags.append(f"trained_instances:{trained_instances}")
 

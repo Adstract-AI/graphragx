@@ -18,8 +18,6 @@ from pipeline.preparation.exceptions import (
     InvalidInteractiveConfigurationInputException,
     InvalidMainLlmSelectionException,
     InvalidNodeClassifierSelectionException,
-    InvalidQuestionEmbeddingModelSelectionException,
-    InvalidRelationEmbeddingModelSelectionException,
     InvalidSubgraphConstructionSelectionException,
 )
 from pipeline.preparation.services.selection import SelectionService
@@ -30,11 +28,9 @@ from pipeline.preparation.helpers.configuration_definitions import (
     GRAPH_SAGE_ARCHITECTURE_ID,
     OPENAI_EMBEDDING_MODELS,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
-    RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
     RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
     RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
-    RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
     SHARED_LLM_MODELS,
     SUBGRAPH_CONSTRUCTION_ALGORITHMS,
@@ -58,6 +54,9 @@ class PipelineConfigurationInput(BaseModel):
     gnn_layer_count: int | None = Field(default=None)
     gnn_hidden_dimension: int | None = Field(default=None)
     node_classifier: str | None = Field(default=None)
+    embedding_model: str | None = Field(default=None)
+    # Legacy per-resource fields remain accepted for programmatic callers and
+    # old pipeline integrations. New configuration always resolves one model.
     question_embedding_model: str | None = Field(default=None)
     relation_embedding_model: str | None = Field(default=None)
     entity_embedding_model: str | None = Field(default=None)
@@ -89,6 +88,11 @@ class BuiltPipelineConfiguration(StepResult):
         description="Selected hidden dimension for projected GNN node states.",
     )
     node_classifier: str | None = Field(default=None, description="Selected node classifier id.")
+    embedding_model: str | None = Field(
+        default=None,
+        description="OpenAI embedding model used for all graph and question text.",
+    )
+    # Compatibility aliases. They are resolved to embedding_model by the builder.
     question_embedding_model: str = Field(
         ..., description="OpenAI embedding model for question text."
     )
@@ -120,6 +124,7 @@ class BuildPipelineConfigurationStep(
         gnn_layer_count: int | None = None,
         gnn_hidden_dimension: int | None = None,
         node_classifier: str | None = None,
+        embedding_model: str | None = None,
         question_embedding_model: str | None = None,
         relation_embedding_model: str | None = None,
         entity_embedding_model: str | None = None,
@@ -142,6 +147,7 @@ class BuildPipelineConfigurationStep(
             gnn_layer_count=gnn_layer_count,
             gnn_hidden_dimension=gnn_hidden_dimension,
             node_classifier=node_classifier,
+            embedding_model=embedding_model,
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
             entity_embedding_model=entity_embedding_model,
@@ -261,43 +267,26 @@ class BuildPipelineConfigurationStep(
             value_getter=lambda item: item.strategy_id,
             label_getter=lambda item: item.display_name,
         )
-        question_embedding_model = self.selection_service.resolve_choice(
-            provided_value=self.configuration_input.question_embedding_model,
+        embedding_model = self.selection_service.resolve_choice(
+            provided_value=self._provided_embedding_model(),
             options=OPENAI_EMBEDDING_MODELS,
-            prompt_title="Question Embedding Model",
-            prompt_help="Select the OpenAI embedding model used for question text.",
+            prompt_title="Embedding Model",
+            prompt_help="Select the OpenAI embedding model used everywhere embeddings are needed.",
             recommended_id=RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
-            invalid_exception_type=InvalidQuestionEmbeddingModelSelectionException,
-            value_getter=lambda item: item.model_id,
-            label_getter=lambda item: item.display_name,
-        )
-        relation_embedding_model = self.selection_service.resolve_choice(
-            provided_value=self.configuration_input.relation_embedding_model,
-            options=OPENAI_EMBEDDING_MODELS,
-            prompt_title="Relation Embedding Model",
-            prompt_help="Select the OpenAI embedding model used for relation text.",
-            recommended_id=RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
-            invalid_exception_type=InvalidRelationEmbeddingModelSelectionException,
-            value_getter=lambda item: item.model_id,
-            label_getter=lambda item: item.display_name,
-        )
-        entity_embedding_model = self.selection_service.resolve_choice(
-            provided_value=self.configuration_input.entity_embedding_model,
-            options=OPENAI_EMBEDDING_MODELS,
-            prompt_title="Entity Embedding Model",
-            prompt_help="Select the OpenAI embedding model used for entity text.",
-            recommended_id=RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
+            # Keep the historical exception type for callers that catch it;
+            # there is now only one embedding selection.
             invalid_exception_type=InvalidEntityEmbeddingModelSelectionException,
             value_getter=lambda item: item.model_id,
             label_getter=lambda item: item.display_name,
         )
+        question_embedding_model = embedding_model
+        relation_embedding_model = embedding_model
+        entity_embedding_model = embedding_model
 
         logger.info(
             f"Built pipeline configuration: gnn_architecture={gnn_architecture} "
             f"gnn_options={resolved_gnn_options} "
-            f"question_embedding_model={question_embedding_model} "
-            f"relation_embedding_model={relation_embedding_model} "
-            f"entity_embedding_model={entity_embedding_model}"
+            f"embedding_model={embedding_model}"
         )
         return BuiltPipelineConfiguration(
             dataset_id=selected_dataset.dataset_id,
@@ -309,6 +298,7 @@ class BuildPipelineConfigurationStep(
             gnn_layer_count=resolved_gnn_options.get("gnn_layer_count"),
             gnn_hidden_dimension=resolved_gnn_options.get("gnn_hidden_dimension"),
             node_classifier=resolved_gnn_options.get("node_classifier"),
+            embedding_model=embedding_model,
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
             entity_embedding_model=entity_embedding_model,
@@ -325,6 +315,39 @@ class BuildPipelineConfigurationStep(
             edge_mlp_hidden_dim=resolved_gnn_options.get("edge_mlp_hidden_dim"),
             dropout=float(resolved_gnn_options.get("dropout", 0.0)),
         )
+
+    def _provided_embedding_model(self) -> str | None:
+        """Resolve the unified model while accepting legacy constructor fields."""
+        unified = self.configuration_input.embedding_model
+        legacy_values = [
+            value
+            for value in (
+                self.configuration_input.entity_embedding_model,
+                self.configuration_input.question_embedding_model,
+                self.configuration_input.relation_embedding_model,
+            )
+            if value is not None
+        ]
+        if unified is not None:
+            conflicting = {value for value in legacy_values if value != unified}
+            if conflicting:
+                raise InvalidInteractiveConfigurationInputException(
+                    "embedding_model conflicts with a legacy per-resource embedding model."
+                )
+            return unified
+        # Entity was the historical primary selector, so preserve that choice
+        # when old programmatic callers provide only legacy fields.
+        if len(set(legacy_values)) > 1 and all(
+            value in OPENAI_EMBEDDING_MODELS for value in legacy_values
+        ):
+            raise InvalidInteractiveConfigurationInputException(
+                "Legacy per-resource embedding models disagree; use one embedding_model."
+            )
+        if self.configuration_input.entity_embedding_model is not None:
+            return self.configuration_input.entity_embedding_model
+        if self.configuration_input.question_embedding_model is not None:
+            return self.configuration_input.question_embedding_model
+        return self.configuration_input.relation_embedding_model
 
     def _provided_architecture_options(self) -> dict[str, Any]:
         provided = dict(self.configuration_input.gnn_options)

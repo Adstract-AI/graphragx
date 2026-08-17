@@ -270,7 +270,7 @@ class AdvancedGraphSageAnswerRetriever(GnnAnswerRetriever):
             "question_aware_classifier", False
         ):
             raise ValueError(
-                "AA-GraphSAGE linear classification requires question-aware "
+                "Advance GraphSAGE linear classification requires question-aware "
                 "classification to be disabled."
             )
         super().__init__(**kwargs)
@@ -316,7 +316,7 @@ def build_graphsage_model(
 def build_aa_graphsage_model(
     *, architecture_options: dict, **kwargs
 ) -> AdvancedGraphSageAnswerRetriever:
-    """Registry callback for AA-GraphSAGE."""
+    """Registry callback for Advance GraphSAGE."""
     resolved = _shared_model_kwargs(architecture_options, kwargs)
     for option_id in (
         "use_edge_mlp",

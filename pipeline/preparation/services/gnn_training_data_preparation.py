@@ -337,23 +337,22 @@ class GnnTrainingDataPreparationService(AbstractService):
             preparation_config.continue_from_model_run_name is None
             and preparation_config.continue_from_model_run_number is None
         ):
+            embedding_model = (
+                configuration.embedding_model
+                or built_retriever.entity_embedding_model
+            )
             return (
-                built_retriever.entity_embedding_model,
-                configuration.question_embedding_model,
-                configuration.relation_embedding_model,
+                embedding_model,
+                embedding_model,
+                embedding_model,
             )
         saved_run = self.model_run_service.resolve_run(
             model_root=cache_root / "models",
             run_name=preparation_config.continue_from_model_run_name,
             run_number=preparation_config.continue_from_model_run_number,
         )
-        return (
-            saved_run.config.entity_embedding_model,
-            saved_run.config.question_embedding_model
-            or configuration.question_embedding_model,
-            saved_run.config.relation_embedding_model
-            or configuration.relation_embedding_model,
-        )
+        embedding_model = saved_run.config.resolved_embedding_model
+        return (embedding_model, embedding_model, embedding_model)
 
     @staticmethod
     def _resolve_training_device(torch: ModuleType, requested_device: str) -> str:

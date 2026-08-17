@@ -195,16 +195,13 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             built_retriever=prepared_training_data.built_retriever,
             continued_run=continued_run,
         )
-        question_embedding_model = (
-            continued_run.question_embedding_model
+        embedding_model = (
+            continued_run.config.resolved_embedding_model
             if continued_run is not None
-            else configuration.question_embedding_model
+            else configuration.embedding_model
         )
-        relation_embedding_model = (
-            continued_run.relation_embedding_model
-            if continued_run is not None
-            else configuration.relation_embedding_model
-        )
+        question_embedding_model = embedding_model
+        relation_embedding_model = embedding_model
         if (
             effective_retriever.entity_embedding_model
             != prepared_training_data.entity_embedding_model
@@ -553,8 +550,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             gnn_architecture_options=(
                 continued_run.config.resolved_gnn_architecture_options
             ),
-            entity_embedding_model=continued_run.config.entity_embedding_model,
-            entity_embedding_dimension=continued_run.config.entity_embedding_dimension,
+            entity_embedding_model=continued_run.config.resolved_embedding_model,
+            entity_embedding_dimension=continued_run.config.resolved_embedding_dimension,
             question_embedding_dimension=(
                 continued_run.config.question_embedding_dimension
                 or built_retriever.question_embedding_dimension
@@ -723,66 +720,52 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 "continue_from_model_run_number",
             }
         )
-        training_payload["device"] = selected_device
-        training_payload["gnn_layer_count"] = built_retriever.gnn_layer_count
-        training_payload["gnn_architecture"] = built_retriever.gnn_architecture
-        training_payload["gnn_architecture_options"] = (
-            built_retriever.gnn_architecture_options
+        # Keep model architecture and embedding identity at the model root.
+        # The training section contains only training settings; loss history,
+        # final loss, and instance-range outcomes remain at the model root
+        # for compatibility with the existing training/W&B consumers. This
+        # prevents W&B Configs and saved JSON from exposing duplicate
+        # architecture values through two nested paths.
+        training_payload.update(
+            {
+                "device": selected_device,
+                "loss_function": "BCEWithLogitsLoss",
+                "embedding_cache_device": embedding_cache_device,
+                "embedding_cache_dtype": embedding_cache_dtype,
+            }
         )
-        training_payload["hidden_dimension"] = built_retriever.hidden_dimension
-        training_payload["loss_function"] = "BCEWithLogitsLoss"
-        training_payload["use_edge_mlp"] = built_retriever.use_edge_mlp
-        training_payload["question_aware_classifier"] = (
-            built_retriever.question_aware_classifier
-        )
-        training_payload["use_reverse_edges"] = built_retriever.use_reverse_edges
-        training_payload["add_layer_normalization"] = (
-            built_retriever.add_layer_normalization
-        )
-        training_payload["edge_mlp_hidden_dim"] = built_retriever.edge_mlp_hidden_dim
-        training_payload["dropout"] = built_retriever.dropout
-        training_payload["embedding_cache_device"] = embedding_cache_device
-        training_payload["embedding_cache_dtype"] = embedding_cache_dtype
         is_fine_tuned_model = continued_run is not None
         config_payload = {
             "dataset_id": built_retriever.dataset_id,
             "gnn_architecture": built_retriever.gnn_architecture,
-            "gnn_architecture_options": built_retriever.gnn_architecture_options,
+            "gnn_architecture_options": {
+                key: value
+                for key, value in built_retriever.gnn_architecture_options.items()
+                if value is not None
+            },
             "run_name": model_run_name,
             "run_number": model_run_number,
-            "entity_embedding_model": built_retriever.entity_embedding_model,
-            "question_embedding_model": question_embedding_model,
-            "relation_embedding_model": relation_embedding_model,
-            "entity_embedding_dimension": built_retriever.entity_embedding_dimension,
-            "question_embedding_dimension": built_retriever.question_embedding_dimension,
-            "relation_embedding_dimension": built_retriever.relation_embedding_dimension,
-            "hidden_dimension": built_retriever.hidden_dimension,
-            "gnn_layer_count": built_retriever.gnn_layer_count,
-            "node_classifier": built_retriever.node_classifier,
-            "use_edge_mlp": built_retriever.use_edge_mlp,
-            "question_aware_classifier": built_retriever.question_aware_classifier,
-            "use_reverse_edges": built_retriever.use_reverse_edges,
-            "add_layer_normalization": built_retriever.add_layer_normalization,
-            "edge_mlp_hidden_dim": built_retriever.edge_mlp_hidden_dim,
-            "dropout": built_retriever.dropout,
+            "embedding_model": built_retriever.entity_embedding_model,
+            "embedding_dimension": built_retriever.entity_embedding_dimension,
             "is_fine_tuned_model": is_fine_tuned_model,
-            "continued_from_model_run_name": (
-                continued_run.run_name if continued_run is not None else None
-            ),
-            "continued_from_model_run_number": (
-                continued_run.run_number if continued_run is not None else None
-            ),
             "training_start_instance": training_start_instance,
             "training_end_instance": training_end_instance,
             "trained_instance_range": {
                 "start": training_start_instance,
                 "end": training_end_instance,
             },
-            "training": training_payload,
             "loss_history": loss_history,
             "final_loss": final_loss,
             "trained_instances": trained_instances,
+            "training": training_payload,
         }
+        if continued_run is not None:
+            config_payload.update(
+                {
+                    "continued_from_model_run_name": continued_run.run_name,
+                    "continued_from_model_run_number": continued_run.run_number,
+                }
+            )
         torch.save(model.state_dict(), model_artifact_path)
         model_config_path.write_text(
             json.dumps(

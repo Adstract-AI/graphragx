@@ -56,11 +56,9 @@ from pipeline import (
 from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
-    RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
     RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
     RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
-    RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
 )
 from pipeline.preparation.helpers.gnn_architecture import (
@@ -88,19 +86,17 @@ def _saved_model_conflicts(
     saved: SavedGnnAnswerRetrieverConfig,
 ) -> list[str]:
     """Return explicitly requested fields that disagree with saved lineage."""
+    requested_embedding_model = (
+        requested.embedding_model
+        or requested.entity_embedding_model
+        or requested.question_embedding_model
+        or requested.relation_embedding_model
+    )
     comparisons = {
         "gnn_architecture": (requested.gnn_architecture, saved.resolved_gnn_architecture),
-        "question_embedding_model": (
-            requested.question_embedding_model,
-            saved.question_embedding_model,
-        ),
-        "relation_embedding_model": (
-            requested.relation_embedding_model,
-            saved.relation_embedding_model,
-        ),
-        "entity_embedding_model": (
-            requested.entity_embedding_model,
-            saved.entity_embedding_model,
+        "embedding_model": (
+            requested_embedding_model,
+            saved.resolved_embedding_model,
         ),
     }
     requested_options = dict(requested.gnn_options)
@@ -139,9 +135,11 @@ def _apply_saved_model_config(
             "add_layer_normalization": options.get("add_layer_normalization"),
             "edge_mlp_hidden_dim": options.get("edge_mlp_hidden_dim"),
             "dropout": options.get("dropout"),
-            "question_embedding_model": saved.question_embedding_model,
-            "relation_embedding_model": saved.relation_embedding_model,
-            "entity_embedding_model": saved.entity_embedding_model,
+            "embedding_model": saved.resolved_embedding_model,
+            # Compatibility aliases for existing preparation services.
+            "question_embedding_model": saved.resolved_embedding_model,
+            "relation_embedding_model": saved.resolved_embedding_model,
+            "entity_embedding_model": saved.resolved_embedding_model,
         }
     )
 
@@ -171,6 +169,8 @@ class PipelineRuntimeConfig(BaseModel):
     edge_mlp_hidden_dim: int | None = None
     dropout: float | None = None
     gnn_options: dict[str, Any] = Field(default_factory=dict)
+    embedding_model: str | None = None
+    # Deprecated compatibility inputs. New CLI/configuration uses embedding_model.
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
     entity_embedding_model: str | None = None
@@ -255,12 +255,34 @@ class PipelineRuntimeConfig(BaseModel):
                 "context_strategy": self.context_strategy
                 or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
                 **architecture_updates,
-                "question_embedding_model": self.question_embedding_model
-                or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
-                "relation_embedding_model": self.relation_embedding_model
-                or RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
-                "entity_embedding_model": self.entity_embedding_model
-                or RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
+                "embedding_model": (
+                    self.embedding_model
+                    or self.entity_embedding_model
+                    or self.question_embedding_model
+                    or self.relation_embedding_model
+                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
+                ),
+                "question_embedding_model": (
+                    self.embedding_model
+                    or self.entity_embedding_model
+                    or self.question_embedding_model
+                    or self.relation_embedding_model
+                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
+                ),
+                "relation_embedding_model": (
+                    self.embedding_model
+                    or self.entity_embedding_model
+                    or self.question_embedding_model
+                    or self.relation_embedding_model
+                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
+                ),
+                "entity_embedding_model": (
+                    self.embedding_model
+                    or self.entity_embedding_model
+                    or self.question_embedding_model
+                    or self.relation_embedding_model
+                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
+                ),
             }
         )
 
@@ -396,6 +418,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             add_layer_normalization=resolved_config.add_layer_normalization,
             edge_mlp_hidden_dim=resolved_config.edge_mlp_hidden_dim,
             dropout=resolved_config.dropout,
+            embedding_model=resolved_config.embedding_model,
             question_embedding_model=resolved_config.question_embedding_model,
             relation_embedding_model=resolved_config.relation_embedding_model,
             entity_embedding_model=resolved_config.entity_embedding_model,
@@ -780,19 +803,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_gnn_architecture_option_arguments(parser)
     parser.add_argument(
+        "--embedding-model",
+        default=None,
+        help="OpenAI embedding model used for question, relation, and entity text.",
+    )
+    # Accept old flags without advertising separate choices. They are mapped to
+    # the unified selector in main() for scripts written before this refactor.
+    parser.add_argument(
         "--question-embedding-model",
         default=None,
-        help="Optional OpenAI embedding model id for question text.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--relation-embedding-model",
         default=None,
-        help="Optional OpenAI embedding model id for relation text.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--entity-embedding-model",
         default=None,
-        help="Optional OpenAI embedding model id for entity text.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--training-epochs",
@@ -1047,6 +1077,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             for option_id in architecture_option_definitions()
             if getattr(args, option_id) is not None
         },
+        embedding_model=(
+            args.embedding_model
+            or args.entity_embedding_model
+            or args.question_embedding_model
+            or args.relation_embedding_model
+        ),
         question_embedding_model=args.question_embedding_model,
         relation_embedding_model=args.relation_embedding_model,
         entity_embedding_model=args.entity_embedding_model,

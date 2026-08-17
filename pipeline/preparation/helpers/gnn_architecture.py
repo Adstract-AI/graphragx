@@ -98,7 +98,7 @@ def validate_architecture_options(
 
 
 def validate_aa_graphsage_options(options: Mapping[str, Any]) -> None:
-    """Validate relationships between AA-GraphSAGE options."""
+    """Validate relationships between Advance GraphSAGE options."""
     if (
         options.get("node_classifier") == "linear"
         and options.get("question_aware_classifier") is True
@@ -106,7 +106,7 @@ def validate_aa_graphsage_options(options: Mapping[str, Any]) -> None:
         raise GnnArchitectureOptionValidationError(
             option_id="node_classifier",
             message=(
-                "AA-GraphSAGE linear classification requires "
+                "Advance GraphSAGE linear classification requires "
                 "--no-question-aware-classifier."
             ),
         )
