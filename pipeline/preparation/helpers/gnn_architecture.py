@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
+from importlib import import_module
 from typing import Any
 
 from pipeline.preparation.helpers.configuration_definitions import (
@@ -17,6 +19,17 @@ ADVANCED_GNN_BOOLEAN_FIELDS = (
     "question_aware_classifier",
     "add_layer_normalization",
 )
+
+
+@dataclass(frozen=True)
+class GnnArchitectureOptionValidationError(ValueError):
+    """Validation error tied to the option that should be corrected."""
+
+    option_id: str
+    message: str
+
+    def __str__(self) -> str:
+        return self.message
 
 
 def infer_gnn_architecture(config: Mapping[str, Any]) -> str:
@@ -38,15 +51,62 @@ def infer_gnn_architecture(config: Mapping[str, Any]) -> str:
 def architecture_defaults(architecture_id: str) -> dict[str, Any]:
     """Return canonical runtime defaults for an architecture."""
     definition = GNN_ARCHITECTURES[architecture_id]
-    return {
-        "gnn_architecture": architecture_id,
-        "gnn_layer_count": definition.default_layer_count,
-        "gnn_hidden_dimension": definition.default_hidden_dimension,
-        "node_classifier": definition.default_classifier,
-        "dropout": definition.default_dropout,
-        "use_edge_mlp": definition.default_use_edge_mlp,
-        "use_reverse_edges": definition.default_use_reverse_edges,
-        "question_aware_classifier": definition.default_question_aware_classifier,
-        "add_layer_normalization": definition.default_add_layer_normalization,
-        "edge_mlp_hidden_dim": definition.default_edge_mlp_hidden_dimension,
+    defaults = {
+        option.option_id: option.default
+        for option in definition.options
     }
+    defaults["gnn_architecture"] = architecture_id
+    return defaults
+
+
+def architecture_option_definitions() -> dict[str, Any]:
+    """Return the unique union of CLI options across registered architectures."""
+    options: dict[str, Any] = {}
+    for architecture in GNN_ARCHITECTURES.values():
+        for option in architecture.options:
+            existing = options.get(option.option_id)
+            if existing is not None and (
+                existing.cli_flag != option.cli_flag
+                or existing.value_type != option.value_type
+                or existing.choices != option.choices
+            ):
+                raise ValueError(
+                    f"Conflicting schemas for GNN option {option.option_id}."
+                )
+            options[option.option_id] = option
+    return options
+
+
+def import_architecture_callable(path: str):
+    """Load a registry callback lazily to keep configuration imports torch-free."""
+    module_name, separator, attribute_name = path.partition(":")
+    if not separator:
+        raise ValueError(f"Invalid architecture callable path: {path}")
+    return getattr(import_module(module_name), attribute_name)
+
+
+def validate_architecture_options(
+    architecture_id: str,
+    options: Mapping[str, Any],
+) -> None:
+    """Run an architecture-owned validation hook when one is configured."""
+    definition = GNN_ARCHITECTURES[architecture_id]
+    if definition.validator_path is None:
+        return
+    validator = import_architecture_callable(definition.validator_path)
+    validator(options)
+
+
+def validate_aa_graphsage_options(options: Mapping[str, Any]) -> None:
+    """Validate relationships between AA-GraphSAGE options."""
+    if (
+        options.get("node_classifier") == "linear"
+        and options.get("question_aware_classifier") is True
+    ):
+        raise GnnArchitectureOptionValidationError(
+            option_id="node_classifier",
+            message=(
+                "AA-GraphSAGE linear classification requires "
+                "--no-question-aware-classifier."
+            ),
+        )

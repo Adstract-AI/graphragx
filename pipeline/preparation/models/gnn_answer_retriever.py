@@ -9,8 +9,10 @@ from torch import Tensor, nn
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.helpers.configuration_definitions import (
     AA_GRAPH_SAGE_ARCHITECTURE_ID,
+    GNN_ARCHITECTURES,
     GRAPH_SAGE_ARCHITECTURE_ID,
 )
+from pipeline.preparation.helpers.gnn_architecture import import_architecture_callable
 
 
 class WeightedMessagePassingLayer(nn.Module):
@@ -277,11 +279,51 @@ class AdvancedGraphSageAnswerRetriever(GnnAnswerRetriever):
 
 def build_gnn_answer_retriever(
     gnn_architecture: str,
+    architecture_options: dict | None = None,
     **kwargs,
 ) -> GnnAnswerRetriever:
-    """Build a concrete retriever without changing checkpoint parameter names."""
-    if gnn_architecture == GRAPH_SAGE_ARCHITECTURE_ID:
-        return GraphSageAnswerRetriever(**kwargs)
-    if gnn_architecture == AA_GRAPH_SAGE_ARCHITECTURE_ID:
-        return AdvancedGraphSageAnswerRetriever(**kwargs)
-    raise ValueError(f"Unsupported GNN architecture: {gnn_architecture}")
+    """Build any registered retriever through its lazy registry callback."""
+    definition = GNN_ARCHITECTURES.get(gnn_architecture)
+    if definition is None:
+        raise ValueError(f"Unsupported GNN architecture: {gnn_architecture}")
+    builder = import_architecture_callable(definition.model_builder_path)
+    return builder(architecture_options=architecture_options or {}, **kwargs)
+
+
+def _shared_model_kwargs(architecture_options: dict, kwargs: dict) -> dict:
+    resolved = dict(kwargs)
+    option_to_argument = {
+        "gnn_hidden_dimension": "hidden_dimension",
+        "gnn_layer_count": "gnn_layer_count",
+        "node_classifier": "node_classifier",
+        "dropout": "dropout",
+    }
+    for option_id, argument_name in option_to_argument.items():
+        if option_id in architecture_options:
+            resolved[argument_name] = architecture_options[option_id]
+    return resolved
+
+
+def build_graphsage_model(
+    *, architecture_options: dict, **kwargs
+) -> GraphSageAnswerRetriever:
+    """Registry callback for baseline GraphSAGE."""
+    return GraphSageAnswerRetriever(
+        **_shared_model_kwargs(architecture_options, kwargs)
+    )
+
+
+def build_aa_graphsage_model(
+    *, architecture_options: dict, **kwargs
+) -> AdvancedGraphSageAnswerRetriever:
+    """Registry callback for AA-GraphSAGE."""
+    resolved = _shared_model_kwargs(architecture_options, kwargs)
+    for option_id in (
+        "use_edge_mlp",
+        "question_aware_classifier",
+        "add_layer_normalization",
+        "edge_mlp_hidden_dim",
+    ):
+        if option_id in architecture_options:
+            resolved[option_id] = architecture_options[option_id]
+    return AdvancedGraphSageAnswerRetriever(**resolved)

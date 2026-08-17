@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -73,29 +73,38 @@ class NodeClassifierDefinition(BaseModel):
     description: str = Field(..., description="Short description of the classifier.")
 
 
+class GnnArchitectureOptionDefinition(BaseModel):
+    """One declarative CLI/interactive option owned by a GNN architecture."""
+
+    model_config = ConfigDict(frozen=True)
+
+    option_id: str
+    display_name: str
+    description: str
+    value_type: Literal["boolean", "integer", "float", "string"]
+    choices: tuple[Any, ...] = ()
+    default: Any = None
+    cli_flag: str
+    prompt_when_missing: bool = True
+    enabled_when_option: str | None = None
+    enabled_when_value: Any = True
+
+
 class GnnArchitectureDefinition(BaseModel):
-    """Typed definition and defaults for one supported GNN architecture."""
+    """Self-contained schema and lazy model hook for one GNN architecture."""
 
     model_config = ConfigDict(frozen=True)
 
     architecture_id: str
     display_name: str
     description: str
-    supported_layer_counts: tuple[int, ...] = (2, 3)
-    supported_hidden_dimensions: tuple[int, ...] = (128, 256, 512)
-    supported_classifiers: tuple[str, ...] = ("mlp", "linear")
-    supported_dropouts: tuple[float, ...] = (0.0, 0.1, 0.2, 0.3, 0.5)
-    default_layer_count: int = 2
-    default_hidden_dimension: int = 256
-    default_classifier: str = "mlp"
-    default_dropout: float = 0.1
-    supports_advanced_options: bool = False
-    default_use_edge_mlp: bool = False
-    default_use_reverse_edges: bool = False
-    default_question_aware_classifier: bool = False
-    default_add_layer_normalization: bool = False
-    supported_edge_mlp_hidden_dimensions: tuple[int, ...] = ()
-    default_edge_mlp_hidden_dimension: int | None = None
+    options: tuple[GnnArchitectureOptionDefinition, ...]
+    model_builder_path: str
+    validator_path: str | None = None
+
+    @property
+    def option_map(self) -> dict[str, GnnArchitectureOptionDefinition]:
+        return {option.option_id: option for option in self.options}
 
 
 class OpenAiEmbeddingModelDefinition(BaseModel):
@@ -238,23 +247,95 @@ NODE_CLASSIFIERS: Final[dict[str, NodeClassifierDefinition]] = {
 GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "graphsage"
 AA_GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "aa-graphsage"
 
+GNN_SHARED_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GnnArchitectureOptionDefinition(
+        option_id="gnn_layer_count",
+        display_name="GNN Layer Count",
+        description="Number of GNN message-passing layers.",
+        value_type="integer",
+        choices=(2, 3),
+        default=2,
+        cli_flag="--gnn-layers",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="gnn_hidden_dimension",
+        display_name="GNN Hidden Dimension",
+        description="Width of projected node states inside the GNN.",
+        value_type="integer",
+        choices=(128, 256, 512),
+        default=256,
+        cli_flag="--gnn-hidden-dim",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="node_classifier",
+        display_name="Node Classifier",
+        description="Classifier used after the final GNN layer.",
+        value_type="string",
+        choices=("mlp", "linear"),
+        default="mlp",
+        cli_flag="--node-classifier",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="dropout",
+        display_name="GNN Dropout",
+        description="Dropout used by the architecture.",
+        value_type="float",
+        choices=(0.0, 0.1, 0.2, 0.3, 0.5),
+        default=0.1,
+        cli_flag="--dropout",
+    ),
+)
+
+AA_GRAPH_SAGE_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GnnArchitectureOptionDefinition(
+        option_id="use_edge_mlp", display_name="Use Edge MLP",
+        description="Use a trainable question-relation edge scorer.",
+        value_type="boolean", default=True, cli_flag="--use-edge-mlp",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="use_reverse_edges", display_name="Use Reverse Edges",
+        description="Materialize reverse graph edges.",
+        value_type="boolean", default=True, cli_flag="--use-reverse-edges",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="question_aware_classifier", display_name="Question-Aware Classifier",
+        description="Condition node classification on the question embedding.",
+        value_type="boolean", default=True, cli_flag="--question-aware-classifier",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="add_layer_normalization", display_name="Add Layer Normalization",
+        description="Use residual LayerNorm message-passing blocks.",
+        value_type="boolean", default=True, cli_flag="--add-layer-normalization",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="edge_mlp_hidden_dim", display_name="Edge MLP Hidden Dimension",
+        description="Hidden width of the relation-aware edge MLP.",
+        value_type="integer", choices=(128, 256, 512), default=256,
+        cli_flag="--edge-mlp-hidden-dim", enabled_when_option="use_edge_mlp",
+    ),
+)
+
 GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
     GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
         architecture_id=GRAPH_SAGE_ARCHITECTURE_ID,
         display_name="GraphSAGE",
         description="Baseline GraphSAGE with configurable depth, width, classifier, and dropout.",
+        options=GNN_SHARED_OPTIONS,
+        model_builder_path=(
+            "pipeline.preparation.models.gnn_answer_retriever:build_graphsage_model"
+        ),
     ),
     AA_GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
         architecture_id=AA_GRAPH_SAGE_ARCHITECTURE_ID,
         display_name="AA-GraphSAGE",
         description="Advanced answer-aware GraphSAGE with relational and question-aware components.",
-        supports_advanced_options=True,
-        default_use_edge_mlp=True,
-        default_use_reverse_edges=True,
-        default_question_aware_classifier=True,
-        default_add_layer_normalization=True,
-        supported_edge_mlp_hidden_dimensions=(128, 256, 512),
-        default_edge_mlp_hidden_dimension=256,
+        options=(*GNN_SHARED_OPTIONS, *AA_GRAPH_SAGE_OPTIONS),
+        model_builder_path=(
+            "pipeline.preparation.models.gnn_answer_retriever:build_aa_graphsage_model"
+        ),
+        validator_path=(
+            "pipeline.preparation.helpers.gnn_architecture:validate_aa_graphsage_options"
+        ),
     ),
 }
 

@@ -160,6 +160,16 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--add-layer-normalization` / `--no-add-layer-normalization` | Enable or disable AA-GraphSAGE residual LayerNorm blocks. |
 | `--edge-mlp-hidden-dim {128,256,512}` | AA-GraphSAGE edge-MLP width. Valid only when edge MLP is enabled. Default: `256`. |
 
+#### Adding another GNN architecture
+
+GNN configuration is registry-driven. Each `GnnArchitectureDefinition` owns:
+
+- Its complete `GnnArchitectureOptionDefinition` list, including CLI flags, types, choices, defaults, interactive labels, and conditional visibility.
+- A lazy `model_builder_path` callback that constructs the architecture without importing PyTorch during CLI setup.
+- An optional `validator_path` callback for relationships between its options.
+
+After registering a new definition in `GNN_ARCHITECTURES`, the CLI union and interactive prompts are generated automatically. Architecture-specific values are carried in `gnn_architecture_options`, persisted in model and training configurations, restored for evaluation or continuation, and exposed to the registered model builder. The central argument parser and configuration step do not need architecture-specific branches.
+
 Before the epoch loop, training deduplicates embeddings used by the selected instance slice and builds compact integer-indexed matrices. Retrieved vectors are also persisted under `data/webqsp/training_embedding_tensors` as append-only local tensor shards. A full local hit bypasses Qdrant; a partial hit retrieves and appends only vectors that have not been persisted yet. For example, training first on 100 instances and then on 300 reuses the vectors from the first run and fills only embeddings introduced by the additional 200 instances. Separate local caches are maintained for each dataset, embedding model, text category, vector dimension, and storage dtype.
 
 The compact matrices are still copied into VRAM at the start of every process because GPU memory is not persistent across runs. GPU-resident matrices remain frozen, are excluded from the optimizer and model checkpoint, and are released when training finishes. If the safe CUDA memory budget is exceeded in `auto` mode, the matrices remain on CPU.

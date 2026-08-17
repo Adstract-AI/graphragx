@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import Field, BaseModel
 
 from helpers.logging_config import get_logger
@@ -24,23 +26,22 @@ from pipeline.preparation.services.selection import SelectionService
 from pipeline.preparation.helpers.configuration_definitions import (
     CONTEXT_CONSTRUCTION_STRATEGIES,
     GNN_ARCHITECTURES,
-    GNN_HIDDEN_DIMENSION_OPTIONS,
-    GNN_LAYER_COUNT_OPTIONS,
+    GnnArchitectureOptionDefinition,
     GRAPH_SAGE_ARCHITECTURE_ID,
-    NODE_CLASSIFIERS,
     OPENAI_EMBEDDING_MODELS,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
-    RECOMMENDED_GNN_HIDDEN_DIMENSION,
     RECOMMENDED_GNN_ARCHITECTURE_ID,
-    RECOMMENDED_GNN_LAYER_COUNT,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
-    RECOMMENDED_NODE_CLASSIFIER_ID,
     RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
     RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
     SHARED_LLM_MODELS,
     SUBGRAPH_CONSTRUCTION_ALGORITHMS,
+)
+from pipeline.preparation.helpers.gnn_architecture import (
+    GnnArchitectureOptionValidationError,
+    validate_architecture_options,
 )
 from pipeline.preparation.steps.dataset_selection import SelectedDataset
 
@@ -66,6 +67,7 @@ class PipelineConfigurationInput(BaseModel):
     add_layer_normalization: bool | None = Field(default=None)
     edge_mlp_hidden_dim: int | None = Field(default=None)
     dropout: float | None = Field(default=None)
+    gnn_options: dict[str, Any] = Field(default_factory=dict)
 
 
 class BuiltPipelineConfiguration(StepResult):
@@ -73,6 +75,7 @@ class BuiltPipelineConfiguration(StepResult):
 
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     gnn_architecture: str = Field(default="graphsage", description="Selected GNN architecture id.")
+    gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
     main_llm_model: str = Field(..., description="Selected main LLM model id.")
     subgraph_construction_algorithm: str = Field(
         ..., description="Selected subgraph construction algorithm id."
@@ -80,12 +83,12 @@ class BuiltPipelineConfiguration(StepResult):
     context_construction_strategy: str = Field(
         ..., description="Selected context construction strategy id."
     )
-    gnn_layer_count: int = Field(..., description="Selected number of GNN layers.")
-    gnn_hidden_dimension: int = Field(
-        ...,
+    gnn_layer_count: int | None = Field(default=None, description="Selected number of GNN layers.")
+    gnn_hidden_dimension: int | None = Field(
+        default=None,
         description="Selected hidden dimension for projected GNN node states.",
     )
-    node_classifier: str = Field(..., description="Selected node classifier id.")
+    node_classifier: str | None = Field(default=None, description="Selected node classifier id.")
     question_embedding_model: str = Field(
         ..., description="OpenAI embedding model for question text."
     )
@@ -126,6 +129,7 @@ class BuildPipelineConfigurationStep(
         add_layer_normalization: bool | None = None,
         edge_mlp_hidden_dim: int | None = None,
         dropout: float | None = None,
+        gnn_options: dict[str, Any] | None = None,
         input_func=None,
         force_default: bool = False,
     ):
@@ -147,6 +151,7 @@ class BuildPipelineConfigurationStep(
             add_layer_normalization=add_layer_normalization,
             edge_mlp_hidden_dim=edge_mlp_hidden_dim,
             dropout=dropout,
+            gnn_options=gnn_options or {},
         )
         self.selection_service = SelectionService(input_func=input_func)
 
@@ -161,23 +166,11 @@ class BuildPipelineConfigurationStep(
             )
 
         logger.info(f"Building pipeline configuration for dataset={selected_dataset.dataset_id}")
+        provided_options = self._provided_architecture_options()
         implicit_graphsage = (
             GRAPH_SAGE_ARCHITECTURE_ID
             if self.configuration_input.gnn_architecture is None
-            and any(
-                value is not None
-                for value in (
-                    self.configuration_input.gnn_layer_count,
-                    self.configuration_input.gnn_hidden_dimension,
-                    self.configuration_input.node_classifier,
-                    self.configuration_input.dropout,
-                    self.configuration_input.use_edge_mlp,
-                    self.configuration_input.question_aware_classifier,
-                    self.configuration_input.use_reverse_edges,
-                    self.configuration_input.add_layer_normalization,
-                    self.configuration_input.edge_mlp_hidden_dim,
-                )
-            )
+            and bool(provided_options)
             else None
         )
         gnn_architecture = self.selection_service.resolve_choice(
@@ -191,159 +184,52 @@ class BuildPipelineConfigurationStep(
             label_getter=lambda item: item.display_name,
         )
         architecture = GNN_ARCHITECTURES[gnn_architecture]
-        if not architecture.supports_advanced_options:
-            explicitly_advanced = [
-                name
-                for name in (
-                    "use_edge_mlp",
-                    "question_aware_classifier",
-                    "use_reverse_edges",
-                    "add_layer_normalization",
-                    "edge_mlp_hidden_dim",
-                )
-                if getattr(self.configuration_input, name) is not None
-            ]
-            if explicitly_advanced:
-                raise InvalidGnnArchitectureConfigurationException(
-                    f"Architecture {gnn_architecture} does not support: "
-                    + ", ".join(explicitly_advanced)
-                )
-        selected_gnn_layer_count = self.selection_service.resolve_choice(
-            provided_value=(
-                str(self.configuration_input.gnn_layer_count)
-                if self.configuration_input.gnn_layer_count is not None
-                else None
-            ),
-            options=GNN_LAYER_COUNT_OPTIONS,
-            prompt_title="GNN Layer Count",
-            prompt_help="Select the number of GNN message-passing layers.",
-            recommended_id=str(RECOMMENDED_GNN_LAYER_COUNT),
-            invalid_exception_type=InvalidGnnLayerCountSelectionException,
-            value_getter=lambda item: str(item.layer_count),
-            label_getter=lambda item: item.display_name,
-        )
-        selected_gnn_hidden_dimension = self.selection_service.resolve_choice(
-            provided_value=(
-                str(self.configuration_input.gnn_hidden_dimension)
-                if self.configuration_input.gnn_hidden_dimension is not None
-                else None
-            ),
-            options=GNN_HIDDEN_DIMENSION_OPTIONS,
-            prompt_title="GNN Hidden Dimension",
-            prompt_help="Select the width of projected node states inside the GNN.",
-            recommended_id=str(RECOMMENDED_GNN_HIDDEN_DIMENSION),
-            invalid_exception_type=InvalidGnnHiddenDimensionSelectionException,
-            value_getter=lambda item: str(item.hidden_dimension),
-            label_getter=lambda item: item.display_name,
-        )
-        node_classifier = self.selection_service.resolve_choice(
-            provided_value=self.configuration_input.node_classifier,
-            options=NODE_CLASSIFIERS,
-            prompt_title="Node Classifier",
-            prompt_help="Select the classifier used after the final GNN layer.",
-            recommended_id=RECOMMENDED_NODE_CLASSIFIER_ID,
-            invalid_exception_type=InvalidNodeClassifierSelectionException,
-            value_getter=lambda item: item.classifier_id,
-            label_getter=lambda item: item.display_name,
-        )
+        unsupported_options = sorted(set(provided_options) - set(architecture.option_map))
+        if unsupported_options:
+            raise InvalidGnnArchitectureConfigurationException(
+                f"Architecture {gnn_architecture} does not support: "
+                + ", ".join(unsupported_options)
+            )
         shared_options_complete = all(
-            value is not None
-            for value in (
-                self.configuration_input.gnn_layer_count,
-                self.configuration_input.gnn_hidden_dimension,
-                self.configuration_input.node_classifier,
-            )
+            option_id in provided_options
+            for option_id in ("gnn_layer_count", "gnn_hidden_dimension", "node_classifier")
         )
-        provided_dropout = self.configuration_input.dropout
-        if provided_dropout is None and shared_options_complete:
-            provided_dropout = architecture.default_dropout
-        selected_dropout = self.selection_service.resolve_choice(
-            provided_value=(
-                str(provided_dropout)
-                if provided_dropout is not None
-                else None
-            ),
-            options={str(value): value for value in architecture.supported_dropouts},
-            prompt_title="GNN Dropout",
-            prompt_help=f"Select dropout for {architecture.display_name}.",
-            recommended_id=str(architecture.default_dropout),
-            invalid_exception_type=InvalidGnnArchitectureConfigurationException,
-            value_getter=str,
-            label_getter=lambda value: f"{value:g}",
-        )
+        if shared_options_complete and "dropout" not in provided_options:
+            provided_options["dropout"] = architecture.option_map["dropout"].default
 
-        use_edge_mlp = False
-        question_aware_classifier = False
-        use_reverse_edges = False
-        add_layer_normalization = False
-        edge_mlp_hidden_dim = None
-        if architecture.supports_advanced_options:
-            boolean_options = {"yes": True, "no": False}
-
-            def resolve_boolean(field_name: str, title: str) -> bool:
-                supplied = getattr(self.configuration_input, field_name)
-                selected = self.selection_service.resolve_choice(
-                    provided_value=("yes" if supplied else "no") if supplied is not None else None,
-                    options=boolean_options,
-                    prompt_title=title,
-                    prompt_help=f"Enable this option for {architecture.display_name}?",
-                    recommended_id="yes",
-                    invalid_exception_type=InvalidGnnArchitectureConfigurationException,
-                    value_getter=lambda value: "yes" if value else "no",
-                    label_getter=lambda value: "Yes" if value else "No",
-                )
-                return selected == "yes"
-
-            use_edge_mlp = resolve_boolean("use_edge_mlp", "Use Edge MLP")
-            use_reverse_edges = resolve_boolean("use_reverse_edges", "Use Reverse Edges")
-            question_aware_classifier = resolve_boolean(
-                "question_aware_classifier", "Question-Aware Classifier"
-            )
-            add_layer_normalization = resolve_boolean(
-                "add_layer_normalization", "Add Layer Normalization"
-            )
-            if use_edge_mlp:
-                selected_edge_width = self.selection_service.resolve_choice(
-                    provided_value=(
-                        str(self.configuration_input.edge_mlp_hidden_dim)
-                        if self.configuration_input.edge_mlp_hidden_dim is not None
-                        else None
-                    ),
-                    options={
-                        str(value): value
-                        for value in architecture.supported_edge_mlp_hidden_dimensions
-                    },
-                    prompt_title="Edge MLP Hidden Dimension",
-                    prompt_help="Select the hidden width of the relation-aware edge MLP.",
-                    recommended_id=str(architecture.default_edge_mlp_hidden_dimension),
-                    invalid_exception_type=InvalidGnnArchitectureConfigurationException,
-                    value_getter=str,
-                    label_getter=lambda value: str(value),
-                )
-                edge_mlp_hidden_dim = int(selected_edge_width)
-            elif self.configuration_input.edge_mlp_hidden_dim is not None:
-                raise InvalidGnnArchitectureConfigurationException(
-                    "--edge-mlp-hidden-dim cannot be used when edge MLP is disabled."
-                )
-
-            if node_classifier == "linear" and question_aware_classifier:
-                if self.configuration_input.node_classifier is not None:
+        resolved_gnn_options: dict[str, Any] = {}
+        for option in architecture.options:
+            if (
+                option.enabled_when_option is not None
+                and resolved_gnn_options.get(option.enabled_when_option)
+                != option.enabled_when_value
+            ):
+                if option.option_id in provided_options:
                     raise InvalidGnnArchitectureConfigurationException(
-                        "AA-GraphSAGE linear classification requires "
-                        "--no-question-aware-classifier."
+                        f"{option.cli_flag} cannot be used when "
+                        f"{option.enabled_when_option} is disabled."
                     )
-                self.selection_service.output_func(
-                    "Linear classification is incompatible with a question-aware head. "
-                    "Please select the MLP classifier."
-                )
-                node_classifier = self.selection_service.prompt_for_choice(
-                    options={"mlp": NODE_CLASSIFIERS["mlp"]},
-                    prompt_title="Node Classifier",
-                    prompt_help="Question-aware AA-GraphSAGE requires an MLP classifier.",
-                    recommended_id="mlp",
-                    invalid_exception_type=InvalidNodeClassifierSelectionException,
-                    value_getter=lambda item: item.classifier_id,
-                    label_getter=lambda item: item.display_name,
+                resolved_gnn_options[option.option_id] = None
+                continue
+            resolved_gnn_options[option.option_id] = self._resolve_architecture_option(
+                option=option,
+                provided_value=provided_options.get(option.option_id),
+                architecture_name=architecture.display_name,
+            )
+
+        while True:
+            try:
+                validate_architecture_options(gnn_architecture, resolved_gnn_options)
+                break
+            except GnnArchitectureOptionValidationError as error:
+                if error.option_id in provided_options:
+                    raise InvalidGnnArchitectureConfigurationException(str(error)) from error
+                self.selection_service.output_func(str(error))
+                option = architecture.option_map[error.option_id]
+                resolved_gnn_options[error.option_id] = self._resolve_architecture_option(
+                    option=option,
+                    provided_value=None,
+                    architecture_name=architecture.display_name,
                 )
         main_llm_model = self.selection_service.resolve_choice(
             provided_value=self.configuration_input.main_llm_model,
@@ -408,35 +294,106 @@ class BuildPipelineConfigurationStep(
 
         logger.info(
             f"Built pipeline configuration: gnn_architecture={gnn_architecture} "
-            f"gnn_layers={selected_gnn_layer_count} "
-            f"gnn_hidden_dimension={selected_gnn_hidden_dimension} "
-            f"node_classifier={node_classifier} "
+            f"gnn_options={resolved_gnn_options} "
             f"question_embedding_model={question_embedding_model} "
             f"relation_embedding_model={relation_embedding_model} "
-            f"entity_embedding_model={entity_embedding_model} "
-            f"use_edge_mlp={use_edge_mlp} "
-            f"question_aware_classifier="
-            f"{question_aware_classifier} "
-            f"use_reverse_edges={use_reverse_edges} "
-            f"add_layer_normalization="
-            f"{add_layer_normalization}"
+            f"entity_embedding_model={entity_embedding_model}"
         )
         return BuiltPipelineConfiguration(
             dataset_id=selected_dataset.dataset_id,
             gnn_architecture=gnn_architecture,
+            gnn_architecture_options=resolved_gnn_options,
             main_llm_model=main_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
-            gnn_layer_count=int(selected_gnn_layer_count),
-            gnn_hidden_dimension=int(selected_gnn_hidden_dimension),
-            node_classifier=node_classifier,
+            gnn_layer_count=resolved_gnn_options.get("gnn_layer_count"),
+            gnn_hidden_dimension=resolved_gnn_options.get("gnn_hidden_dimension"),
+            node_classifier=resolved_gnn_options.get("node_classifier"),
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
             entity_embedding_model=entity_embedding_model,
-            use_edge_mlp=use_edge_mlp,
-            question_aware_classifier=question_aware_classifier,
-            use_reverse_edges=use_reverse_edges,
-            add_layer_normalization=add_layer_normalization,
-            edge_mlp_hidden_dim=edge_mlp_hidden_dim,
-            dropout=float(selected_dropout),
+            use_edge_mlp=bool(resolved_gnn_options.get("use_edge_mlp", False)),
+            question_aware_classifier=bool(
+                resolved_gnn_options.get("question_aware_classifier", False)
+            ),
+            use_reverse_edges=bool(
+                resolved_gnn_options.get("use_reverse_edges", False)
+            ),
+            add_layer_normalization=bool(
+                resolved_gnn_options.get("add_layer_normalization", False)
+            ),
+            edge_mlp_hidden_dim=resolved_gnn_options.get("edge_mlp_hidden_dim"),
+            dropout=float(resolved_gnn_options.get("dropout", 0.0)),
         )
+
+    def _provided_architecture_options(self) -> dict[str, Any]:
+        provided = dict(self.configuration_input.gnn_options)
+        for option_id in (
+            "gnn_layer_count",
+            "gnn_hidden_dimension",
+            "node_classifier",
+            "dropout",
+            "use_edge_mlp",
+            "use_reverse_edges",
+            "question_aware_classifier",
+            "add_layer_normalization",
+            "edge_mlp_hidden_dim",
+        ):
+            value = getattr(self.configuration_input, option_id)
+            if value is not None:
+                existing = provided.get(option_id)
+                if existing is not None and existing != value:
+                    raise InvalidGnnArchitectureConfigurationException(
+                        f"Conflicting values supplied for GNN option {option_id}."
+                    )
+                provided[option_id] = value
+        return provided
+
+    def _resolve_architecture_option(
+        self,
+        *,
+        option: GnnArchitectureOptionDefinition,
+        provided_value: Any,
+        architecture_name: str,
+    ) -> Any:
+        if provided_value is None and not option.prompt_when_missing:
+            return option.default
+        if not option.choices and option.value_type != "boolean":
+            if provided_value is None:
+                return option.default
+            return provided_value
+
+        invalid_exception = {
+            "gnn_layer_count": InvalidGnnLayerCountSelectionException,
+            "gnn_hidden_dimension": InvalidGnnHiddenDimensionSelectionException,
+            "node_classifier": InvalidNodeClassifierSelectionException,
+        }.get(option.option_id, InvalidGnnArchitectureConfigurationException)
+        if option.value_type == "boolean":
+            choices = {"yes": True, "no": False}
+            selected = self.selection_service.resolve_choice(
+                provided_value=(
+                    "yes" if provided_value is True else "no"
+                    if provided_value is False else None
+                ),
+                options=choices,
+                prompt_title=option.display_name,
+                prompt_help=f"{option.description} ({architecture_name})",
+                recommended_id="yes" if option.default else "no",
+                invalid_exception_type=invalid_exception,
+                value_getter=lambda value: "yes" if value else "no",
+                label_getter=lambda value: "Yes" if value else "No",
+            )
+            return selected == "yes"
+
+        choices = {str(value): value for value in option.choices}
+        selected = self.selection_service.resolve_choice(
+            provided_value=str(provided_value) if provided_value is not None else None,
+            options=choices,
+            prompt_title=option.display_name,
+            prompt_help=f"{option.description} ({architecture_name})",
+            recommended_id=str(option.default),
+            invalid_exception_type=invalid_exception,
+            value_getter=str,
+            label_getter=lambda value: str(value),
+        )
+        return choices[selected]

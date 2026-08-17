@@ -219,7 +219,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             InvalidGnnArchitectureConfigurationException,
-            "cannot be used when edge MLP is disabled",
+            "cannot be used when use_edge_mlp is disabled",
         ):
             step.execute(self.make_dataset_context())
 

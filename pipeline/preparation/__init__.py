@@ -43,6 +43,7 @@ _EXPORT_MODULES: dict[str, str] = {
     "GNN_LAYER_COUNT_OPTIONS": "pipeline.preparation.helpers.configuration_definitions",
     "GnnHiddenDimensionDefinition": "pipeline.preparation.helpers.configuration_definitions",
     "GnnArchitectureDefinition": "pipeline.preparation.helpers.configuration_definitions",
+    "GnnArchitectureOptionDefinition": "pipeline.preparation.helpers.configuration_definitions",
     "GnnLayerCountDefinition": "pipeline.preparation.helpers.configuration_definitions",
     "LlmModelDefinition": "pipeline.preparation.helpers.configuration_definitions",
     "NODE_CLASSIFIERS": "pipeline.preparation.helpers.configuration_definitions",

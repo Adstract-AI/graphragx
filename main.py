@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import Any, Literal, Sequence
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
@@ -63,7 +63,10 @@ from pipeline.preparation.helpers.configuration_definitions import (
     RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
 )
-from pipeline.preparation.helpers.gnn_architecture import architecture_defaults
+from pipeline.preparation.helpers.gnn_architecture import (
+    architecture_defaults,
+    architecture_option_definitions,
+)
 from pipeline.preparation.helpers.dataset_definitions import (
     DATASET_LOADERS,
     WEBQSP_DATASET_ID,
@@ -87,12 +90,6 @@ def _saved_model_conflicts(
     """Return explicitly requested fields that disagree with saved lineage."""
     comparisons = {
         "gnn_architecture": (requested.gnn_architecture, saved.resolved_gnn_architecture),
-        "gnn_layer_count": (requested.gnn_layer_count, saved.resolved_gnn_layer_count),
-        "gnn_hidden_dimension": (
-            requested.gnn_hidden_dimension,
-            saved.resolved_hidden_dimension,
-        ),
-        "node_classifier": (requested.node_classifier, saved.node_classifier),
         "question_embedding_model": (
             requested.question_embedding_model,
             saved.question_embedding_model,
@@ -105,38 +102,21 @@ def _saved_model_conflicts(
             requested.entity_embedding_model,
             saved.entity_embedding_model,
         ),
-        "use_edge_mlp": (requested.use_edge_mlp, saved.use_edge_mlp),
-        "question_aware_classifier": (
-            requested.question_aware_classifier,
-            saved.question_aware_classifier,
-        ),
-        "use_reverse_edges": (requested.use_reverse_edges, saved.use_reverse_edges),
-        "add_layer_normalization": (
-            requested.add_layer_normalization,
-            saved.add_layer_normalization,
-        ),
-        "dropout": (requested.dropout, saved.dropout),
     }
-    if requested.edge_mlp_hidden_dim is not None:
-        comparisons["edge_mlp_hidden_dim"] = (
-            requested.edge_mlp_hidden_dim,
-            saved.resolved_edge_mlp_hidden_dim,
-        )
+    requested_options = dict(requested.gnn_options)
+    for option_id in architecture_option_definitions():
+        if hasattr(requested, option_id):
+            value = getattr(requested, option_id)
+            if value is not None:
+                requested_options[option_id] = value
+    saved_options = saved.resolved_gnn_architecture_options
+    for option_id, requested_value in requested_options.items():
+        comparisons[option_id] = (requested_value, saved_options.get(option_id))
     conflicts = {
         name
         for name, (requested_value, saved_value) in comparisons.items()
         if requested_value is not None and requested_value != saved_value
     }
-    if saved.resolved_gnn_architecture == "graphsage":
-        for field_name in (
-            "use_edge_mlp",
-            "question_aware_classifier",
-            "use_reverse_edges",
-            "add_layer_normalization",
-            "edge_mlp_hidden_dim",
-        ):
-            if getattr(requested, field_name) is not None:
-                conflicts.add(field_name)
     return sorted(conflicts)
 
 
@@ -144,28 +124,21 @@ def _apply_saved_model_config(
     resolved: "PipelineRuntimeConfig",
     saved: SavedGnnAnswerRetrieverConfig,
 ) -> "PipelineRuntimeConfig":
-    is_advanced = saved.resolved_gnn_architecture == "aa-graphsage"
+    options = saved.resolved_gnn_architecture_options
     return resolved.model_copy(
         update={
             "dataset": saved.dataset_id,
             "gnn_architecture": saved.resolved_gnn_architecture,
-            "gnn_layer_count": saved.resolved_gnn_layer_count,
-            "gnn_hidden_dimension": saved.resolved_hidden_dimension,
-            "node_classifier": saved.node_classifier,
-            "use_edge_mlp": saved.use_edge_mlp if is_advanced else None,
-            "question_aware_classifier": (
-                saved.question_aware_classifier if is_advanced else None
-            ),
-            "use_reverse_edges": saved.use_reverse_edges if is_advanced else None,
-            "add_layer_normalization": (
-                saved.add_layer_normalization if is_advanced else None
-            ),
-            "edge_mlp_hidden_dim": (
-                saved.resolved_edge_mlp_hidden_dim
-                if is_advanced and saved.use_edge_mlp
-                else None
-            ),
-            "dropout": saved.dropout,
+            "gnn_options": options,
+            "gnn_layer_count": options.get("gnn_layer_count"),
+            "gnn_hidden_dimension": options.get("gnn_hidden_dimension"),
+            "node_classifier": options.get("node_classifier"),
+            "use_edge_mlp": options.get("use_edge_mlp"),
+            "question_aware_classifier": options.get("question_aware_classifier"),
+            "use_reverse_edges": options.get("use_reverse_edges"),
+            "add_layer_normalization": options.get("add_layer_normalization"),
+            "edge_mlp_hidden_dim": options.get("edge_mlp_hidden_dim"),
+            "dropout": options.get("dropout"),
             "question_embedding_model": saved.question_embedding_model,
             "relation_embedding_model": saved.relation_embedding_model,
             "entity_embedding_model": saved.entity_embedding_model,
@@ -197,6 +170,7 @@ class PipelineRuntimeConfig(BaseModel):
     add_layer_normalization: bool | None = None
     edge_mlp_hidden_dim: int | None = None
     dropout: float | None = None
+    gnn_options: dict[str, Any] = Field(default_factory=dict)
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
     entity_embedding_model: str | None = None
@@ -246,25 +220,32 @@ class PipelineRuntimeConfig(BaseModel):
 
         architecture_id = self.gnn_architecture or RECOMMENDED_GNN_ARCHITECTURE_ID
         defaults = architecture_defaults(architecture_id)
-        architecture_updates = {
-            key: getattr(self, key) if getattr(self, key) is not None else value
-            for key, value in defaults.items()
-        }
-        if architecture_id == RECOMMENDED_GNN_ARCHITECTURE_ID:
-            for advanced_key in (
-                "use_edge_mlp",
-                "use_reverse_edges",
-                "question_aware_classifier",
-                "add_layer_normalization",
-                "edge_mlp_hidden_dim",
+        defaults.pop("gnn_architecture", None)
+        requested_options = dict(self.gnn_options)
+        for option_id in architecture_option_definitions():
+            if hasattr(self, option_id):
+                value = getattr(self, option_id)
+                if value is not None:
+                    requested_options[option_id] = value
+        resolved_options = {**defaults, **requested_options}
+        architecture = GNN_ARCHITECTURES[architecture_id]
+        for option in architecture.options:
+            if (
+                option.enabled_when_option is not None
+                and resolved_options.get(option.enabled_when_option)
+                != option.enabled_when_value
+                and option.option_id not in requested_options
             ):
-                if getattr(self, advanced_key) is None:
-                    architecture_updates.pop(advanced_key, None)
-        elif (
-            architecture_updates.get("use_edge_mlp") is False
-            and self.edge_mlp_hidden_dim is None
-        ):
-            architecture_updates["edge_mlp_hidden_dim"] = None
+                resolved_options[option.option_id] = None
+        architecture_updates = {
+            option_id: value
+            for option_id, value in resolved_options.items()
+            if hasattr(self, option_id)
+        }
+        architecture_updates.update(
+            gnn_architecture=architecture_id,
+            gnn_options=resolved_options,
+        )
         return self.model_copy(
             update={
                 "dataset": self.dataset or WEBQSP_DATASET_ID,
@@ -405,6 +386,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             subgraph_algorithm=resolved_config.subgraph_algorithm,
             context_strategy=resolved_config.context_strategy,
             gnn_architecture=resolved_config.gnn_architecture,
+            gnn_options=resolved_config.gnn_options,
             gnn_layer_count=resolved_config.gnn_layer_count,
             gnn_hidden_dimension=resolved_config.gnn_hidden_dimension,
             node_classifier=resolved_config.node_classifier,
@@ -712,6 +694,24 @@ def log_error_summary(
     )
 
 
+def _add_gnn_architecture_option_arguments(parser: argparse.ArgumentParser) -> None:
+    """Generate the union of architecture-owned CLI flags from the registry."""
+    type_map = {"integer": int, "float": float, "string": str}
+    for option in architecture_option_definitions().values():
+        kwargs: dict[str, Any] = {
+            "dest": option.option_id,
+            "default": None,
+            "help": option.description,
+        }
+        if option.value_type == "boolean":
+            kwargs["action"] = argparse.BooleanOptionalAction
+        else:
+            kwargs["type"] = type_map[option.value_type]
+            if option.choices:
+                kwargs["choices"] = option.choices
+        parser.add_argument(option.cli_flag, **kwargs)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the framework entry point."""
     parser = argparse.ArgumentParser(description="Run graphragX.")
@@ -778,64 +778,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="GNN architecture. Defaults to graphsage.",
     )
-    parser.add_argument(
-        "--gnn-layers",
-        type=int,
-        choices=(2, 3),
-        default=None,
-        help="Optional number of GNN layers for non-interactive configuration.",
-    )
-    parser.add_argument(
-        "--gnn-hidden-dim",
-        type=int,
-        choices=(128, 256, 512),
-        default=None,
-        help="Optional GNN hidden dimension for non-interactive configuration.",
-    )
-    parser.add_argument(
-        "--node-classifier",
-        choices=("mlp", "linear"),
-        default=None,
-        help="Optional node classifier id for non-interactive configuration.",
-    )
-    parser.add_argument(
-        "--use-edge-mlp",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Use a trainable question-relation MLP to score edge weights.",
-    )
-    parser.add_argument(
-        "--question-aware-classifier",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Make answer-node classification depend on node and question embeddings.",
-    )
-    parser.add_argument(
-        "--use-reverse-edges",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Materialize reverse edges in prepared WebQSP graphs.",
-    )
-    parser.add_argument(
-        "--add-layer-normalization",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Apply residual connection plus LayerNorm after each GNN layer.",
-    )
-    parser.add_argument(
-        "--edge-mlp-hidden-dim",
-        type=int,
-        choices=(128, 256, 512),
-        default=None,
-        help="Hidden dimension for the trainable edge MLP. Defaults to GNN hidden dimension.",
-    )
-    parser.add_argument(
-        "--dropout",
-        type=float,
-        choices=(0.0, 0.1, 0.2, 0.3, 0.5),
-        default=None,
-        help="Dropout used by upgraded GNN components.",
-    )
+    _add_gnn_architecture_option_arguments(parser)
     parser.add_argument(
         "--question-embedding-model",
         default=None,
@@ -1090,8 +1033,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,
         gnn_architecture=args.gnn_architecture,
-        gnn_layer_count=args.gnn_layers,
-        gnn_hidden_dimension=args.gnn_hidden_dim,
+        gnn_layer_count=args.gnn_layer_count,
+        gnn_hidden_dimension=args.gnn_hidden_dimension,
         node_classifier=args.node_classifier,
         use_edge_mlp=args.use_edge_mlp,
         question_aware_classifier=args.question_aware_classifier,
@@ -1099,6 +1042,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         add_layer_normalization=args.add_layer_normalization,
         edge_mlp_hidden_dim=args.edge_mlp_hidden_dim,
         dropout=args.dropout,
+        gnn_options={
+            option_id: getattr(args, option_id)
+            for option_id in architecture_option_definitions()
+            if getattr(args, option_id) is not None
+        },
         question_embedding_model=args.question_embedding_model,
         relation_embedding_model=args.relation_embedding_model,
         entity_embedding_model=args.entity_embedding_model,

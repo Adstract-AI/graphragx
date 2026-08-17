@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Protocol
+from typing import Any, TYPE_CHECKING, Protocol
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -121,15 +121,16 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
     embedding_cache_dtype: str = Field(..., description="Frozen embedding precision.")
     dataset_id: str = Field(..., description="Dataset id used by the trained model.")
     gnn_architecture: str = Field(default="graphsage")
+    gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
     entity_embedding_model: str = Field(..., description="Entity embedding model id.")
     question_embedding_model: str = Field(..., description="Question embedding model id.")
     relation_embedding_model: str = Field(..., description="Relation embedding model id.")
     entity_embedding_dimension: int = Field(..., description="Entity embedding dimension.")
     question_embedding_dimension: int = Field(..., description="Question embedding dimension.")
     relation_embedding_dimension: int = Field(..., description="Relation embedding dimension.")
-    hidden_dimension: int = Field(..., description="GNN hidden dimension.")
-    gnn_layer_count: int = Field(..., description="GNN layer count.")
-    node_classifier: str = Field(..., description="Node classifier id.")
+    hidden_dimension: int | None = Field(default=None, description="GNN hidden dimension.")
+    gnn_layer_count: int | None = Field(default=None, description="GNN layer count.")
+    node_classifier: str | None = Field(default=None, description="Node classifier id.")
     use_edge_mlp: bool = Field(default=False)
     question_aware_classifier: bool = Field(default=False)
     use_reverse_edges: bool = Field(default=False)
@@ -458,6 +459,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             embedding_cache_dtype=prepared_training_data.embedding_cache_dtype,
             dataset_id=effective_retriever.dataset_id,
             gnn_architecture=effective_retriever.gnn_architecture,
+            gnn_architecture_options=effective_retriever.gnn_architecture_options,
             entity_embedding_model=effective_retriever.entity_embedding_model,
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
@@ -548,6 +550,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         return BuiltGnnAnswerRetriever(
             dataset_id=continued_run.config.dataset_id,
             gnn_architecture=continued_run.config.resolved_gnn_architecture,
+            gnn_architecture_options=(
+                continued_run.config.resolved_gnn_architecture_options
+            ),
             entity_embedding_model=continued_run.config.entity_embedding_model,
             entity_embedding_dimension=continued_run.config.entity_embedding_dimension,
             question_embedding_dimension=(
@@ -721,6 +726,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         training_payload["device"] = selected_device
         training_payload["gnn_layer_count"] = built_retriever.gnn_layer_count
         training_payload["gnn_architecture"] = built_retriever.gnn_architecture
+        training_payload["gnn_architecture_options"] = (
+            built_retriever.gnn_architecture_options
+        )
         training_payload["hidden_dimension"] = built_retriever.hidden_dimension
         training_payload["loss_function"] = "BCEWithLogitsLoss"
         training_payload["use_edge_mlp"] = built_retriever.use_edge_mlp
@@ -739,6 +747,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         config_payload = {
             "dataset_id": built_retriever.dataset_id,
             "gnn_architecture": built_retriever.gnn_architecture,
+            "gnn_architecture_options": built_retriever.gnn_architecture_options,
             "run_name": model_run_name,
             "run_number": model_run_number,
             "entity_embedding_model": built_retriever.entity_embedding_model,

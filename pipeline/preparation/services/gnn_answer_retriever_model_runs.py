@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,8 +14,14 @@ from helpers.constants import (
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
 )
 from helpers.logging_config import get_logger
-from pipeline.preparation.helpers.configuration_definitions import OPENAI_EMBEDDING_MODELS
-from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
+from pipeline.preparation.helpers.configuration_definitions import (
+    GNN_ARCHITECTURES,
+    OPENAI_EMBEDDING_MODELS,
+)
+from pipeline.preparation.helpers.gnn_architecture import (
+    architecture_defaults,
+    infer_gnn_architecture,
+)
 from pipeline.preparation.exceptions import GnnAnswerRetrieverModelRunException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
@@ -34,6 +41,7 @@ class SavedGnnAnswerRetrieverTrainingConfig(BaseModel):
     log_every: int
     device: str
     gnn_architecture: str | None = None
+    gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
     gnn_layer_count: int | None = None
     hidden_dimension: int | None = None
     loss_function: str | None = None
@@ -50,6 +58,7 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
 
     dataset_id: str
     gnn_architecture: str | None = None
+    gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
     entity_embedding_model: str
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
@@ -58,7 +67,7 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     relation_embedding_dimension: int | None = None
     hidden_dimension: int | None = None
     gnn_layer_count: int | None = None
-    node_classifier: str
+    node_classifier: str | None = None
     use_edge_mlp: bool = False
     question_aware_classifier: bool = False
     use_reverse_edges: bool = False
@@ -89,6 +98,35 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     @property
     def resolved_gnn_architecture(self) -> str:
         return infer_gnn_architecture(self.model_dump())
+
+    @property
+    def resolved_gnn_architecture_options(self) -> dict[str, Any]:
+        defaults = architecture_defaults(self.resolved_gnn_architecture)
+        defaults.pop("gnn_architecture", None)
+        persisted = {
+            **self.training.gnn_architecture_options,
+            **self.gnn_architecture_options,
+        }
+        legacy_values = {
+            "gnn_layer_count": self.resolved_gnn_layer_count,
+            "gnn_hidden_dimension": self.resolved_hidden_dimension,
+            "node_classifier": self.node_classifier,
+            "dropout": self.dropout,
+            "use_edge_mlp": self.use_edge_mlp,
+            "question_aware_classifier": self.question_aware_classifier,
+            "use_reverse_edges": self.use_reverse_edges,
+            "add_layer_normalization": self.add_layer_normalization,
+            "edge_mlp_hidden_dim": self.resolved_edge_mlp_hidden_dim,
+        }
+        supported = GNN_ARCHITECTURES[self.resolved_gnn_architecture].option_map
+        resolved = {
+            option_id: persisted.get(option_id, legacy_values.get(option_id, default))
+            for option_id, default in defaults.items()
+            if option_id in supported
+        }
+        if resolved.get("use_edge_mlp") is False:
+            resolved["edge_mlp_hidden_dim"] = None
+        return resolved
 
     @property
     def resolved_edge_mlp_hidden_dim(self) -> int:
@@ -184,6 +222,7 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
 
         model = build_gnn_answer_retriever(
             gnn_architecture=saved_run.config.resolved_gnn_architecture,
+            architecture_options=saved_run.config.resolved_gnn_architecture_options,
             entity_embedding_dimension=saved_run.config.entity_embedding_dimension,
             question_embedding_dimension=self._embedding_dimension(
                 saved_run.config.question_embedding_model,
@@ -195,14 +234,6 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
                 saved_run.config.relation_embedding_dimension,
                 pipeline_configuration.relation_embedding_model,
             ),
-            hidden_dimension=saved_run.config.resolved_hidden_dimension,
-            gnn_layer_count=saved_run.config.resolved_gnn_layer_count,
-            node_classifier=saved_run.config.node_classifier,
-            use_edge_mlp=saved_run.config.use_edge_mlp,
-            question_aware_classifier=saved_run.config.question_aware_classifier,
-            add_layer_normalization=saved_run.config.add_layer_normalization,
-            edge_mlp_hidden_dim=saved_run.config.resolved_edge_mlp_hidden_dim,
-            dropout=saved_run.config.dropout,
         )
         try:
             state_dict = torch.load(saved_run.weights_path, map_location=device)

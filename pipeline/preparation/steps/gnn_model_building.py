@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import ConfigDict, Field
 
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
 from pipeline.preparation.helpers.configuration_definitions import OPENAI_EMBEDDING_MODELS
+from pipeline.preparation.helpers.configuration_definitions import GNN_ARCHITECTURES
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
@@ -22,6 +25,7 @@ class BuiltGnnAnswerRetriever(StepResult):
 
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     gnn_architecture: str = Field(default="graphsage")
+    gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
     entity_embedding_model: str = Field(
         ...,
         description="OpenAI embedding model used for entity text.",
@@ -30,12 +34,12 @@ class BuiltGnnAnswerRetriever(StepResult):
         ...,
         description="Entity text embedding dimension before projection.",
     )
-    hidden_dimension: int = Field(
-        ...,
+    hidden_dimension: int | None = Field(
+        default=None,
         description="Shared hidden dimension used by projection, GNN, and classifier.",
     )
-    gnn_layer_count: int = Field(..., description="Number of weighted GNN layers.")
-    node_classifier: str = Field(..., description="Node classifier architecture id.")
+    gnn_layer_count: int | None = Field(default=None, description="Number of weighted GNN layers.")
+    node_classifier: str | None = Field(default=None, description="Node classifier architecture id.")
     question_embedding_dimension: int = Field(
         ...,
         description="Question text embedding dimension before projection.",
@@ -98,6 +102,23 @@ class BuildGnnAnswerRetrieverStep(
         relation_embedding_definition = OPENAI_EMBEDDING_MODELS[
             configuration.relation_embedding_model
         ]
+        architecture_options = dict(configuration.gnn_architecture_options)
+        supported_option_ids = set(
+            GNN_ARCHITECTURES[configuration.gnn_architecture].option_map
+        )
+        for option_id, value in {
+            "gnn_layer_count": configuration.gnn_layer_count,
+            "gnn_hidden_dimension": configuration.gnn_hidden_dimension,
+            "node_classifier": configuration.node_classifier,
+            "dropout": configuration.dropout,
+            "use_edge_mlp": configuration.use_edge_mlp,
+            "question_aware_classifier": configuration.question_aware_classifier,
+            "use_reverse_edges": configuration.use_reverse_edges,
+            "add_layer_normalization": configuration.add_layer_normalization,
+            "edge_mlp_hidden_dim": configuration.edge_mlp_hidden_dim,
+        }.items():
+            if option_id in supported_option_ids and value is not None:
+                architecture_options.setdefault(option_id, value)
 
         logger.info(
             f"Building GNN answer retriever: dataset={prepared_dataset.dataset_id} "
@@ -113,23 +134,17 @@ class BuildGnnAnswerRetrieverStep(
         )
         model = build_gnn_answer_retriever(
             gnn_architecture=configuration.gnn_architecture,
+            architecture_options=architecture_options,
             entity_embedding_dimension=entity_embedding_definition.dimensions,
             question_embedding_dimension=question_embedding_definition.dimensions,
             relation_embedding_dimension=relation_embedding_definition.dimensions,
-            hidden_dimension=configuration.gnn_hidden_dimension,
-            gnn_layer_count=configuration.gnn_layer_count,
-            node_classifier=configuration.node_classifier,
-            use_edge_mlp=configuration.use_edge_mlp,
-            question_aware_classifier=configuration.question_aware_classifier,
-            add_layer_normalization=configuration.add_layer_normalization,
-            edge_mlp_hidden_dim=configuration.edge_mlp_hidden_dim,
-            dropout=configuration.dropout,
         )
 
         logger.info(f"Built GNN answer retriever architecture")
         return BuiltGnnAnswerRetriever(
             dataset_id=prepared_dataset.dataset_id,
             gnn_architecture=configuration.gnn_architecture,
+            gnn_architecture_options=architecture_options,
             entity_embedding_model=configuration.entity_embedding_model,
             entity_embedding_dimension=entity_embedding_definition.dimensions,
             question_embedding_dimension=question_embedding_definition.dimensions,

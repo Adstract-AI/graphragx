@@ -4,6 +4,17 @@ from pipeline.preparation.helpers.gnn_architecture import (
     architecture_defaults,
     infer_gnn_architecture,
 )
+from pipeline.preparation.helpers.configuration_definitions import (
+    GNN_ARCHITECTURES,
+    GnnArchitectureDefinition,
+    GnnArchitectureOptionDefinition,
+)
+from pipeline.preparation.steps.configuration_building import (
+    BuildPipelineConfigurationStep,
+)
+from pipeline.preparation.steps.dataset_selection import SelectedDataset
+from pipeline.abstract import StepContext
+import main
 
 
 def test_architecture_defaults_are_stable() -> None:
@@ -14,7 +25,7 @@ def test_architecture_defaults_are_stable() -> None:
     assert baseline["gnn_hidden_dimension"] == 256
     assert baseline["node_classifier"] == "mlp"
     assert baseline["dropout"] == 0.1
-    assert not baseline["use_edge_mlp"]
+    assert "use_edge_mlp" not in baseline
     assert advanced["use_edge_mlp"]
     assert advanced["use_reverse_edges"]
     assert advanced["question_aware_classifier"]
@@ -38,3 +49,63 @@ def test_explicit_architecture_takes_precedence_over_legacy_fields() -> None:
     assert infer_gnn_architecture(
         {"gnn_architecture": "graphsage", "use_edge_mlp": True}
     ) == "graphsage"
+
+
+def test_new_architecture_options_drive_cli_and_configuration_without_core_changes(
+    monkeypatch,
+) -> None:
+    architecture = GnnArchitectureDefinition(
+        architecture_id="attention-gnn",
+        display_name="Attention GNN",
+        description="Test architecture with a completely different option.",
+        options=(
+            GnnArchitectureOptionDefinition(
+                option_id="attention_heads",
+                display_name="Attention Heads",
+                description="Number of attention heads.",
+                value_type="integer",
+                choices=(4, 8, 16),
+                default=8,
+                cli_flag="--attention-heads",
+            ),
+        ),
+        model_builder_path="builtins:dict",
+    )
+    monkeypatch.setitem(GNN_ARCHITECTURES, architecture.architecture_id, architecture)
+
+    args = main.build_parser().parse_args(
+        ["--gnn-architecture", "attention-gnn", "--attention-heads", "16"]
+    )
+    assert args.attention_heads == 16
+    defaulted = main.PipelineRuntimeConfig(
+        gnn_architecture="attention-gnn",
+        use_default_config_values=True,
+    ).with_defaulted_user_inputs()
+    assert defaulted.gnn_options == {"attention_heads": 8}
+
+    result = BuildPipelineConfigurationStep(
+        gnn_architecture="attention-gnn",
+        gnn_options={"attention_heads": args.attention_heads},
+        main_llm_model="gpt-5.4",
+        subgraph_algorithm="shortest_path",
+        context_strategy="structured_triples",
+        question_embedding_model="text-embedding-3-small",
+        relation_embedding_model="text-embedding-3-small",
+        entity_embedding_model="text-embedding-3-small",
+    ).execute(
+        StepContext(
+            result=SelectedDataset(
+                dataset_id="WebQSP",
+                display_name="WebQSP",
+                dataset_family="question_answering",
+                task_domain="knowledge_graph_question_answering",
+                description="dataset",
+                supported=True,
+            )
+        )
+    )
+
+    assert result.gnn_architecture == "attention-gnn"
+    assert result.gnn_architecture_options == {"attention_heads": 16}
+    assert result.gnn_layer_count is None
+    assert result.node_classifier is None

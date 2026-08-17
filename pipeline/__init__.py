@@ -46,6 +46,7 @@ _EXPORT_MODULES: dict[str, str] = {
     "GNN_LAYER_COUNT_OPTIONS": "pipeline.preparation",
     "GnnHiddenDimensionDefinition": "pipeline.preparation",
     "GnnArchitectureDefinition": "pipeline.preparation",
+    "GnnArchitectureOptionDefinition": "pipeline.preparation",
     "GnnLayerCountDefinition": "pipeline.preparation",
     "LoadDatasetStep": "pipeline.preparation",
     "LoadedDataset": "pipeline.preparation",

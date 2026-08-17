@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import ConfigDict, Field
 
@@ -36,12 +37,13 @@ class TrainedGnnAnswerRetriever(StepResult):
 
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     gnn_architecture: str = Field(default="graphsage")
-    hidden_dimension: int = Field(
-        ...,
+    gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
+    hidden_dimension: int | None = Field(
+        default=None,
         description="Shared hidden dimension used by the trained retriever.",
     )
-    gnn_layer_count: int = Field(..., description="Number of trained GNN layers.")
-    node_classifier: str = Field(..., description="Trained node classifier id.")
+    gnn_layer_count: int | None = Field(default=None, description="Number of trained GNN layers.")
+    node_classifier: str | None = Field(default=None, description="Trained node classifier id.")
     use_edge_mlp: bool = Field(default=False)
     question_aware_classifier: bool = Field(default=False)
     use_reverse_edges: bool = Field(default=False)
@@ -206,6 +208,7 @@ class TrainGnnAnswerRetrieverStep(
         return TrainedGnnAnswerRetriever(
             dataset_id=outcome.dataset_id,
             gnn_architecture=outcome.gnn_architecture,
+            gnn_architecture_options=outcome.gnn_architecture_options,
             hidden_dimension=outcome.hidden_dimension,
             gnn_layer_count=outcome.gnn_layer_count,
             node_classifier=outcome.node_classifier,
