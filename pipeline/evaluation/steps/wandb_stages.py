@@ -394,7 +394,6 @@ class LogInferenceToWandbStep(
             if isinstance(evaluation_config_value, str)
             else None
         )
-        inference = config.get("inference", {})
         self.coordinator.update_config(
             _build_available_wandb_config(
                 evaluation_config_path=source_config_path,
@@ -402,27 +401,6 @@ class LogInferenceToWandbStep(
                 answers_path=result.answers_path,
                 reasoning_path=result.reasoning_path,
             ),
-            source_config_path=source_config_path,
-        )
-        prefix = f"Inference/{result.inference_run_name}"
-        payload: dict[str, float | int | str] = {
-            f"{prefix}/total_instances": result.total_instances,
-            f"{prefix}/successful_answers": result.successful_answers,
-            f"{prefix}/failed_answers": result.failed_answers,
-            f"{prefix}/model_id": result.model_id,
-        }
-        if isinstance(inference, dict):
-            for source_key in [
-                "total_prompt_tokens",
-                "total_completion_tokens",
-                "total_tokens",
-                "total_cost_usd",
-            ]:
-                value = inference.get(source_key)
-                if isinstance(value, int | float):
-                    payload[f"{prefix}/{source_key}"] = value
-        self.coordinator.log(
-            payload,
             source_config_path=source_config_path,
         )
         self.coordinator.persist_metadata(result.inference_config_path)

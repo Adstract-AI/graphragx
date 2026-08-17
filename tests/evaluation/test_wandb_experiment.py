@@ -326,7 +326,7 @@ def test_operational_initialization_failure_is_non_fatal(tmp_path) -> None:
     assert coordinator.metadata.error_message == "offline"
 
 
-def test_multiple_inference_runs_are_namespaced_on_one_wandb_run(tmp_path) -> None:
+def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
     fake_wandb = FakeWandb()
     coordinator = WandbExperimentCoordinator(
         project="project",
@@ -382,12 +382,9 @@ def test_multiple_inference_runs_are_namespaced_on_one_wandb_run(tmp_path) -> No
 
     assert len(fake_wandb.init_calls) == 1
     logged_keys = {
-        key
-        for payload, _ in fake_wandb.run.logged
-        for key in payload
+        key for payload, _ in fake_wandb.run.logged for key in payload
     }
-    assert "Inference/first/total_tokens" in logged_keys
-    assert "Inference/second/total_tokens" in logged_keys
+    assert not any(key.startswith("Inference/") for key in logged_keys)
     assert fake_wandb.run.config["dataset_id"] == "WebQSP"
     assert fake_wandb.run.config["model_id"] == "gpt-test"
     assert fake_wandb.run.config["runs"]["inference"] == {

@@ -520,7 +520,7 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
     assert payload["Summary_Plots/grounding_fully_grounded_explanation_rate"] == 0.5
     assert payload["Summary_Plots/ranking_ndcg_at_1"] == 0.5
     assert payload["Summary_Plots/ranking_ndcg_at_candidate_limit"] == 0.75
-    assert payload["Inference/1_inference/f1"] == 2 / 3
+    assert not any(key.startswith("Inference/") for key in payload)
     config_payload = coordinator.config_updates[0]
     assert set(config_payload["configs"]) == {"model", "evaluation", "inference"}
     assert set(config_payload["runs"]) == {
