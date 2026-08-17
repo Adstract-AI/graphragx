@@ -465,6 +465,7 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
                 "run_number": 1,
                 "gnn_layer_count": 2,
                 "hidden_dimension": 256,
+                "loss_history": [{"epoch": 1, "average_loss": 0.6}],
             }
         ),
         encoding="utf-8",
@@ -557,3 +558,24 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     assert len(copied_coordinator.artifact_calls) == 1
     assert copied_coordinator.persisted_metadata_paths == []
     assert copied_coordinator.tag_updates == [["evaluated_instances:10"]]
+
+    evaluation_only_coordinator = CapturingCoordinator()
+    evaluation_only_coordinator.has_active_run = False
+    LogRetrieverToWandbStep(
+        coordinator=evaluation_only_coordinator,
+    ).execute_default(StepContext(result=result))
+
+    assert evaluation_only_coordinator.logged[0] == {
+        "Training/epoch": 1,
+        "Training/gnn_training_loss": 0.6,
+    }
+    assert (
+        evaluation_only_coordinator.logged[1][
+            "Run_Summary/retrieval_hits_at_1"
+        ]
+        == 0.4
+    )
+    assert [call["artifact_type"] for call in evaluation_only_coordinator.artifact_calls] == [
+        "gnn-model",
+        "retriever-results",
+    ]

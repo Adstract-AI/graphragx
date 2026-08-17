@@ -312,7 +312,8 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         entity=resolved_config.wandb_entity,
         mode=resolved_config.wandb_mode,
         enabled=not resolved_config.no_wandb,
-        resume_from_lineage=resolved_config.run_mode != "inference-only",
+        resume_from_lineage=resolved_config.run_mode
+        not in {"evaluation-only", "inference-only"},
         run_root=wandb_loader_definition.cache_root / "wandb_runs",
     )
     setup_steps = [

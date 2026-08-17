@@ -738,6 +738,18 @@ class MainEntrypointTests(unittest.TestCase):
                 ),
             )
 
+    def test_evaluation_only_uses_a_new_wandb_run(self) -> None:
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                run_mode="evaluation-only",
+                evaluation_model_run_number=7,
+            )
+        )
+
+        retriever_wandb_step = pipeline.evaluation_steps[1]
+        self.assertIsInstance(retriever_wandb_step, LogRetrieverToWandbStep)
+        self.assertFalse(retriever_wandb_step.coordinator.resume_from_lineage)
+
     def test_no_wandb_keeps_final_results_without_wandb_step(self) -> None:
         pipeline = main.build_pipeline(
             config=main.PipelineRuntimeConfig(
