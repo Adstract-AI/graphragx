@@ -558,7 +558,10 @@ def test_batched_rgcn_training_smoke_saves_vocabulary_and_model(tmp_path) -> Non
         cache_directory=tmp_path / "processed_reverse_edges",
     )
 
-    outcome = GnnAnswerRetrieverTrainingService().train(
+    epoch_events: list[dict[str, float | int]] = []
+    outcome = GnnAnswerRetrieverTrainingService(
+        epoch_callback=epoch_events.append,
+    ).train(
         prepared_training_data=prepared_data,
         prepared_dataset=dataset,
         configuration=_pipeline_config(options),
@@ -574,6 +577,12 @@ def test_batched_rgcn_training_smoke_saves_vocabulary_and_model(tmp_path) -> Non
     assert outcome.model_artifact_path.exists()
     assert outcome.relation_vocabulary_path is not None
     assert outcome.relation_vocabulary_path.exists()
+    assert epoch_events == [
+        {
+            "epoch": 1,
+            "average_loss": outcome.final_loss,
+        }
+    ]
 
 
 def test_custom_layer_matches_pyg_rgcn_conv() -> None:

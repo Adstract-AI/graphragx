@@ -91,6 +91,7 @@ class WandbExperimentCoordinator:
         self._metadata_paths: set[Path] = set()
         self._config_payload: dict[str, Any] = {}
         self._tags: list[str] = ["graphragx"]
+        self._logged_training_epochs: set[int] = set()
 
     @property
     def metadata(self) -> WandbTrackingMetadata:
@@ -261,6 +262,20 @@ class WandbExperimentCoordinator:
                 "Training/global_step": global_step,
             },
         )
+
+    def log_training_epoch(self, payload: dict[str, float | int]) -> None:
+        """Log one completed epoch average immediately on the epoch axis."""
+        epoch = int(payload["epoch"])
+        if epoch in self._logged_training_epochs:
+            return
+        self.log(
+            {
+                "Training/gnn_training_loss": float(payload["average_loss"]),
+                "Training/epoch": epoch,
+            }
+        )
+        if self._run is not None:
+            self._logged_training_epochs.add(epoch)
 
     def log_artifact(
         self,

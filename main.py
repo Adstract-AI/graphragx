@@ -475,6 +475,9 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 progress_callback=wandb_coordinator.log_training_progress
                 if not resolved_config.no_wandb
                 else None,
+                epoch_callback=wandb_coordinator.log_training_epoch
+                if not resolved_config.no_wandb
+                else None,
                 progress_callback_every=resolved_config.wandb_training_log_every,
             ),
         ),

@@ -134,6 +134,8 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
         coordinator.log_training_progress(
             {"epoch": 1, "instance": 3, "global_step": 3, "loss": 0.4}
         )
+        coordinator.log_training_epoch({"epoch": 1, "average_loss": 0.35})
+        coordinator.log_training_epoch({"epoch": 1, "average_loss": 0.35})
         coordinator.update_config({"configs": {"model": {"epochs": 2}}})
         coordinator.update_config(
             {"configs": {"evaluation": {"candidate_limit": 10}}}
@@ -146,6 +148,17 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
     assert fake_wandb.init_calls[0]["name"].startswith("1_")
     assert fake_wandb.init_calls[0]["name"] != "gnn-training"
     assert fake_wandb.run.logged[0][0]["Training/global_step"] == 3
+    epoch_average_events = [
+        payload
+        for payload, _ in fake_wandb.run.logged
+        if "Training/gnn_training_loss" in payload
+    ]
+    assert epoch_average_events == [
+        {
+            "Training/gnn_training_loss": 0.35,
+            "Training/epoch": 1,
+        }
+    ]
     assert fake_wandb.run.config["configs"] == {
         "model": {"epochs": 2},
         "evaluation": {"candidate_limit": 10},

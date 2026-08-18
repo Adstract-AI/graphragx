@@ -184,10 +184,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         self,
         model_run_service: GnnAnswerRetrieverModelRunService | None = None,
         progress_callback: Callable[[dict[str, float | int]], None] | None = None,
+        epoch_callback: Callable[[dict[str, float | int]], None] | None = None,
         progress_callback_every: int = DEFAULT_WANDB_TRAINING_LOG_EVERY,
     ) -> None:
         self.model_run_service = model_run_service or GnnAnswerRetrieverModelRunService()
         self.progress_callback = progress_callback
+        self.epoch_callback = epoch_callback
         self.progress_callback_every = progress_callback_every
 
     def train(
@@ -538,6 +540,13 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 f"Finished epoch {epoch}/{training_config.epochs} "
                 f"with average_loss={final_loss:.6f}"
             )
+            if self.epoch_callback is not None:
+                self.epoch_callback(
+                    {
+                        "epoch": epoch,
+                        "average_loss": final_loss,
+                    }
+                )
             if training_config.profile and (
                 training_config.log_every <= 0
                 or len(prepared_training_data.instances) % training_config.log_every != 0

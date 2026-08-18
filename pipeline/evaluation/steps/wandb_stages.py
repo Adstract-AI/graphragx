@@ -197,12 +197,24 @@ class LogTrainingToWandbStep(
         )
         for point in result.loss_history:
             epoch = int(point["epoch"])
-            self.coordinator.log(
-                {
-                    "Training/gnn_training_loss": float(point["average_loss"]),
-                    "Training/epoch": epoch,
-                }
+            payload = {
+                "average_loss": float(point["average_loss"]),
+                "epoch": epoch,
+            }
+            log_training_epoch = getattr(
+                self.coordinator,
+                "log_training_epoch",
+                None,
             )
+            if callable(log_training_epoch):
+                log_training_epoch(payload)
+            else:
+                self.coordinator.log(
+                    {
+                        "Training/gnn_training_loss": payload["average_loss"],
+                        "Training/epoch": epoch,
+                    }
+                )
         self.coordinator.persist_metadata(result.model_config_path)
         model_artifact_paths = [result.model_config_path, result.model_artifact_path]
         if result.relation_vocabulary_path is not None:
@@ -352,12 +364,24 @@ class LogRetrieverToWandbStep(
             epoch = point.get("epoch")
             average_loss = point.get("average_loss")
             if isinstance(epoch, int) and isinstance(average_loss, int | float):
-                self.coordinator.log(
-                    {
-                        "Training/epoch": epoch,
-                        "Training/gnn_training_loss": float(average_loss),
-                    }
+                epoch_payload = {
+                    "epoch": epoch,
+                    "average_loss": float(average_loss),
+                }
+                log_training_epoch = getattr(
+                    self.coordinator,
+                    "log_training_epoch",
+                    None,
                 )
+                if callable(log_training_epoch):
+                    log_training_epoch(epoch_payload)
+                else:
+                    self.coordinator.log(
+                        {
+                            "Training/epoch": epoch,
+                            "Training/gnn_training_loss": float(average_loss),
+                        }
+                    )
         artifact_paths = [
             model_config_path,
             model_config_path.parent / GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
