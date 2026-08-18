@@ -57,7 +57,8 @@ class ActiveRelationBasisRGCNLayer(nn.Module):
         edge_type: Tensor,
     ) -> Tensor:
         self._validate_inputs(node_features, edge_index, edge_type)
-        output = node_features.new_zeros(
+        root_output = node_features @ self.root_weight
+        output = root_output.new_zeros(
             (node_features.shape[0], self.hidden_dimension)
         )
         source_nodes = edge_index[0].long()
@@ -75,16 +76,16 @@ class ActiveRelationBasisRGCNLayer(nn.Module):
             messages = node_features[relation_sources] @ relation_weight
             relation_output = torch.zeros_like(output)
             relation_output.index_add_(0, relation_targets, messages)
-            relation_degree = node_features.new_zeros(node_features.shape[0])
+            relation_degree = output.new_zeros(node_features.shape[0])
             relation_degree.index_add_(
                 0,
                 relation_targets,
-                node_features.new_ones(relation_targets.shape[0]),
+                output.new_ones(relation_targets.shape[0]),
             )
             relation_output = relation_output / relation_degree.clamp_min(1).unsqueeze(1)
             output = output + relation_output
 
-        return output + node_features @ self.root_weight + self.bias
+        return output + root_output + self.bias.to(dtype=output.dtype)
 
     def _validate_inputs(
         self,

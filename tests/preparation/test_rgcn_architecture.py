@@ -261,6 +261,20 @@ def test_rgcn_layer_supports_empty_edges_gradients_and_bfloat16_autocast() -> No
     assert model.gnn_layers[0].root_weight.grad is not None
 
 
+def test_rgcn_layer_uses_autocast_compute_dtype_for_index_add_accumulators() -> None:
+    layer = ActiveRelationBasisRGCNLayer(8, num_relations=3, num_bases=2)
+    node_features = torch.randn(4, 8, dtype=torch.float32)
+    edge_index = torch.tensor([[0, 1, 2], [1, 2, 3]])
+    edge_type = torch.tensor([0, 1, 0])
+
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        first_output = layer(node_features, edge_index, edge_type)
+        second_output = layer(first_output, edge_index, edge_type)
+
+    assert first_output.dtype == torch.bfloat16
+    assert second_output.dtype == torch.bfloat16
+
+
 def test_custom_layer_matches_pyg_rgcn_conv() -> None:
     geometric_nn = pytest.importorskip("torch_geometric.nn")
     torch.manual_seed(4)
