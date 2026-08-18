@@ -16,22 +16,18 @@ _TRAINING_KEYS = (
     "learning_rate",
     "weight_decay",
     "max_instances",
-    "start_instance",
     "log_every",
     "device",
     "profile",
     "embedding_cache_device",
     "embedding_cache_dtype",
     "loss_function",
+    "loss_history",
+    "trained_instances",
 )
 
 _MODEL_TRAINING_OUTCOME_KEYS = (
-    "training_start_instance",
-    "training_end_instance",
-    "trained_instance_range",
-    "loss_history",
     "final_loss",
-    "trained_instances",
 )
 
 
@@ -118,7 +114,6 @@ def normalize_model_config(config: dict[str, Any]) -> dict[str, Any]:
 
     canonical: dict[str, Any] = {}
     for key in (
-        "dataset_id",
         "run_name",
         "run_number",
         "is_fine_tuned_model",
@@ -145,10 +140,54 @@ def normalize_model_config(config: dict[str, Any]) -> dict[str, Any]:
 
     canonical_training: dict[str, Any] = {}
     for key in _TRAINING_KEYS:
-        if key in training:
+        if key == "loss_history":
+            value = training.get("loss_history") or raw.get("loss_history")
+            if isinstance(value, list):
+                canonical_training[key] = value
+        elif key == "trained_instances":
+            continue
+        elif key in training:
             canonical_training[key] = training[key]
         elif key in raw:
             canonical_training[key] = raw[key]
+
+    has_training_instance_metadata = any(
+        key in raw or key in training
+        for key in (
+            "trained_instances",
+            "training_start_instance",
+            "training_end_instance",
+            "trained_instance_range",
+        )
+    )
+    training_instances = training.get("trained_instances")
+    if isinstance(training_instances, dict):
+        start = training_instances.get("start", 0)
+        end = training_instances.get("end", 0)
+        count = training_instances.get("count", 0)
+    else:
+        legacy_range = raw.get("trained_instance_range")
+        if not isinstance(legacy_range, dict):
+            legacy_range = training.get("trained_instance_range", {})
+        start = raw.get("training_start_instance", legacy_range.get("start", 0))
+        end = raw.get("training_end_instance", legacy_range.get("end", 0))
+        legacy_count = raw.get("trained_instances")
+        if isinstance(legacy_count, int):
+            count = legacy_count
+        elif isinstance(training_instances, int):
+            count = training_instances
+        else:
+            count = max(int(end or 0) - int(start or 0), 0)
+        # Older model configs sometimes stored only the scalar count.  Preserve
+        # the canonical half-open range by deriving its end from the start.
+        if not end and count:
+            end = int(start or 0) + int(count)
+    if has_training_instance_metadata:
+        canonical_training["trained_instances"] = {
+            "start": int(start or 0),
+            "end": int(end or 0),
+            "count": int(count or 0),
+        }
     if canonical_training:
         canonical["training"] = canonical_training
     return canonical

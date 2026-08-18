@@ -378,8 +378,6 @@ class WandbFinalResultsLoggingService(AbstractService):
             {
                 "dataset_id": results_config.get("dataset_id"),
                 "model_id": results_config.get("model_id"),
-                "gnn_architecture": results_config.get("gnn_architecture")
-                or infer_gnn_architecture(model_config),
                 "runs": {
                     "model": {
                         "name": model_run_name,
@@ -549,11 +547,15 @@ class WandbFinalResultsLoggingService(AbstractService):
                 if embedding_model_id:
                     tags.append(str(embedding_model_id))
                 training = model_config.get("training", {})
-                trained_instances = model_config.get("trained_instances")
-                if isinstance(training, dict):
-                    trained_instances = training.get(
-                        "trained_instances", trained_instances
-                    )
+                trained_instances = (
+                    training.get("trained_instances")
+                    if isinstance(training, dict)
+                    else None
+                )
+                if isinstance(trained_instances, dict):
+                    trained_instances = trained_instances.get("count")
+                if trained_instances is None:
+                    trained_instances = model_config.get("trained_instances")
                 if trained_instances is not None:
                     tags.append(f"trained_instances:{trained_instances}")
             except (OSError, ValueError, json.JSONDecodeError):

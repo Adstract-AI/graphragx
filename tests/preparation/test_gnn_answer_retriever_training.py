@@ -175,10 +175,18 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
 
         self.assertFalse(config["is_fine_tuned_model"])
         self.assertNotIn("continued_from_model_run_name", config)
-        self.assertEqual(config["training_start_instance"], 5)
-        self.assertEqual(config["training_end_instance"], 15)
-        self.assertEqual(config["trained_instance_range"], {"start": 5, "end": 15})
-        self.assertEqual(config["trained_instances"], 10)
+        self.assertNotIn("training_start_instance", config)
+        self.assertNotIn("training_end_instance", config)
+        self.assertNotIn("trained_instance_range", config)
+        self.assertNotIn("trained_instances", config)
+        self.assertEqual(
+            config["training"]["trained_instances"],
+            {"start": 5, "end": 15, "count": 10},
+        )
+        self.assertEqual(
+            config["training"]["loss_history"],
+            [{"epoch": 1, "average_loss": 0.5}],
+        )
         self.assertEqual(config["training"]["device"], "cpu")
         self.assertEqual(config["embedding_model"], "text-embedding-3-small")
         self.assertNotIn("entity_embedding_model", config)
@@ -290,8 +298,12 @@ class GnnAnswerRetrieverTrainingServiceTests(unittest.TestCase):
         self.assertNotIn("node_classifier", config)
         self.assertNotIn("hidden_dimension", config["training"])
         self.assertNotIn("gnn_layer_count", config["training"])
-        self.assertEqual(config["training_start_instance"], 101)
-        self.assertEqual(config["training_end_instance"], 151)
+        self.assertNotIn("training_start_instance", config)
+        self.assertNotIn("training_end_instance", config)
+        self.assertEqual(
+            config["training"]["trained_instances"],
+            {"start": 101, "end": 151, "count": 50},
+        )
 
 
 if __name__ == "__main__":

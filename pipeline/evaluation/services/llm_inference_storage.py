@@ -322,9 +322,6 @@ class LlmInferenceStorageService(AbstractService):
             )
             if not isinstance(evaluation_config, dict):
                 return "graphsage"
-            explicit = evaluation_config.get("gnn_architecture")
-            if isinstance(explicit, str):
-                return explicit
             model_reference = evaluation_config.get("model_config", {})
             model_config_value = (
                 model_reference.get("full_config_path")
@@ -337,6 +334,9 @@ class LlmInferenceStorageService(AbstractService):
                 )
                 if isinstance(model_config, dict):
                     return infer_gnn_architecture(model_config)
+            explicit = evaluation_config.get("gnn_architecture")
+            if isinstance(explicit, str):
+                return explicit
         except (OSError, ValueError, json.JSONDecodeError):
             pass
         return "graphsage"

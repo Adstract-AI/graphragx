@@ -365,6 +365,9 @@ class WandbExperimentCoordinator:
         configs = config.get("configs", {})
         model_config = configs.get("model", {}) if isinstance(configs, dict) else {}
         if isinstance(model_config, dict):
+            model_architecture = model_config.get("gnn_architecture")
+            if model_architecture:
+                tags.append(str(model_architecture))
             embedding_model = model_config.get("embedding_model")
             if embedding_model:
                 tags.append(str(embedding_model))
@@ -381,8 +384,11 @@ class WandbExperimentCoordinator:
             training = model_config.get("training", {})
             if not isinstance(training, dict):
                 training = {}
-            trained_instances = model_config.get("trained_instances")
-            trained_instances = training.get("trained_instances", trained_instances)
+            trained_instances = training.get("trained_instances")
+            if isinstance(trained_instances, dict):
+                trained_instances = trained_instances.get("count")
+            if trained_instances is None:
+                trained_instances = model_config.get("trained_instances")
             if trained_instances is not None:
                 tags.append(f"trained_instances:{trained_instances}")
 

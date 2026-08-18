@@ -187,12 +187,10 @@ class GnnRetrieverResultsService(AbstractService):
             model_config_path,
             "retriever model config",
         )
+        model_architecture = infer_gnn_architecture(model_config_payload)
         return GnnAnswerRetrieverEvaluationResult(
             dataset_id=dataset_id,
-            gnn_architecture=str(
-                config.get("gnn_architecture")
-                or infer_gnn_architecture(model_config_payload)
-            ),
+            gnn_architecture=str(model_architecture),
             model_run_directory=model_run_directory,
             model_run_name=model_run_name,
             model_run_number=model_run_number,

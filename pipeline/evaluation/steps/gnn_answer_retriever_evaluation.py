@@ -145,6 +145,7 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
         )
         return GnnAnswerRetrieverEvaluationResult(
             dataset_id=context.prepared_dataset.dataset_id,
+            gnn_architecture=outcome.loaded_model_run.config.resolved_gnn_architecture,
             model_run_directory=outcome.loaded_model_run.run_directory,
             model_run_name=outcome.loaded_model_run.run_name,
             model_run_number=outcome.loaded_model_run.run_number,

@@ -26,8 +26,6 @@ from pipeline.evaluation.services.model_config_normalization import (
 from pipeline.preparation.steps.gnn_answer_retriever_training import (
     TrainedGnnAnswerRetriever,
 )
-from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
-
 logger = get_logger(__name__)
 LEGACY_GNN_CONFIG_FILENAME = "gnn_answer_retriever_config.json"
 
@@ -116,9 +114,6 @@ def _build_available_wandb_config(
     if normalized_model_config:
         runs["model"] = _run_reference(normalized_model_config)
         configs["model"] = normalized_model_config
-        payload["gnn_architecture"] = normalized_model_config.get(
-            "gnn_architecture", infer_gnn_architecture(model_config)
-        )
     if model_config_path is not None:
         source_paths["model_config_path"] = model_config_path
         source_paths["training_model_config_path"] = model_config_path

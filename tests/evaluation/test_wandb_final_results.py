@@ -278,7 +278,6 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert set(wandb_config) == {
         "configs",
         "dataset_id",
-        "gnn_architecture",
         "model_id",
         "runs",
         "source_paths",

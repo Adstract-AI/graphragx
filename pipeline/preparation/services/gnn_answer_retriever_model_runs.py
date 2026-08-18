@@ -45,7 +45,7 @@ class SavedGnnAnswerRetrieverTrainingConfig(BaseModel):
     embedding_cache_dtype: str | None = None
     loss_history: list[dict[str, float | int]] = Field(default_factory=list)
     final_loss: float | None = None
-    trained_instances: int | None = None
+    trained_instances: dict[str, int] | int | None = None
     training_start_instance: int | None = None
     training_end_instance: int | None = None
     trained_instance_range: dict[str, int] | None = None
@@ -131,12 +131,41 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
         return self.loss_history or self.training.loss_history
 
     @property
+    def resolved_training_instance_range(self) -> dict[str, int]:
+        """Return the unified training range/count, including legacy fallback."""
+        training_instances = self.training.trained_instances
+        if isinstance(training_instances, dict):
+            start = int(training_instances.get("start", 0))
+            count = int(training_instances.get("count", 0))
+            end = int(training_instances.get("end", 0))
+            return {"start": start, "end": end or start + count, "count": count}
+        if isinstance(training_instances, int):
+            return {"start": 0, "end": training_instances, "count": training_instances}
+        if self.trained_instance_range is not None:
+            start = int(self.trained_instance_range.get("start", 0))
+            end = int(self.trained_instance_range.get("end", 0))
+            return {
+                "start": start,
+                "end": end,
+                "count": int(self.trained_instances or max(end - start, 0)),
+            }
+        start = int(self.training_start_instance or 0)
+        end = int(self.training_end_instance or 0)
+        count = int(self.trained_instances or max(end - start, 0))
+        return {"start": start, "end": end or start + count, "count": count}
+
+    @property
     def resolved_final_loss(self) -> float:
         return self.final_loss or self.training.final_loss or 0.0
 
     @property
     def resolved_trained_instances(self) -> int:
-        return self.trained_instances or self.training.trained_instances or 0
+        training_instances = self.training.trained_instances
+        if isinstance(training_instances, dict):
+            return int(training_instances.get("count", 0))
+        if isinstance(training_instances, int):
+            return training_instances
+        return self.trained_instances or 0
 
     @property
     def resolved_hidden_dimension(self) -> int:

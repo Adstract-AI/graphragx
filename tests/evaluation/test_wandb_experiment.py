@@ -445,10 +445,15 @@ def test_training_epoch_average_uses_legacy_metric_name(tmp_path) -> None:
         {"Training/gnn_training_loss": 0.75, "Training/epoch": 1}
     ]
     assert coordinator.config_updates[0]["dataset_id"] == "WebQSP"
-    assert coordinator.config_updates[0]["gnn_architecture"] == "graphsage"
+    assert "gnn_architecture" not in coordinator.config_updates[0]
     assert "gnn_id" not in coordinator.config_updates[0]
-    assert coordinator.config_updates[0]["configs"]["model"]["training"] == {
-        "epochs": 1
+    model_config = coordinator.config_updates[0]["configs"]["model"]
+    assert "dataset_id" not in model_config
+    assert model_config["training"]["epochs"] == 1
+    assert model_config["training"]["trained_instances"] == {
+        "start": 0,
+        "end": 10,
+        "count": 10,
     }
 
 

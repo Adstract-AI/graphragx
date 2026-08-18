@@ -43,7 +43,18 @@ def infer_gnn_architecture(config: Mapping[str, Any]) -> str:
     training_explicit = training_config.get("gnn_architecture")
     if training_explicit in GNN_ARCHITECTURES:
         return str(training_explicit)
-    if any(bool(config.get(field) or training_config.get(field)) for field in ADVANCED_GNN_BOOLEAN_FIELDS):
+    option_sources = [
+        config.get("gnn_architecture_options"),
+        training_config.get("gnn_architecture_options"),
+    ]
+    if any(
+        bool(config.get(field) or training_config.get(field))
+        or any(
+            isinstance(options, Mapping) and bool(options.get(field))
+            for options in option_sources
+        )
+        for field in ADVANCED_GNN_BOOLEAN_FIELDS
+    ):
         return AA_GRAPH_SAGE_ARCHITECTURE_ID
     return GRAPH_SAGE_ARCHITECTURE_ID
 

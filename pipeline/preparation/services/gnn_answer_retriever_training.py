@@ -718,20 +718,24 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 "run_name",
                 "continue_from_model_run_name",
                 "continue_from_model_run_number",
+                "start_instance",
             }
         )
         # Keep model architecture and embedding identity at the model root.
-        # The training section contains only training settings; loss history,
-        # final loss, and instance-range outcomes remain at the model root
-        # for compatibility with the existing training/W&B consumers. This
-        # prevents W&B Configs and saved JSON from exposing duplicate
-        # architecture values through two nested paths.
+        # Training settings, the selected instance range, and epoch history
+        # are kept together under training so each value has one owner.
         training_payload.update(
             {
                 "device": selected_device,
                 "loss_function": "BCEWithLogitsLoss",
                 "embedding_cache_device": embedding_cache_device,
                 "embedding_cache_dtype": embedding_cache_dtype,
+                "trained_instances": {
+                    "start": training_start_instance,
+                    "end": training_end_instance,
+                    "count": trained_instances,
+                },
+                "loss_history": loss_history,
             }
         )
         is_fine_tuned_model = continued_run is not None
@@ -748,15 +752,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             "embedding_model": built_retriever.entity_embedding_model,
             "embedding_dimension": built_retriever.entity_embedding_dimension,
             "is_fine_tuned_model": is_fine_tuned_model,
-            "training_start_instance": training_start_instance,
-            "training_end_instance": training_end_instance,
-            "trained_instance_range": {
-                "start": training_start_instance,
-                "end": training_end_instance,
-            },
-            "loss_history": loss_history,
             "final_loss": final_loss,
-            "trained_instances": trained_instances,
             "training": training_payload,
         }
         if continued_run is not None:
