@@ -272,6 +272,25 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     if prepared_instance.edge_type is not None
                     else None
                 )
+                edge_norm = (
+                    prepared_instance.edge_norm.to(device=device, non_blocking=True)
+                    if prepared_instance.edge_norm is not None
+                    else None
+                )
+                active_relation_ids = (
+                    prepared_instance.active_relation_ids.to(
+                        device=device, non_blocking=True
+                    )
+                    if prepared_instance.active_relation_ids is not None
+                    else None
+                )
+                edge_relation_index = (
+                    prepared_instance.edge_relation_index.to(
+                        device=device, non_blocking=True
+                    )
+                    if prepared_instance.edge_relation_index is not None
+                    else None
+                )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
                     device=device,
@@ -295,6 +314,9 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                         question_features=question_features,
                         relation_features=relation_features,
                         edge_type=edge_type,
+                        edge_norm=edge_norm,
+                        active_relation_ids=active_relation_ids,
+                        edge_relation_index=edge_relation_index,
                     )
                 probabilities = torch.sigmoid(logits)
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(

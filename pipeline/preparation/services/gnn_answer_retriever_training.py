@@ -20,6 +20,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
     DEFAULT_TRAINING_LOG_EVERY,
+    DEFAULT_TRAINING_BATCH_SIZE,
     DEFAULT_TRAINING_PROFILE,
     DEFAULT_TRAINING_WEIGHT_DECAY,
     DEFAULT_WANDB_TRAINING_LOG_EVERY,
@@ -72,6 +73,7 @@ class GnnAnswerRetrieverTrainingConfig(BaseModel):
     max_instances: int | None = Field(default=None)
     start_instance: int = Field(default=0)
     log_every: int = Field(default=DEFAULT_TRAINING_LOG_EVERY)
+    batch_size: int = Field(default=DEFAULT_TRAINING_BATCH_SIZE, gt=0)
     device: str = Field(default=DEFAULT_TRAINING_DEVICE)
     profile: bool = Field(default=DEFAULT_TRAINING_PROFILE)
     run_name: str | None = Field(default=None)
@@ -100,6 +102,22 @@ class GnnTrainingPhaseTimings:
             + self.backward_seconds
             + self.optimizer_seconds
         )
+
+
+@dataclass
+class PreparedRGCNTrainingBatch:
+    """One disconnected R-GCN graph batch cached for repeated epochs."""
+
+    instance_count: int
+    node_embedding_indices: Tensor
+    edge_index: Tensor
+    edge_type: Tensor
+    edge_norm: Tensor
+    active_relation_ids: Tensor
+    edge_relation_index: Tensor
+    node_labels: Tensor
+    positive_weights: Tensor
+    node_loss_weights: Tensor
 
 
 class GnnAnswerRetrieverTrainingOutcome(BaseModel):
@@ -249,6 +267,27 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             lr=training_config.learning_rate,
             weight_decay=training_config.weight_decay,
         )
+        rgcn_batches = (
+            self._build_rgcn_training_batches(
+                prepared_training_data=prepared_training_data,
+                batch_size=training_config.batch_size,
+                torch=torch,
+                device=device,
+            )
+            if effective_retriever.gnn_architecture == RGCN_ARCHITECTURE_ID
+            else None
+        )
+        if rgcn_batches is not None:
+            logger.info(
+                f"Prepared R-GCN disconnected graph batches: "
+                f"batches={len(rgcn_batches)} batch_size={training_config.batch_size} "
+                f"graph_tensors_device={device}"
+            )
+        elif training_config.batch_size != 1:
+            logger.info(
+                "GraphSAGE training retains single-graph optimizer steps; "
+                f"configured batch_size={training_config.batch_size} is R-GCN-only."
+            )
 
         final_loss = 0.0
         loss_history: list[dict[str, float | int]] = []
@@ -259,10 +298,16 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             )
             epoch_loss = torch.zeros((), dtype=torch.float, device=device)
             phase_timings = GnnTrainingPhaseTimings()
-            for instance_index, instance in enumerate(
-                prepared_training_data.instances,
-                start=1,
-            ):
+            training_units = rgcn_batches or prepared_training_data.instances
+            processed_instances = 0
+            for training_unit in training_units:
+                previous_processed_instances = processed_instances
+                unit_instance_count = (
+                    training_unit.instance_count
+                    if isinstance(training_unit, PreparedRGCNTrainingBatch)
+                    else 1
+                )
+                processed_instances += unit_instance_count
                 optimizer.zero_grad(set_to_none=True)
                 phase_started_at = self._start_profiled_phase(
                     torch=torch,
@@ -270,53 +315,101 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     enabled=training_config.profile,
                 )
 
-                entity_features = self._gather_embedding_features(
-                    embedding_matrix=prepared_training_data.node_embeddings,
-                    indices=instance.node_embedding_indices,
-                    torch=torch,
-                    device=device,
-                )
-                question_features = None
-                if prepared_training_data.question_embeddings is not None:
-                    if instance.question_embedding_index is None:
-                        raise GnnAnswerRetrieverTrainingException(
-                            "Prepared question embeddings are missing an instance index."
-                        )
-                    question_features = prepared_training_data.question_embeddings[
-                        instance.question_embedding_index
-                    ].to(device=device, non_blocking=True)
-                relation_features = None
-                if prepared_training_data.relation_embeddings is not None:
-                    if instance.relation_embedding_indices is None:
-                        raise GnnAnswerRetrieverTrainingException(
-                            "Prepared relation embeddings are missing instance indices."
-                        )
-                    relation_features = self._gather_embedding_features(
-                        embedding_matrix=prepared_training_data.relation_embeddings,
-                        indices=instance.relation_embedding_indices,
+                edge_norm = None
+                active_relation_ids = None
+                edge_relation_index = None
+                positive_weights = None
+                node_loss_weights = None
+                if isinstance(training_unit, PreparedRGCNTrainingBatch):
+                    entity_features = self._gather_embedding_features(
+                        embedding_matrix=prepared_training_data.node_embeddings,
+                        indices=training_unit.node_embedding_indices,
                         torch=torch,
                         device=device,
                     )
-                edge_weight = None
-                if relation_features is not None and question_features is not None:
-                    edge_weight = (
-                        None
-                        if effective_retriever.use_edge_mlp
-                        else self._build_edge_weight_tensor(
-                            relation_features=relation_features,
-                            question_features=question_features,
+                    question_features = None
+                    relation_features = None
+                    edge_weight = None
+                    edge_index = training_unit.edge_index
+                    edge_type = training_unit.edge_type
+                    edge_norm = training_unit.edge_norm
+                    active_relation_ids = training_unit.active_relation_ids
+                    edge_relation_index = training_unit.edge_relation_index
+                    node_labels = training_unit.node_labels
+                    positive_weights = training_unit.positive_weights
+                    node_loss_weights = training_unit.node_loss_weights
+                else:
+                    instance = training_unit
+                    entity_features = self._gather_embedding_features(
+                        embedding_matrix=prepared_training_data.node_embeddings,
+                        indices=instance.node_embedding_indices,
+                        torch=torch,
+                        device=device,
+                    )
+                    question_features = None
+                    if prepared_training_data.question_embeddings is not None:
+                        if instance.question_embedding_index is None:
+                            raise GnnAnswerRetrieverTrainingException(
+                                "Prepared question embeddings are missing an instance index."
+                            )
+                        question_features = prepared_training_data.question_embeddings[
+                            instance.question_embedding_index
+                        ].to(device=device, non_blocking=True)
+                    relation_features = None
+                    if prepared_training_data.relation_embeddings is not None:
+                        if instance.relation_embedding_indices is None:
+                            raise GnnAnswerRetrieverTrainingException(
+                                "Prepared relation embeddings are missing instance indices."
+                            )
+                        relation_features = self._gather_embedding_features(
+                            embedding_matrix=prepared_training_data.relation_embeddings,
+                            indices=instance.relation_embedding_indices,
                             torch=torch,
-                            torch_functional=torch_functional,
                             device=device,
                         )
+                    edge_weight = None
+                    if relation_features is not None and question_features is not None:
+                        edge_weight = (
+                            None
+                            if effective_retriever.use_edge_mlp
+                            else self._build_edge_weight_tensor(
+                                relation_features=relation_features,
+                                question_features=question_features,
+                                torch=torch,
+                                torch_functional=torch_functional,
+                                device=device,
+                            )
+                        )
+                    edge_index = instance.edge_index.to(
+                        device=device, non_blocking=True
                     )
-                edge_index = instance.edge_index.to(device=device, non_blocking=True)
-                edge_type = (
-                    instance.edge_type.to(device=device, non_blocking=True)
-                    if instance.edge_type is not None
-                    else None
-                )
-                node_labels = instance.node_labels.to(device=device, non_blocking=True)
+                    edge_type = (
+                        instance.edge_type.to(device=device, non_blocking=True)
+                        if instance.edge_type is not None
+                        else None
+                    )
+                    edge_norm = (
+                        instance.edge_norm.to(device=device, non_blocking=True)
+                        if instance.edge_norm is not None
+                        else None
+                    )
+                    active_relation_ids = (
+                        instance.active_relation_ids.to(
+                            device=device, non_blocking=True
+                        )
+                        if instance.active_relation_ids is not None
+                        else None
+                    )
+                    edge_relation_index = (
+                        instance.edge_relation_index.to(
+                            device=device, non_blocking=True
+                        )
+                        if instance.edge_relation_index is not None
+                        else None
+                    )
+                    node_labels = instance.node_labels.to(
+                        device=device, non_blocking=True
+                    )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
                     device=device,
@@ -340,6 +433,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         question_features=question_features,
                         relation_features=relation_features,
                         edge_type=edge_type,
+                        edge_norm=edge_norm,
+                        active_relation_ids=active_relation_ids,
+                        edge_relation_index=edge_relation_index,
                     )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
@@ -348,12 +444,21 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     phase_started_at=phase_started_at,
                 )
                 phase_timings.forward_seconds += elapsed_seconds
-                loss = self._compute_loss(
-                    logits=logits.float(),
-                    node_labels=node_labels,
-                    torch=torch,
-                    torch_functional=torch_functional,
-                )
+                if positive_weights is not None and node_loss_weights is not None:
+                    loss = torch_functional.binary_cross_entropy_with_logits(
+                        logits.float(),
+                        node_labels,
+                        weight=node_loss_weights,
+                        pos_weight=positive_weights,
+                        reduction="sum",
+                    )
+                else:
+                    loss = self._compute_loss(
+                        logits=logits.float(),
+                        node_labels=node_labels,
+                        torch=torch,
+                        torch_functional=torch_functional,
+                    )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
                     device=device,
@@ -377,33 +482,35 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     phase_started_at=phase_started_at,
                 )
                 phase_timings.optimizer_seconds += elapsed_seconds
-                phase_timings.instance_count += 1
+                phase_timings.instance_count += unit_instance_count
 
                 detached_loss = loss.detach()
-                epoch_loss += detached_loss
+                epoch_loss += detached_loss * unit_instance_count
                 if (
-                    self._is_progress_due(
-                        instance_index=instance_index,
+                    self._is_progress_interval_crossed(
+                        previous_instance_index=previous_processed_instances,
+                        instance_index=processed_instances,
                         total_instances=len(prepared_training_data.instances),
                         interval=training_config.log_every,
                     )
                 ):
                     logger.info(
                         f"Epoch {epoch}/{training_config.epochs} progress: "
-                        f"{instance_index}/{len(prepared_training_data.instances)} "
+                        f"{processed_instances}/{len(prepared_training_data.instances)} "
                         f"instances, "
                         f"latest_loss={detached_loss.item():.6f}"
                     )
                     if training_config.profile:
                         self._log_phase_timings(
                             epoch=epoch,
-                            processed_instances=instance_index,
+                            processed_instances=processed_instances,
                             timings=phase_timings,
                         )
                 if (
                     self.progress_callback is not None
-                    and self._is_progress_due(
-                        instance_index=instance_index,
+                    and self._is_progress_interval_crossed(
+                        previous_instance_index=previous_processed_instances,
+                        instance_index=processed_instances,
                         total_instances=len(prepared_training_data.instances),
                         interval=self.progress_callback_every,
                     )
@@ -411,10 +518,10 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     self.progress_callback(
                         {
                             "epoch": epoch,
-                            "instance": instance_index,
+                            "instance": processed_instances,
                             "global_step": (
                                 (epoch - 1) * len(prepared_training_data.instances)
-                                + instance_index
+                                + processed_instances
                             ),
                             "loss": float(detached_loss.item()),
                         }
@@ -526,6 +633,123 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         return interval > 0 and (
             instance_index % interval == 0 or instance_index == total_instances
         )
+
+    @staticmethod
+    def _is_progress_interval_crossed(
+        *,
+        previous_instance_index: int,
+        instance_index: int,
+        total_instances: int,
+        interval: int,
+    ) -> bool:
+        """Report batched progress when an interval boundary is crossed."""
+        return interval > 0 and (
+            instance_index == total_instances
+            or instance_index // interval > previous_instance_index // interval
+        )
+
+    @staticmethod
+    def _build_rgcn_training_batches(
+        *,
+        prepared_training_data: PreparedGnnTrainingData,
+        batch_size: int,
+        torch: ModuleType,
+        device: str,
+    ) -> list[PreparedRGCNTrainingBatch]:
+        """Cache disconnected R-GCN graph batches and loss metadata on device."""
+        if batch_size <= 0:
+            raise GnnAnswerRetrieverTrainingException(
+                "training_batch_size must be greater than zero."
+            )
+        batches: list[PreparedRGCNTrainingBatch] = []
+        instances = prepared_training_data.instances
+        embedding_matrix_device = prepared_training_data.node_embeddings.device
+        for batch_start in range(0, len(instances), batch_size):
+            batch_instances = instances[batch_start : batch_start + batch_size]
+            node_indices_parts = []
+            edge_index_parts = []
+            edge_type_parts = []
+            edge_norm_parts = []
+            label_parts = []
+            positive_weight_parts = []
+            node_loss_weight_parts = []
+            node_offset = 0
+            for instance in batch_instances:
+                if instance.edge_type is None or instance.edge_norm is None:
+                    raise GnnAnswerRetrieverTrainingException(
+                        "Prepared R-GCN instances require edge types and normalization."
+                    )
+                node_count = int(instance.node_embedding_indices.shape[0])
+                if node_count <= 0:
+                    raise GnnAnswerRetrieverTrainingException(
+                        "R-GCN batches cannot contain empty-node graphs."
+                    )
+                node_indices_parts.append(instance.node_embedding_indices)
+                edge_index_parts.append(instance.edge_index + node_offset)
+                edge_type_parts.append(instance.edge_type)
+                edge_norm_parts.append(instance.edge_norm)
+                labels = instance.node_labels.float()
+                label_parts.append(labels)
+                positive_count = float(labels.sum().item())
+                negative_count = node_count - positive_count
+                positive_weight = (
+                    negative_count / positive_count if positive_count > 0 else 1.0
+                )
+                positive_weight_parts.append(
+                    torch.full_like(labels, positive_weight)
+                )
+                node_loss_weight_parts.append(
+                    torch.full_like(
+                        labels,
+                        1.0 / (len(batch_instances) * node_count),
+                    )
+                )
+                node_offset += node_count
+
+            edge_index = torch.cat(edge_index_parts, dim=1)
+            edge_type = torch.cat(edge_type_parts)
+            edge_norm = torch.cat(edge_norm_parts)
+            if edge_type.numel() > 0:
+                edge_order = torch.argsort(edge_type, stable=True)
+                edge_index = edge_index.index_select(1, edge_order)
+                edge_type = edge_type.index_select(0, edge_order)
+                edge_norm = edge_norm.index_select(0, edge_order)
+                active_relation_ids, edge_relation_index = torch.unique_consecutive(
+                    edge_type,
+                    return_inverse=True,
+                )
+            else:
+                active_relation_ids = torch.empty(0, dtype=torch.long)
+                edge_relation_index = torch.empty(0, dtype=torch.long)
+
+            batches.append(
+                PreparedRGCNTrainingBatch(
+                    instance_count=len(batch_instances),
+                    node_embedding_indices=torch.cat(node_indices_parts).to(
+                        device=embedding_matrix_device,
+                        non_blocking=True,
+                    ),
+                    edge_index=edge_index.to(device=device, non_blocking=True),
+                    edge_type=edge_type.to(device=device, non_blocking=True),
+                    edge_norm=edge_norm.to(device=device, non_blocking=True),
+                    active_relation_ids=active_relation_ids.to(
+                        device=device, non_blocking=True
+                    ),
+                    edge_relation_index=edge_relation_index.to(
+                        device=device, non_blocking=True
+                    ),
+                    node_labels=torch.cat(label_parts).to(
+                        device=device, non_blocking=True
+                    ),
+                    positive_weights=torch.cat(positive_weight_parts).to(
+                        device=device, non_blocking=True
+                    ),
+                    node_loss_weights=torch.cat(node_loss_weight_parts).to(
+                        device=device, non_blocking=True
+                    ),
+                )
+            )
+        return batches
 
     @staticmethod
     def release_prepared_embeddings(
@@ -765,6 +989,11 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 "continue_from_model_run_number",
                 "start_instance",
             }
+        )
+        training_payload["batch_size"] = (
+            training_config.batch_size
+            if built_retriever.gnn_architecture == RGCN_ARCHITECTURE_ID
+            else 1
         )
         # Keep model architecture and embedding identity at the model root.
         # Training settings, the selected instance range, and epoch history

@@ -20,6 +20,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
     DEFAULT_TRAINING_LOG_EVERY,
+    DEFAULT_TRAINING_BATCH_SIZE,
     DEFAULT_TRAINING_PROFILE,
     DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE,
     DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE,
@@ -184,6 +185,7 @@ class PipelineRuntimeConfig(BaseModel):
     training_max_instances: int | None = None
     training_start_instance: int = 0
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
+    training_batch_size: int = DEFAULT_TRAINING_BATCH_SIZE
     wandb_training_log_every: int = DEFAULT_WANDB_TRAINING_LOG_EVERY
     training_device: str = DEFAULT_TRAINING_DEVICE
     training_profile: bool = DEFAULT_TRAINING_PROFILE
@@ -459,6 +461,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             training_max_instances=resolved_config.training_max_instances,
             training_start_instance=resolved_config.training_start_instance,
             training_log_every=resolved_config.training_log_every,
+            training_batch_size=resolved_config.training_batch_size,
             training_device=resolved_config.training_device,
             training_profile=resolved_config.training_profile,
             training_run_name=resolved_config.training_run_name,
@@ -865,6 +868,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write console training progress after this many instances. Use 0 to disable.",
     )
     parser.add_argument(
+        "--training-batch-size",
+        type=int,
+        default=DEFAULT_TRAINING_BATCH_SIZE,
+        help=(
+            "Number of disconnected WebQSP graphs per R-GCN optimizer step. "
+            "GraphSAGE retains single-graph training."
+        ),
+    )
+    parser.add_argument(
         "--wandb-training-log-every",
         type=int,
         default=DEFAULT_WANDB_TRAINING_LOG_EVERY,
@@ -1096,6 +1108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_max_instances=args.training_max_instances,
         training_start_instance=args.training_start_instance,
         training_log_every=args.training_log_every,
+        training_batch_size=args.training_batch_size,
         wandb_training_log_every=args.wandb_training_log_every,
         training_device=args.training_device,
         training_profile=args.training_profile,

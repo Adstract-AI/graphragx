@@ -43,6 +43,7 @@ class SavedGnnAnswerRetrieverTrainingConfig(BaseModel):
     max_instances: int | None = None
     start_instance: int = 0
     log_every: int = 0
+    batch_size: int = 1
     device: str = "cpu"
     profile: bool = False
     embedding_cache_device: str | None = None

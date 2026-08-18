@@ -20,6 +20,7 @@ class ActiveRelationBasisRGCNLayer(nn.Module):
         hidden_dimension: int,
         num_relations: int,
         num_bases: int,
+        message_chunk_size: int = 1024,
     ) -> None:
         super().__init__()
         if hidden_dimension <= 0:
@@ -28,10 +29,13 @@ class ActiveRelationBasisRGCNLayer(nn.Module):
             raise ValueError("num_relations must be greater than zero.")
         if num_bases <= 0:
             raise ValueError("num_bases must be greater than zero.")
+        if message_chunk_size <= 0:
+            raise ValueError("message_chunk_size must be greater than zero.")
 
         self.hidden_dimension = hidden_dimension
         self.num_relations = num_relations
         self.num_bases = num_bases
+        self.message_chunk_size = message_chunk_size
         self.basis_weights = nn.Parameter(
             torch.empty(num_bases, hidden_dimension, hidden_dimension)
         )
@@ -55,6 +59,9 @@ class ActiveRelationBasisRGCNLayer(nn.Module):
         node_features: Tensor,
         edge_index: Tensor,
         edge_type: Tensor,
+        edge_norm: Tensor | None = None,
+        active_relation_ids: Tensor | None = None,
+        edge_relation_index: Tensor | None = None,
     ) -> Tensor:
         self._validate_inputs(node_features, edge_index, edge_type)
         root_output = node_features @ self.root_weight
@@ -64,28 +71,85 @@ class ActiveRelationBasisRGCNLayer(nn.Module):
         source_nodes = edge_index[0].long()
         target_nodes = edge_index[1].long()
 
-        for relation_id in torch.unique(edge_type, sorted=True):
-            relation_mask = edge_type == relation_id
-            relation_sources = source_nodes[relation_mask]
-            relation_targets = target_nodes[relation_mask]
-            relation_weight = torch.einsum(
-                "b,bio->io",
-                self.relation_coefficients[relation_id],
+        if edge_type.numel() > 0:
+            (
+                edge_norm,
+                active_relation_ids,
+                edge_relation_index,
+            ) = self._resolve_aggregation_metadata(
+                edge_index=edge_index,
+                edge_type=edge_type,
+                edge_norm=edge_norm,
+                active_relation_ids=active_relation_ids,
+                edge_relation_index=edge_relation_index,
+                node_count=node_features.shape[0],
+            )
+            active_coefficients = self.relation_coefficients.index_select(
+                0, active_relation_ids
+            )
+            active_weights = torch.einsum(
+                "rb,bio->rio",
+                active_coefficients,
                 self.basis_weights,
             )
-            messages = node_features[relation_sources] @ relation_weight
-            relation_output = torch.zeros_like(output)
-            relation_output.index_add_(0, relation_targets, messages)
-            relation_degree = output.new_zeros(node_features.shape[0])
-            relation_degree.index_add_(
-                0,
-                relation_targets,
-                output.new_ones(relation_targets.shape[0]),
-            )
-            relation_output = relation_output / relation_degree.clamp_min(1).unsqueeze(1)
-            output = output + relation_output
+            edge_count = edge_type.shape[0]
+            for start in range(0, edge_count, self.message_chunk_size):
+                end = min(start + self.message_chunk_size, edge_count)
+                relation_weights = active_weights.index_select(
+                    0, edge_relation_index[start:end]
+                )
+                source_features = node_features.index_select(
+                    0, source_nodes[start:end]
+                )
+                messages = torch.bmm(
+                    source_features.unsqueeze(1),
+                    relation_weights,
+                ).squeeze(1)
+                messages = messages * edge_norm[start:end].to(
+                    dtype=messages.dtype
+                ).unsqueeze(1)
+                output.index_add_(0, target_nodes[start:end], messages)
 
         return output + root_output + self.bias.to(dtype=output.dtype)
+
+    @staticmethod
+    def _resolve_aggregation_metadata(
+        *,
+        edge_index: Tensor,
+        edge_type: Tensor,
+        edge_norm: Tensor | None,
+        active_relation_ids: Tensor | None,
+        edge_relation_index: Tensor | None,
+        node_count: int,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """Use prepared metadata or derive a compatible fallback on device."""
+        if (
+            edge_norm is not None
+            and active_relation_ids is not None
+            and edge_relation_index is not None
+        ):
+            if edge_norm.shape != edge_type.shape:
+                raise ValueError("edge_norm must contain one value per edge.")
+            if edge_relation_index.shape != edge_type.shape:
+                raise ValueError(
+                    "edge_relation_index must contain one value per edge."
+                )
+            return edge_norm, active_relation_ids, edge_relation_index
+
+        active_relation_ids, edge_relation_index = torch.unique(
+            edge_type,
+            sorted=True,
+            return_inverse=True,
+        )
+        relation_target_keys = edge_type * node_count + edge_index[1]
+        _, normalization_index, counts = torch.unique(
+            relation_target_keys,
+            sorted=False,
+            return_inverse=True,
+            return_counts=True,
+        )
+        edge_norm = counts.index_select(0, normalization_index).float().reciprocal()
+        return edge_norm, active_relation_ids, edge_relation_index
 
     def _validate_inputs(
         self,
@@ -164,13 +228,23 @@ class RGCNAnswerRetriever(nn.Module, AnswerRetrieverModel):
         question_features: Tensor | None = None,
         relation_features: Tensor | None = None,
         edge_type: Tensor | None = None,
+        edge_norm: Tensor | None = None,
+        active_relation_ids: Tensor | None = None,
+        edge_relation_index: Tensor | None = None,
     ) -> Tensor:
         if edge_type is None:
             raise ValueError("edge_type is required for R-GCN message passing.")
         node_features = self.entity_projection(entity_features)
         for layer_index, layer in enumerate(self.gnn_layers):
             node_features = self.activation(
-                layer(node_features, edge_index, edge_type)
+                layer(
+                    node_features,
+                    edge_index,
+                    edge_type,
+                    edge_norm=edge_norm,
+                    active_relation_ids=active_relation_ids,
+                    edge_relation_index=edge_relation_index,
+                )
             )
             if layer_index + 1 < len(self.gnn_layers):
                 node_features = self.dropout(node_features)

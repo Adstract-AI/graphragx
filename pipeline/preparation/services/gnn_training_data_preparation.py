@@ -35,6 +35,7 @@ from pipeline.preparation.services.gnn_embedding_tensor_cache import (
     GnnEmbeddingTensorCacheService,
 )
 from pipeline.preparation.services.gnn_relation_vocabulary import (
+    build_relation_aggregation_metadata,
     build_sorted_typed_edges,
 )
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
@@ -265,6 +266,9 @@ class GnnTrainingDataPreparationService(AbstractService):
         for offset, instance in enumerate(selected_instances):
             edge_index = instance.edge_index
             edge_type = None
+            edge_norm = None
+            active_relation_ids = None
+            edge_relation_index = None
             if requirements.uses_relation_types:
                 if relation_vocabulary is None:
                     raise GnnAnswerRetrieverTrainingException(
@@ -275,6 +279,16 @@ class GnnTrainingDataPreparationService(AbstractService):
                         edge_index=edge_index,
                         edge_relations=instance.edge_relations,
                         vocabulary=relation_vocabulary,
+                        torch=torch,
+                    )
+                    (
+                        edge_norm,
+                        active_relation_ids,
+                        edge_relation_index,
+                    ) = build_relation_aggregation_metadata(
+                        edge_index=edge_index,
+                        edge_type=edge_type,
+                        node_count=len(instance.nodes),
                         torch=torch,
                     )
                 except ValueError as error:
@@ -294,6 +308,9 @@ class GnnTrainingDataPreparationService(AbstractService):
                     ),
                     edge_index=edge_index,
                     edge_type=edge_type,
+                    edge_norm=edge_norm,
+                    active_relation_ids=active_relation_ids,
+                    edge_relation_index=edge_relation_index,
                     node_labels=instance.node_labels,
                 )
             )

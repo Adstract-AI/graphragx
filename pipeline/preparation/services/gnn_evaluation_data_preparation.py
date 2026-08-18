@@ -23,6 +23,7 @@ from pipeline.preparation.services.gnn_embedding_tensor_cache import (
     GnnEmbeddingTensorCacheService,
 )
 from pipeline.preparation.services.gnn_relation_vocabulary import (
+    build_relation_aggregation_metadata,
     build_sorted_typed_edges,
 )
 from pipeline.services import AbstractService
@@ -198,6 +199,9 @@ class GnnEvaluationDataPreparationService(AbstractService):
         for instance_index, instance in enumerate(test_instances):
             edge_index = instance.edge_index
             edge_type = None
+            edge_norm = None
+            active_relation_ids = None
+            edge_relation_index = None
             if requirements.uses_relation_types:
                 if relation_vocabulary is None:
                     raise GnnAnswerRetrieverEvaluationException(
@@ -208,6 +212,16 @@ class GnnEvaluationDataPreparationService(AbstractService):
                         edge_index=edge_index,
                         edge_relations=instance.edge_relations,
                         vocabulary=relation_vocabulary,
+                        torch=torch,
+                    )
+                    (
+                        edge_norm,
+                        active_relation_ids,
+                        edge_relation_index,
+                    ) = build_relation_aggregation_metadata(
+                        edge_index=edge_index,
+                        edge_type=edge_type,
+                        node_count=len(instance.nodes),
                         torch=torch,
                     )
                 except ValueError as error:
@@ -228,6 +242,9 @@ class GnnEvaluationDataPreparationService(AbstractService):
                     ),
                     edge_index=edge_index,
                     edge_type=edge_type,
+                    edge_norm=edge_norm,
+                    active_relation_ids=active_relation_ids,
+                    edge_relation_index=edge_relation_index,
                 )
             )
         return PreparedGnnEvaluationData(

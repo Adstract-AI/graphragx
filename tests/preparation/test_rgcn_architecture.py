@@ -26,6 +26,7 @@ from pipeline.preparation.models.webqsp_local_graph import (
     WebQSPVocabularyStore,
 )
 from pipeline.preparation.services.gnn_relation_vocabulary import (
+    build_relation_aggregation_metadata,
     build_relation_architecture_context,
     build_sorted_typed_edges,
     validate_relation_architecture_context,
@@ -52,6 +53,14 @@ from pipeline.preparation.steps.configuration_building import (
 )
 from pipeline.preparation.steps.dataset_selection import SelectedDataset
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
+from pipeline.preparation.models.gnn_training_data import (
+    PreparedGnnTrainingData,
+    PreparedGnnTrainingInstance,
+)
+from pipeline.preparation.services.gnn_answer_retriever_training import (
+    GnnAnswerRetrieverTrainingConfig,
+    GnnAnswerRetrieverTrainingService,
+)
 
 
 def _dataset_context() -> StepContext[SelectedDataset]:
@@ -103,11 +112,19 @@ def test_rgcn_registry_defaults_and_requirements() -> None:
 
 def test_rgcn_cli_exposes_only_its_registered_numeric_option() -> None:
     args = main.build_parser().parse_args(
-        ["--gnn-architecture", "rgcn", "--num-bases", "16"]
+        [
+            "--gnn-architecture",
+            "rgcn",
+            "--num-bases",
+            "16",
+            "--training-batch-size",
+            "32",
+        ]
     )
 
     assert args.gnn_architecture == "rgcn"
     assert args.num_bases == 16
+    assert args.training_batch_size == 32
 
 
 def test_rgcn_interactive_prompts_follow_registry_order(capsys) -> None:
@@ -215,6 +232,24 @@ def test_typed_edges_are_sorted_and_keep_inverse_relations_distinct() -> None:
         )
 
 
+def test_relation_mean_normalization_is_precomputed_once() -> None:
+    edge_index = torch.tensor([[0, 1, 2], [2, 2, 2]])
+    edge_type = torch.tensor([0, 0, 1])
+
+    edge_norm, active_relation_ids, edge_relation_index = (
+        build_relation_aggregation_metadata(
+            edge_index=edge_index,
+            edge_type=edge_type,
+            node_count=3,
+            torch=torch,
+        )
+    )
+
+    assert edge_norm.tolist() == [0.5, 0.5, 1.0]
+    assert active_relation_ids.tolist() == [0, 1]
+    assert edge_relation_index.tolist() == [0, 0, 1]
+
+
 def test_rgcn_layer_uses_per_relation_target_mean_and_root_transform() -> None:
     layer = ActiveRelationBasisRGCNLayer(
         hidden_dimension=1,
@@ -273,6 +308,272 @@ def test_rgcn_layer_uses_autocast_compute_dtype_for_index_add_accumulators() -> 
 
     assert first_output.dtype == torch.bfloat16
     assert second_output.dtype == torch.bfloat16
+
+
+def test_vectorized_rgcn_metadata_matches_fallback_and_chunks_backward() -> None:
+    torch.manual_seed(9)
+    layer = ActiveRelationBasisRGCNLayer(
+        8,
+        num_relations=3,
+        num_bases=2,
+        message_chunk_size=7,
+    )
+    node_features = torch.randn(20, 8, requires_grad=True)
+    edge_count = 41
+    edge_type = torch.arange(edge_count, dtype=torch.long) % 3
+    edge_type, order = torch.sort(edge_type)
+    edge_index = torch.stack(
+        (
+            torch.arange(edge_count) % 20,
+            (torch.arange(edge_count) * 3 + 1) % 20,
+        )
+    ).index_select(1, order)
+    edge_norm, active_relation_ids, edge_relation_index = (
+        build_relation_aggregation_metadata(
+            edge_index=edge_index,
+            edge_type=edge_type,
+            node_count=20,
+            torch=torch,
+        )
+    )
+
+    fallback = layer(node_features, edge_index, edge_type)
+    prepared = layer(
+        node_features,
+        edge_index,
+        edge_type,
+        edge_norm=edge_norm,
+        active_relation_ids=active_relation_ids,
+        edge_relation_index=edge_relation_index,
+    )
+    assert torch.allclose(prepared, fallback, atol=1e-6)
+    prepared.sum().backward()
+    assert layer.basis_weights.grad is not None
+
+
+def test_disconnected_rgcn_batch_matches_individual_graphs_and_losses(tmp_path) -> None:
+    torch.manual_seed(12)
+    model = RGCNAnswerRetriever(
+        entity_embedding_dimension=4,
+        hidden_dimension=8,
+        gnn_layer_count=2,
+        num_relations=2,
+        num_bases=2,
+        dropout=0.0,
+    ).eval()
+    embedding_matrix = torch.randn(5, 4)
+
+    def prepared_instance(
+        node_indices: list[int],
+        edge_index,
+        edge_type,
+        labels: list[float],
+        source_index: int,
+    ) -> PreparedGnnTrainingInstance:
+        edge_norm, active_ids, edge_relation_index = (
+            build_relation_aggregation_metadata(
+                edge_index=edge_index,
+                edge_type=edge_type,
+                node_count=len(node_indices),
+                torch=torch,
+            )
+        )
+        return PreparedGnnTrainingInstance(
+            source_instance_index=source_index,
+            node_embedding_indices=torch.tensor(node_indices),
+            edge_index=edge_index,
+            edge_type=edge_type,
+            edge_norm=edge_norm,
+            active_relation_ids=active_ids,
+            edge_relation_index=edge_relation_index,
+            node_labels=torch.tensor(labels),
+        )
+
+    first = prepared_instance(
+        [0, 1],
+        torch.tensor([[0, 1], [1, 0]]),
+        torch.tensor([0, 1]),
+        [0.0, 1.0],
+        0,
+    )
+    second = prepared_instance(
+        [2, 3, 4],
+        torch.tensor([[0, 1, 2], [1, 2, 0]]),
+        torch.tensor([0, 0, 1]),
+        [1.0, 0.0, 0.0],
+        1,
+    )
+    built = BuiltGnnAnswerRetriever(
+        dataset_id="WebQSP",
+        gnn_architecture="rgcn",
+        gnn_architecture_options={},
+        gnn_architecture_context={},
+        entity_embedding_model="text-embedding-3-small",
+        entity_embedding_dimension=4,
+        question_embedding_dimension=4,
+        relation_embedding_dimension=4,
+        model=model,
+    )
+    prepared_data = PreparedGnnTrainingData(
+        built_retriever=built,
+        instances=[first, second],
+        node_embeddings=embedding_matrix,
+        training_start_instance=0,
+        training_end_instance=2,
+        selected_device="cpu",
+        embedding_cache_device="cpu",
+        embedding_cache_dtype="float32",
+        entity_embedding_model="text-embedding-3-small",
+        question_embedding_model="text-embedding-3-small",
+        relation_embedding_model="text-embedding-3-small",
+        cache_root=tmp_path,
+    )
+    batch = GnnAnswerRetrieverTrainingService._build_rgcn_training_batches(
+        prepared_training_data=prepared_data,
+        batch_size=2,
+        torch=torch,
+        device="cpu",
+    )[0]
+
+    individual_logits = []
+    for instance in (first, second):
+        individual_logits.append(
+            model(
+                embedding_matrix.index_select(0, instance.node_embedding_indices),
+                instance.edge_index,
+                edge_type=instance.edge_type,
+                edge_norm=instance.edge_norm,
+                active_relation_ids=instance.active_relation_ids,
+                edge_relation_index=instance.edge_relation_index,
+            )
+        )
+    batch_logits = model(
+        embedding_matrix.index_select(0, batch.node_embedding_indices),
+        batch.edge_index,
+        edge_type=batch.edge_type,
+        edge_norm=batch.edge_norm,
+        active_relation_ids=batch.active_relation_ids,
+        edge_relation_index=batch.edge_relation_index,
+    )
+    assert torch.allclose(batch_logits, torch.cat(individual_logits), atol=1e-6)
+
+    import torch.nn.functional as functional
+
+    batch_loss = functional.binary_cross_entropy_with_logits(
+        batch_logits,
+        batch.node_labels,
+        weight=batch.node_loss_weights,
+        pos_weight=batch.positive_weights,
+        reduction="sum",
+    )
+    individual_loss = sum(
+        GnnAnswerRetrieverTrainingService._compute_loss(
+            logits=logits,
+            node_labels=instance.node_labels,
+            torch=torch,
+            torch_functional=functional,
+        )
+        for logits, instance in zip(individual_logits, (first, second), strict=True)
+    ) / 2
+    assert batch_loss.item() == pytest.approx(individual_loss.item(), abs=1e-6)
+
+
+def test_batched_rgcn_training_smoke_saves_vocabulary_and_model(tmp_path) -> None:
+    vocabulary = {"parent": 0, "reverse__parent": 1}
+    options = {
+        "gnn_layer_count": 2,
+        "gnn_hidden_dimension": 128,
+        "dropout": 0.1,
+        "num_bases": 8,
+    }
+    model = RGCNAnswerRetriever(
+        entity_embedding_dimension=4,
+        hidden_dimension=128,
+        gnn_layer_count=2,
+        num_relations=2,
+        num_bases=8,
+        dropout=0.1,
+    )
+    built = BuiltGnnAnswerRetriever(
+        dataset_id="WebQSP",
+        gnn_architecture="rgcn",
+        gnn_architecture_options=options,
+        gnn_architecture_context=build_relation_architecture_context(vocabulary),
+        relation_vocabulary=vocabulary,
+        entity_embedding_model="text-embedding-3-small",
+        entity_embedding_dimension=4,
+        question_embedding_dimension=4,
+        relation_embedding_dimension=4,
+        hidden_dimension=128,
+        gnn_layer_count=2,
+        node_classifier="mlp",
+        use_reverse_edges=True,
+        dropout=0.1,
+        model=model,
+    )
+
+    def instance(index: int) -> PreparedGnnTrainingInstance:
+        edge_index = torch.tensor([[0, 1], [1, 0]])
+        edge_type = torch.tensor([0, 1])
+        edge_norm, active_ids, edge_relation_index = (
+            build_relation_aggregation_metadata(
+                edge_index=edge_index,
+                edge_type=edge_type,
+                node_count=2,
+                torch=torch,
+            )
+        )
+        return PreparedGnnTrainingInstance(
+            source_instance_index=index,
+            node_embedding_indices=torch.tensor([index * 2, index * 2 + 1]),
+            edge_index=edge_index,
+            edge_type=edge_type,
+            edge_norm=edge_norm,
+            active_relation_ids=active_ids,
+            edge_relation_index=edge_relation_index,
+            node_labels=torch.tensor([0.0, 1.0]),
+        )
+
+    prepared_data = PreparedGnnTrainingData(
+        built_retriever=built,
+        instances=[instance(0), instance(1)],
+        node_embeddings=torch.randn(4, 4),
+        training_start_instance=0,
+        training_end_instance=2,
+        selected_device="cpu",
+        embedding_cache_device="cpu",
+        embedding_cache_dtype="float32",
+        entity_embedding_model="text-embedding-3-small",
+        question_embedding_model="text-embedding-3-small",
+        relation_embedding_model="text-embedding-3-small",
+        cache_root=tmp_path,
+    )
+    dataset = PreparedWebQSPGraphDataset(
+        dataset_id="WebQSP",
+        processing_version="test",
+        use_reverse_edges=True,
+        train_instances=[],
+        test_instances=[],
+        vocabulary_store=WebQSPVocabularyStore(relations=vocabulary),
+        cache_directory=tmp_path / "processed_reverse_edges",
+    )
+
+    outcome = GnnAnswerRetrieverTrainingService().train(
+        prepared_training_data=prepared_data,
+        prepared_dataset=dataset,
+        configuration=_pipeline_config(options),
+        training_config=GnnAnswerRetrieverTrainingConfig(
+            epochs=1,
+            batch_size=2,
+            log_every=0,
+            device="cpu",
+        ),
+    )
+
+    assert outcome.trained_instances == 2
+    assert outcome.model_artifact_path.exists()
+    assert outcome.relation_vocabulary_path is not None
+    assert outcome.relation_vocabulary_path.exists()
 
 
 def test_custom_layer_matches_pyg_rgcn_conv() -> None:

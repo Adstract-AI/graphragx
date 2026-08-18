@@ -101,3 +101,35 @@ def build_sorted_typed_edges(
         return edge_index, edge_type
     order = torch.argsort(edge_type, stable=True)
     return edge_index.index_select(1, order), edge_type.index_select(0, order)
+
+
+def build_relation_aggregation_metadata(
+    *,
+    edge_index,
+    edge_type,
+    node_count: int,
+    torch,
+):
+    """Precompute relation means and compact active-relation edge indices."""
+    if node_count <= 0:
+        raise ValueError("node_count must be greater than zero")
+    if edge_type.numel() == 0:
+        return (
+            torch.empty(0, dtype=torch.float32),
+            torch.empty(0, dtype=torch.long),
+            torch.empty(0, dtype=torch.long),
+        )
+    active_relation_ids, edge_relation_index = torch.unique(
+        edge_type,
+        sorted=True,
+        return_inverse=True,
+    )
+    relation_target_keys = edge_type * node_count + edge_index[1]
+    _, normalization_index, counts = torch.unique(
+        relation_target_keys,
+        sorted=False,
+        return_inverse=True,
+        return_counts=True,
+    )
+    edge_norm = counts.index_select(0, normalization_index).float().reciprocal()
+    return edge_norm, active_relation_ids, edge_relation_index

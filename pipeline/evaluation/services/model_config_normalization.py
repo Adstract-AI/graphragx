@@ -17,6 +17,7 @@ _TRAINING_KEYS = (
     "weight_decay",
     "max_instances",
     "log_every",
+    "batch_size",
     "device",
     "profile",
     "embedding_cache_device",

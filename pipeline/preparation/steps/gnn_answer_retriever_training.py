@@ -12,6 +12,7 @@ from helpers.constants import (
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
     DEFAULT_TRAINING_LOG_EVERY,
+    DEFAULT_TRAINING_BATCH_SIZE,
     DEFAULT_TRAINING_PROFILE,
     DEFAULT_TRAINING_WEIGHT_DECAY,
 )
@@ -68,6 +69,10 @@ class TrainedGnnAnswerRetriever(StepResult):
         description="Exclusive training split index where training stopped.",
     )
     training_log_every: int = Field(..., description="Training progress log interval.")
+    training_batch_size: int = Field(
+        default=DEFAULT_TRAINING_BATCH_SIZE,
+        description="Configured R-GCN disconnected-graph batch size.",
+    )
     training_device: str = Field(..., description="Requested training device.")
     training_profile: bool = Field(
         default=DEFAULT_TRAINING_PROFILE,
@@ -146,6 +151,7 @@ class TrainGnnAnswerRetrieverStep(
         training_max_instances: int | None = None,
         training_start_instance: int = 0,
         training_log_every: int = DEFAULT_TRAINING_LOG_EVERY,
+        training_batch_size: int = DEFAULT_TRAINING_BATCH_SIZE,
         training_device: str = DEFAULT_TRAINING_DEVICE,
         training_profile: bool = DEFAULT_TRAINING_PROFILE,
         training_run_name: str | None = None,
@@ -162,6 +168,7 @@ class TrainGnnAnswerRetrieverStep(
             max_instances=training_max_instances,
             start_instance=training_start_instance,
             log_every=training_log_every,
+            batch_size=training_batch_size,
             device=training_device,
             profile=training_profile,
             run_name=training_run_name,
@@ -186,6 +193,7 @@ class TrainGnnAnswerRetrieverStep(
             f"epochs={self.training_config.epochs} "
             f"start_instance={self.training_config.start_instance} "
             f"max_instances={self.training_config.max_instances} "
+            f"batch_size={self.training_config.batch_size} "
             f"profile={self.training_config.profile} "
             f"run_name={self.training_config.run_name} "
             f"continue_from_name={self.training_config.continue_from_model_run_name} "
@@ -229,6 +237,7 @@ class TrainGnnAnswerRetrieverStep(
             training_start_instance=outcome.training_start_instance,
             training_end_instance=outcome.training_end_instance,
             training_log_every=self.training_config.log_every,
+            training_batch_size=self.training_config.batch_size,
             training_device=self.training_config.device,
             training_profile=self.training_config.profile,
             training_run_name=self.training_config.run_name,
