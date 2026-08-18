@@ -26,6 +26,8 @@ class BuiltGnnAnswerRetriever(StepResult):
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     gnn_architecture: str = Field(default="graphsage")
     gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
+    gnn_architecture_context: dict[str, Any] = Field(default_factory=dict)
+    relation_vocabulary: dict[str, int] | None = Field(default=None)
     entity_embedding_model: str = Field(
         ...,
         description="OpenAI embedding model used for entity text.",
@@ -99,8 +101,9 @@ class BuildGnnAnswerRetrieverStep(
         )
         embedding_definition = OPENAI_EMBEDDING_MODELS[embedding_model]
         architecture_options = dict(configuration.gnn_architecture_options)
+        architecture = GNN_ARCHITECTURES[configuration.gnn_architecture]
         supported_option_ids = set(
-            GNN_ARCHITECTURES[configuration.gnn_architecture].option_map
+            architecture.option_map
         )
         for option_id, value in {
             "gnn_layer_count": configuration.gnn_layer_count,
@@ -115,6 +118,24 @@ class BuildGnnAnswerRetrieverStep(
         }.items():
             if option_id in supported_option_ids and value is not None:
                 architecture_options.setdefault(option_id, value)
+
+        architecture_context: dict[str, Any] = {}
+        relation_vocabulary: dict[str, int] | None = None
+        if architecture.data_requirements.uses_relation_types:
+            from pipeline.preparation.services.gnn_relation_vocabulary import (
+                build_relation_architecture_context,
+                validate_relation_vocabulary,
+            )
+
+            if not prepared_dataset.use_reverse_edges:
+                raise InvalidInteractiveConfigurationInputException(
+                    f"Architecture {configuration.gnn_architecture} requires reverse edges."
+                )
+            relation_vocabulary = dict(prepared_dataset.vocabulary_store.relations)
+            validate_relation_vocabulary(relation_vocabulary)
+            architecture_context = build_relation_architecture_context(
+                relation_vocabulary
+            )
 
         logger.info(
             f"Building GNN answer retriever: dataset={prepared_dataset.dataset_id} "
@@ -132,6 +153,7 @@ class BuildGnnAnswerRetrieverStep(
         model = build_gnn_answer_retriever(
             gnn_architecture=configuration.gnn_architecture,
             architecture_options=architecture_options,
+            architecture_context=architecture_context,
             entity_embedding_dimension=embedding_definition.dimensions,
             question_embedding_dimension=embedding_definition.dimensions,
             relation_embedding_dimension=embedding_definition.dimensions,
@@ -142,16 +164,18 @@ class BuildGnnAnswerRetrieverStep(
             dataset_id=prepared_dataset.dataset_id,
             gnn_architecture=configuration.gnn_architecture,
             gnn_architecture_options=architecture_options,
+            gnn_architecture_context=architecture_context,
+            relation_vocabulary=relation_vocabulary,
             entity_embedding_model=embedding_model,
             entity_embedding_dimension=embedding_definition.dimensions,
             question_embedding_dimension=embedding_definition.dimensions,
             relation_embedding_dimension=embedding_definition.dimensions,
-            hidden_dimension=configuration.gnn_hidden_dimension,
-            gnn_layer_count=configuration.gnn_layer_count,
-            node_classifier=configuration.node_classifier,
+            hidden_dimension=getattr(model, "hidden_dimension", None),
+            gnn_layer_count=getattr(model, "gnn_layer_count", None),
+            node_classifier=getattr(model, "node_classifier", None),
             use_edge_mlp=configuration.use_edge_mlp,
             question_aware_classifier=configuration.question_aware_classifier,
-            use_reverse_edges=configuration.use_reverse_edges,
+            use_reverse_edges=prepared_dataset.use_reverse_edges,
             add_layer_normalization=configuration.add_layer_normalization,
             edge_mlp_hidden_dim=configuration.edge_mlp_hidden_dim,
             dropout=configuration.dropout,

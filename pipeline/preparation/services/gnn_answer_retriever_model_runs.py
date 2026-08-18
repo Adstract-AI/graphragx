@@ -26,6 +26,10 @@ from pipeline.preparation.exceptions import GnnAnswerRetrieverModelRunException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.services import AbstractService
+from pipeline.preparation.services.gnn_relation_vocabulary import (
+    RGCN_RELATION_VOCABULARY_FILENAME,
+    validate_relation_architecture_context,
+)
 
 logger = get_logger(__name__)
 
@@ -68,6 +72,7 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     dataset_id: str
     gnn_architecture: str | None = None
     gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
+    gnn_architecture_context: dict[str, Any] = Field(default_factory=dict)
     embedding_model: str | None = None
     embedding_dimension: int | None = None
     # Legacy per-resource fields are accepted only when loading old artifacts.
@@ -226,6 +231,16 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
             or self.resolved_hidden_dimension
         )
 
+    @property
+    def resolved_use_reverse_edges(self) -> bool:
+        """Include architecture-mandated inverse edges for saved runs."""
+        architecture = GNN_ARCHITECTURES[self.resolved_gnn_architecture]
+        return (
+            architecture.data_requirements.requires_reverse_edges
+            or self.use_reverse_edges
+            or self.training.use_reverse_edges
+        )
+
 
 class SavedGnnAnswerRetrieverRun(BaseModel):
     """Resolved saved model run on disk."""
@@ -236,6 +251,8 @@ class SavedGnnAnswerRetrieverRun(BaseModel):
     weights_path: Path = Field(..., description="Saved state-dict path.")
     config_path: Path = Field(..., description="Saved model config path.")
     config: SavedGnnAnswerRetrieverConfig = Field(..., description="Saved config.")
+    relation_vocabulary_path: Path | None = None
+    relation_vocabulary: dict[str, int] | None = None
 
 
 class LoadedGnnAnswerRetrieverRun(BaseModel):
@@ -249,6 +266,8 @@ class LoadedGnnAnswerRetrieverRun(BaseModel):
     weights_path: Path = Field(..., description="Saved state-dict path.")
     config_path: Path = Field(..., description="Saved model config path.")
     config: SavedGnnAnswerRetrieverConfig = Field(..., description="Saved config.")
+    relation_vocabulary_path: Path | None = None
+    relation_vocabulary: dict[str, int] | None = None
     model: AnswerRetrieverModel = Field(..., description="Loaded PyTorch model.")
     question_embedding_model: str = Field(..., description="Question embedding model id.")
     relation_embedding_model: str = Field(..., description="Relation embedding model id.")
@@ -313,6 +332,7 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
         model = build_gnn_answer_retriever(
             gnn_architecture=saved_run.config.resolved_gnn_architecture,
             architecture_options=saved_run.config.resolved_gnn_architecture_options,
+            architecture_context=saved_run.config.gnn_architecture_context,
             entity_embedding_dimension=saved_run.config.resolved_embedding_dimension,
             question_embedding_dimension=self._embedding_dimension(
                 saved_run.config.question_embedding_model,
@@ -368,6 +388,8 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
             weights_path=saved_run.weights_path,
             config_path=saved_run.config_path,
             config=saved_run.config,
+            relation_vocabulary_path=saved_run.relation_vocabulary_path,
+            relation_vocabulary=saved_run.relation_vocabulary,
             model=model,
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
@@ -459,6 +481,46 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
                 f"Saved model config is invalid: {config_path}"
             ) from error
 
+        relation_vocabulary_path: Path | None = None
+        relation_vocabulary: dict[str, int] | None = None
+        architecture = GNN_ARCHITECTURES[config.resolved_gnn_architecture]
+        if architecture.data_requirements.uses_relation_types:
+            resolved_options = config.resolved_gnn_architecture_options
+            for option in architecture.options:
+                value = resolved_options.get(option.option_id)
+                if option.choices and value not in option.choices:
+                    raise GnnAnswerRetrieverModelRunException(
+                        f"Saved R-GCN option {option.option_id}={value!r} is invalid; "
+                        f"expected one of {option.choices}."
+                    )
+            relation_vocabulary_path = (
+                run_directory / RGCN_RELATION_VOCABULARY_FILENAME
+            )
+            if not relation_vocabulary_path.exists():
+                raise GnnAnswerRetrieverModelRunException(
+                    f"Selected R-GCN model run is missing relation vocabulary: "
+                    f"{relation_vocabulary_path}"
+                )
+            try:
+                relation_vocabulary_payload = json.loads(
+                    relation_vocabulary_path.read_text(encoding="utf-8")
+                )
+                if not isinstance(relation_vocabulary_payload, dict):
+                    raise ValueError("relation vocabulary must be a JSON object")
+                relation_vocabulary = {
+                    str(key): int(value)
+                    for key, value in relation_vocabulary_payload.items()
+                }
+                validate_relation_architecture_context(
+                    config.gnn_architecture_context,
+                    relation_vocabulary,
+                )
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+                raise GnnAnswerRetrieverModelRunException(
+                    f"Saved R-GCN relation vocabulary is invalid: "
+                    f"{relation_vocabulary_path}"
+                ) from error
+
         return SavedGnnAnswerRetrieverRun(
             run_directory=run_directory,
             run_name=run_directory.name,
@@ -466,6 +528,8 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
             weights_path=weights_path,
             config_path=config_path,
             config=config,
+            relation_vocabulary_path=relation_vocabulary_path,
+            relation_vocabulary=relation_vocabulary,
         )
 
     @staticmethod

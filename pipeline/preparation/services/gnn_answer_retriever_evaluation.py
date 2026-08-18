@@ -188,6 +188,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             question_embedding_model=loaded_model_run.question_embedding_model,
             selected_device=device,
             evaluation_config=evaluation_config,
+            gnn_architecture=loaded_model_run.config.resolved_gnn_architecture,
+            relation_vocabulary=loaded_model_run.relation_vocabulary,
         )
         phase_started_at, elapsed_seconds = self._finish_profiled_phase(
             torch=torch,
@@ -228,27 +230,48 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     torch=torch,
                     device=device,
                 )
-                relation_features = self._gather_embedding_features(
-                    embedding_matrix=prepared_evaluation_data.relation_embeddings,
-                    indices=prepared_instance.relation_embedding_indices,
-                    torch=torch,
-                    device=device,
-                )
-                question_features = prepared_evaluation_data.question_embeddings[
-                    prepared_instance.question_embedding_index
-                ].to(device=device, non_blocking=True)
-                edge_weight = (
-                    None
-                    if loaded_model_run.config.use_edge_mlp
-                    else self._build_edge_weight_tensor(
-                        relation_features=relation_features,
-                        question_features=question_features,
+                relation_features = None
+                if prepared_evaluation_data.relation_embeddings is not None:
+                    if prepared_instance.relation_embedding_indices is None:
+                        raise GnnAnswerRetrieverEvaluationException(
+                            "Prepared relation embeddings are missing instance indices."
+                        )
+                    relation_features = self._gather_embedding_features(
+                        embedding_matrix=prepared_evaluation_data.relation_embeddings,
+                        indices=prepared_instance.relation_embedding_indices,
                         torch=torch,
-                        torch_functional=torch_functional,
                         device=device,
                     )
+                question_features = None
+                if prepared_evaluation_data.question_embeddings is not None:
+                    if prepared_instance.question_embedding_index is None:
+                        raise GnnAnswerRetrieverEvaluationException(
+                            "Prepared question embeddings are missing an instance index."
+                        )
+                    question_features = prepared_evaluation_data.question_embeddings[
+                        prepared_instance.question_embedding_index
+                    ].to(device=device, non_blocking=True)
+                edge_weight = None
+                if relation_features is not None and question_features is not None:
+                    edge_weight = (
+                        None
+                        if loaded_model_run.config.use_edge_mlp
+                        else self._build_edge_weight_tensor(
+                            relation_features=relation_features,
+                            question_features=question_features,
+                            torch=torch,
+                            torch_functional=torch_functional,
+                            device=device,
+                        )
+                    )
+                edge_index = prepared_instance.edge_index.to(
+                    device=device, non_blocking=True
                 )
-                edge_index = instance.edge_index.to(device=device, non_blocking=True)
+                edge_type = (
+                    prepared_instance.edge_type.to(device=device, non_blocking=True)
+                    if prepared_instance.edge_type is not None
+                    else None
+                )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
                     device=device,
@@ -271,6 +294,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                         edge_weight=edge_weight,
                         question_features=question_features,
                         relation_features=relation_features,
+                        edge_type=edge_type,
                     )
                 probabilities = torch.sigmoid(logits)
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
@@ -660,6 +684,15 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 "model_run_number": loaded_model_run.run_number,
                 "full_config_path": str(loaded_model_run.config_path),
                 "weights_path": str(loaded_model_run.weights_path),
+                **(
+                    {
+                        "relation_vocabulary_path": str(
+                            loaded_model_run.relation_vocabulary_path
+                        )
+                    }
+                    if loaded_model_run.relation_vocabulary_path is not None
+                    else {}
+                ),
             },
             "evaluation": evaluation_payload,
         }

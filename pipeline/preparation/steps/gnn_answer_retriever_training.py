@@ -38,6 +38,8 @@ class TrainedGnnAnswerRetriever(StepResult):
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     gnn_architecture: str = Field(default="graphsage")
     gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
+    gnn_architecture_context: dict[str, Any] = Field(default_factory=dict)
+    relation_vocabulary_path: Path | None = None
     hidden_dimension: int | None = Field(
         default=None,
         description="Shared hidden dimension used by the trained retriever.",
@@ -209,6 +211,8 @@ class TrainGnnAnswerRetrieverStep(
             dataset_id=outcome.dataset_id,
             gnn_architecture=outcome.gnn_architecture,
             gnn_architecture_options=outcome.gnn_architecture_options,
+            gnn_architecture_context=outcome.gnn_architecture_context,
+            relation_vocabulary_path=outcome.relation_vocabulary_path,
             hidden_dimension=outcome.hidden_dimension,
             gnn_layer_count=outcome.gnn_layer_count,
             node_classifier=outcome.node_classifier,

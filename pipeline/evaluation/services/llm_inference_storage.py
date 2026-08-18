@@ -284,6 +284,9 @@ class LlmInferenceStorageService(AbstractService):
         total_cost = sum(item.estimated_cost_usd for item in answers.items)
         evaluation_config_path = evaluation_run_directory / "evaluation_config.json"
         gnn_architecture = cls._load_inference_architecture(evaluation_config_path)
+        relation_vocabulary_path = cls._load_relation_vocabulary_path(
+            evaluation_config_path
+        )
         return {
             "dataset_id": answers.dataset_id,
             "gnn_architecture": gnn_architecture,
@@ -300,6 +303,11 @@ class LlmInferenceStorageService(AbstractService):
                 "predictions_path": str(
                     evaluation_run_directory
                     / "predictions.jsonl"
+                ),
+                **(
+                    {"relation_vocabulary_path": str(relation_vocabulary_path)}
+                    if relation_vocabulary_path is not None
+                    else {}
                 ),
             },
             "inference": {
@@ -340,6 +348,29 @@ class LlmInferenceStorageService(AbstractService):
         except (OSError, ValueError, json.JSONDecodeError):
             pass
         return "graphsage"
+
+    @staticmethod
+    def _load_relation_vocabulary_path(
+        evaluation_config_path: Path,
+    ) -> Path | None:
+        """Resolve an optional R-GCN vocabulary reference for inference lineage."""
+        try:
+            evaluation_config = json.loads(
+                evaluation_config_path.read_text(encoding="utf-8")
+            )
+            model_reference = evaluation_config.get("model_config", {})
+            value = (
+                model_reference.get("relation_vocabulary_path")
+                if isinstance(model_reference, dict)
+                else None
+            )
+            if isinstance(value, str):
+                path = project_absolute_path(value)
+                if path.exists():
+                    return path
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        return None
 
     def _create_inference_run_directory(
         self,

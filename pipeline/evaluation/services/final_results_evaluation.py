@@ -158,6 +158,19 @@ class FinalResultsEvaluationService(AbstractService):
                         gnn_evaluation_result.model_run_directory
                         / "gnn_answer_retriever.pt"
                     ),
+                    **(
+                        {
+                            "relation_vocabulary_path": str(
+                                gnn_evaluation_result.model_run_directory
+                                / "relation_vocabulary.json"
+                            )
+                        }
+                        if (
+                            gnn_evaluation_result.model_run_directory
+                            / "relation_vocabulary.json"
+                        ).exists()
+                        else {}
+                    ),
                 },
                 "evaluation": {
                     "name": gnn_evaluation_result.evaluation_run_name,

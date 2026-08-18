@@ -57,8 +57,10 @@ class PreparedGnnEvaluationInstance(BaseModel):
     source_instance_index: int = Field(...)
     instance: WebQSPProcessedInstance = Field(...)
     node_embedding_indices: TorchTensor = Field(...)
-    relation_embedding_indices: TorchTensor = Field(...)
-    question_embedding_index: int = Field(...)
+    relation_embedding_indices: TorchTensor | None = Field(default=None)
+    question_embedding_index: int | None = Field(default=None)
+    edge_index: TorchTensor = Field(...)
+    edge_type: TorchTensor | None = Field(default=None)
 
 
 class PreparedGnnEvaluationData(BaseModel):
@@ -68,8 +70,8 @@ class PreparedGnnEvaluationData(BaseModel):
 
     instances: list[PreparedGnnEvaluationInstance] = Field(default_factory=list)
     node_embeddings: TorchTensor = Field(...)
-    relation_embeddings: TorchTensor = Field(...)
-    question_embeddings: TorchTensor = Field(...)
+    relation_embeddings: TorchTensor | None = Field(default=None)
+    question_embeddings: TorchTensor | None = Field(default=None)
     selected_device: str = Field(...)
     embedding_cache_device: str = Field(...)
     embedding_cache_dtype: str = Field(...)

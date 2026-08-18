@@ -13,6 +13,7 @@ from pipeline.evaluation.models import (
     PreparedGnnEvaluationInstance,
 )
 from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
+from pipeline.preparation.helpers.configuration_definitions import GNN_ARCHITECTURES
 from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
 from pipeline.preparation.services.embedding_cache import (
     TextEmbeddingCache,
@@ -20,6 +21,9 @@ from pipeline.preparation.services.embedding_cache import (
 )
 from pipeline.preparation.services.gnn_embedding_tensor_cache import (
     GnnEmbeddingTensorCacheService,
+)
+from pipeline.preparation.services.gnn_relation_vocabulary import (
+    build_sorted_typed_edges,
 )
 from pipeline.services import AbstractService
 
@@ -56,6 +60,8 @@ class GnnEvaluationDataPreparationService(AbstractService):
         question_embedding_model: str,
         selected_device: str,
         evaluation_config: GnnAnswerRetrieverEvaluationConfig,
+        gnn_architecture: str = "graphsage",
+        relation_vocabulary: dict[str, int] | None = None,
     ) -> PreparedGnnEvaluationData:
         """Prepare compact evaluation tensors and recover safely from CUDA OOM."""
         if evaluation_config.gpu_cache_reserve_gb < 0:
@@ -67,36 +73,62 @@ class GnnEvaluationDataPreparationService(AbstractService):
             instance_texts=[instance.nodes for instance in test_instances],
             torch=torch,
         )
-        relation_texts, relation_index_tensors = self._compact_text_index_tensors(
-            instance_texts=[instance.edge_relations for instance in test_instances],
-            torch=torch,
-        )
-        question_texts, question_indices = self._compact_text_indices(
-            [[instance.question] for instance in test_instances]
-        )
-        node_cache, relation_cache, question_cache = self._build_cache_handles(
+        requirements = GNN_ARCHITECTURES[gnn_architecture].data_requirements
+        relation_texts: list[str] = []
+        relation_index_tensors: list[Tensor | None] = [None] * len(test_instances)
+        if requirements.uses_relation_embeddings:
+            relation_texts, relation_index_tensors = self._compact_text_index_tensors(
+                instance_texts=[instance.edge_relations for instance in test_instances],
+                torch=torch,
+            )
+        question_texts: list[str] = []
+        question_indices: list[list[int]] = [[] for _ in test_instances]
+        if requirements.uses_question_embeddings:
+            question_texts, question_indices = self._compact_text_indices(
+                [[instance.question] for instance in test_instances]
+            )
+        node_cache = self.embedding_cache_service.load_node_cache(
             cache_root=cache_root,
+            model_id=entity_embedding_model,
+            vocabulary={text: index for index, text in enumerate(node_texts)},
             dataset_id=dataset_id,
-            entity_embedding_model=entity_embedding_model,
-            relation_embedding_model=relation_embedding_model,
-            question_embedding_model=question_embedding_model,
-            node_texts=node_texts,
-            relation_texts=relation_texts,
-            question_texts=question_texts,
+            ensure_collection=False,
+        )
+        relation_cache = (
+            self.embedding_cache_service.load_relation_cache(
+                cache_root=cache_root,
+                model_id=relation_embedding_model,
+                vocabulary={text: index for index, text in enumerate(relation_texts)},
+                dataset_id=dataset_id,
+                ensure_collection=False,
+            )
+            if requirements.uses_relation_embeddings
+            else None
+        )
+        question_cache = (
+            self.embedding_cache_service.load_question_cache(
+                cache_root=cache_root,
+                model_id=question_embedding_model,
+                vocabulary={text: index for index, text in enumerate(question_texts)},
+                dataset_id=dataset_id,
+                ensure_collection=False,
+            )
+            if requirements.uses_question_embeddings
+            else None
         )
         embedding_dtype = self._resolve_embedding_dtype(
             torch=torch,
             requested_dtype=evaluation_config.embedding_cache_dtype,
             selected_device=selected_device,
         )
-        total_embedding_bytes = self._embedding_storage_bytes(
-            text_counts=(len(node_texts), len(relation_texts), len(question_texts)),
-            vector_sizes=(
-                node_cache.vector_size,
-                relation_cache.vector_size,
-                question_cache.vector_size,
-            ),
-            element_size=2 if embedding_dtype == "bfloat16" else 4,
+        cache_specs = [(node_cache, node_texts)]
+        if relation_cache is not None:
+            cache_specs.append((relation_cache, relation_texts))
+        if question_cache is not None:
+            cache_specs.append((question_cache, question_texts))
+        total_embedding_bytes = sum(
+            len(texts) * cache.vector_size * (2 if embedding_dtype == "bfloat16" else 4)
+            for cache, texts in cache_specs
         )
         embedding_device = self._resolve_embedding_device(
             torch=torch,
@@ -119,8 +151,8 @@ class GnnEvaluationDataPreparationService(AbstractService):
             matrices = self._load_embedding_matrices(
                 torch=torch,
                 cache_root=cache_root,
-                caches=(node_cache, relation_cache, question_cache),
-                text_groups=(node_texts, relation_texts, question_texts),
+                caches=tuple(cache for cache, _ in cache_specs),
+                text_groups=tuple(texts for _, texts in cache_specs),
                 dtype=torch_dtype,
                 dtype_name=embedding_dtype,
                 device=embedding_device,
@@ -143,8 +175,8 @@ class GnnEvaluationDataPreparationService(AbstractService):
             matrices = self._load_embedding_matrices(
                 torch=torch,
                 cache_root=cache_root,
-                caches=(node_cache, relation_cache, question_cache),
-                text_groups=(node_texts, relation_texts, question_texts),
+                caches=tuple(cache for cache, _ in cache_specs),
+                text_groups=tuple(texts for _, texts in cache_specs),
                 dtype=torch_dtype,
                 dtype_name=embedding_dtype,
                 device=embedding_device,
@@ -153,21 +185,56 @@ class GnnEvaluationDataPreparationService(AbstractService):
         if cuda_allocation_failed:
             torch.cuda.empty_cache()
 
-        prepared_instances = [
-            PreparedGnnEvaluationInstance(
-                source_instance_index=instance_index,
-                instance=instance,
-                node_embedding_indices=node_index_tensors[instance_index],
-                relation_embedding_indices=relation_index_tensors[instance_index],
-                question_embedding_index=question_indices[instance_index][0],
+        node_embeddings = matrices[0]
+        matrix_offset = 1
+        relation_embeddings = None
+        if relation_cache is not None:
+            relation_embeddings = matrices[matrix_offset]
+            matrix_offset += 1
+        question_embeddings = (
+            matrices[matrix_offset] if question_cache is not None else None
+        )
+        prepared_instances: list[PreparedGnnEvaluationInstance] = []
+        for instance_index, instance in enumerate(test_instances):
+            edge_index = instance.edge_index
+            edge_type = None
+            if requirements.uses_relation_types:
+                if relation_vocabulary is None:
+                    raise GnnAnswerRetrieverEvaluationException(
+                        "R-GCN evaluation requires the saved relation vocabulary."
+                    )
+                try:
+                    edge_index, edge_type = build_sorted_typed_edges(
+                        edge_index=edge_index,
+                        edge_relations=instance.edge_relations,
+                        vocabulary=relation_vocabulary,
+                        torch=torch,
+                    )
+                except ValueError as error:
+                    raise GnnAnswerRetrieverEvaluationException(
+                        f"Could not prepare R-GCN edge types for evaluation instance "
+                        f"{instance_index}: {error}"
+                    ) from error
+            prepared_instances.append(
+                PreparedGnnEvaluationInstance(
+                    source_instance_index=instance_index,
+                    instance=instance,
+                    node_embedding_indices=node_index_tensors[instance_index],
+                    relation_embedding_indices=relation_index_tensors[instance_index],
+                    question_embedding_index=(
+                        question_indices[instance_index][0]
+                        if question_indices[instance_index]
+                        else None
+                    ),
+                    edge_index=edge_index,
+                    edge_type=edge_type,
+                )
             )
-            for instance_index, instance in enumerate(test_instances)
-        ]
         return PreparedGnnEvaluationData(
             instances=prepared_instances,
-            node_embeddings=matrices[0],
-            relation_embeddings=matrices[1],
-            question_embeddings=matrices[2],
+            node_embeddings=node_embeddings,
+            relation_embeddings=relation_embeddings,
+            question_embeddings=question_embeddings,
             selected_device=selected_device,
             embedding_cache_device=embedding_device,
             embedding_cache_dtype=embedding_dtype,
@@ -213,12 +280,12 @@ class GnnEvaluationDataPreparationService(AbstractService):
         self,
         torch: ModuleType,
         cache_root: Path,
-        caches: tuple[TextEmbeddingCache, TextEmbeddingCache, TextEmbeddingCache],
-        text_groups: tuple[list[str], list[str], list[str]],
+        caches: tuple[TextEmbeddingCache, ...],
+        text_groups: tuple[list[str], ...],
         dtype: TorchDtype,
         dtype_name: str,
         device: str,
-    ) -> tuple[Tensor, Tensor, Tensor]:
+    ) -> tuple[Tensor, ...]:
         """Load all compact matrices through the shared incremental cache."""
         return tuple(
             self.embedding_tensor_cache_service.load_matrix(

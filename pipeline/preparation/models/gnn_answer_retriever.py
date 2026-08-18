@@ -15,6 +15,37 @@ from pipeline.preparation.helpers.configuration_definitions import (
 from pipeline.preparation.helpers.gnn_architecture import import_architecture_callable
 
 
+def build_node_classifier(
+    node_classifier: str,
+    hidden_dimension: int,
+    question_aware_classifier: bool,
+    dropout: float,
+) -> nn.Module:
+    """Build the shared answer-node classifier used by registered architectures."""
+    if question_aware_classifier:
+        return nn.Sequential(
+            nn.Linear(hidden_dimension * 3, hidden_dimension),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dimension, 1),
+        )
+
+    if node_classifier == "linear":
+        return nn.Linear(hidden_dimension, 1)
+
+    if node_classifier == "mlp":
+        layers: list[nn.Module] = [
+            nn.Linear(hidden_dimension, hidden_dimension),
+            nn.ReLU(),
+        ]
+        if dropout > 0:
+            layers.append(nn.Dropout(dropout))
+        layers.append(nn.Linear(hidden_dimension, 1))
+        return nn.Sequential(*layers)
+
+    raise ValueError(f"Unsupported node classifier: {node_classifier}")
+
+
 class WeightedMessagePassingLayer(nn.Module):
     """Message-passing layer that weights source-node messages per edge."""
 
@@ -123,6 +154,7 @@ class GnnAnswerRetriever(nn.Module, AnswerRetrieverModel):
         edge_weight: Tensor | None = None,
         question_features: Tensor | None = None,
         relation_features: Tensor | None = None,
+        edge_type: Tensor | None = None,
     ) -> Tensor:
         node_features = self.entity_projection(entity_features)
         projected_question = self._project_question(question_features)
@@ -169,30 +201,12 @@ class GnnAnswerRetriever(nn.Module, AnswerRetrieverModel):
         question_aware_classifier: bool,
         dropout: float,
     ) -> nn.Module:
-        if question_aware_classifier:
-            return nn.Sequential(
-                nn.Linear(hidden_dimension * 3, hidden_dimension),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_dimension, 1),
-            )
-
-        if node_classifier == "linear":
-            return nn.Linear(hidden_dimension, 1)
-
-        if node_classifier == "mlp":
-            layers: list[nn.Module] = [
-                nn.Linear(hidden_dimension, hidden_dimension),
-                nn.ReLU(),
-            ]
-            if dropout > 0:
-                layers.append(nn.Dropout(dropout))
-            layers.append(
-                nn.Linear(hidden_dimension, 1),
-            )
-            return nn.Sequential(*layers)
-
-        raise ValueError(f"Unsupported node classifier: {node_classifier}")
+        return build_node_classifier(
+            node_classifier=node_classifier,
+            hidden_dimension=hidden_dimension,
+            question_aware_classifier=question_aware_classifier,
+            dropout=dropout,
+        )
 
     def _project_question(self, question_features: Tensor | None) -> Tensor | None:
         if self.question_projection is None:
@@ -281,7 +295,7 @@ def build_gnn_answer_retriever(
     gnn_architecture: str,
     architecture_options: dict | None = None,
     **kwargs,
-) -> GnnAnswerRetriever:
+) -> AnswerRetrieverModel:
     """Build any registered retriever through its lazy registry callback."""
     definition = GNN_ARCHITECTURES.get(gnn_architecture)
     if definition is None:
@@ -292,6 +306,10 @@ def build_gnn_answer_retriever(
 
 def _shared_model_kwargs(architecture_options: dict, kwargs: dict) -> dict:
     resolved = dict(kwargs)
+    # Architecture context is consumed by architectures such as R-GCN. Keep
+    # the legacy GraphSAGE constructors byte-for-byte compatible with their
+    # existing argument contract.
+    resolved.pop("architecture_context", None)
     option_to_argument = {
         "gnn_hidden_dimension": "hidden_dimension",
         "gnn_layer_count": "gnn_layer_count",

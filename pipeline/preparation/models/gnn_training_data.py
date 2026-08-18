@@ -23,9 +23,10 @@ class PreparedGnnTrainingInstance(BaseModel):
 
     source_instance_index: int = Field(..., description="Index in the train split.")
     node_embedding_indices: TorchTensor = Field(...)
-    relation_embedding_indices: TorchTensor = Field(...)
-    question_embedding_index: int = Field(...)
+    relation_embedding_indices: TorchTensor | None = Field(default=None)
+    question_embedding_index: int | None = Field(default=None)
     edge_index: TorchTensor = Field(...)
+    edge_type: TorchTensor | None = Field(default=None)
     node_labels: TorchTensor = Field(...)
 
 
@@ -37,8 +38,8 @@ class PreparedGnnTrainingData(StepResult):
     built_retriever: BuiltGnnAnswerRetriever = Field(...)
     instances: list[PreparedGnnTrainingInstance] = Field(default_factory=list)
     node_embeddings: TorchTensor = Field(...)
-    relation_embeddings: TorchTensor = Field(...)
-    question_embeddings: TorchTensor = Field(...)
+    relation_embeddings: TorchTensor | None = Field(default=None)
+    question_embeddings: TorchTensor | None = Field(default=None)
     training_start_instance: int = Field(...)
     training_end_instance: int = Field(...)
     selected_device: str = Field(...)

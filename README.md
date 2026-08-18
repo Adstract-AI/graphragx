@@ -127,7 +127,7 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. |
 | `--subgraph-algorithm SUBGRAPH_ALGORITHM` | Subgraph construction algorithm. The current supported option is `shortest_path`. |
 | `--context-strategy CONTEXT_STRATEGY` | How the reasoning subgraph is represented for the LLM. The current supported option is `structured_triples`. |
-| `--gnn-architecture {graphsage,aa-graphsage}` | Select GraphSAGE or Advance GraphSAGE. GraphSAGE is the default; `aa-graphsage` remains the stable CLI/configuration id. |
+| `--gnn-architecture {graphsage,aa-graphsage,rgcn}` | Select GraphSAGE, Advance GraphSAGE, or R-GCN. GraphSAGE is the default; `aa-graphsage` and `rgcn` are the stable CLI/configuration ids. |
 | `--gnn-layers {2,3}` | Number of GNN message-passing layers. Default: `2`. |
 | `--gnn-hidden-dim {128,256,512}` | Hidden dimension used inside the GNN. Default: `256`. |
 | `--node-classifier NODE_CLASSIFIER` | Node classifier head used after the GNN. Supported options include `mlp` and `linear`. |
@@ -157,6 +157,9 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--use-reverse-edges` / `--no-use-reverse-edges` | Enable or disable reverse-edge graph preparation for Advance GraphSAGE. |
 | `--add-layer-normalization` / `--no-add-layer-normalization` | Enable or disable Advance GraphSAGE residual LayerNorm blocks. |
 | `--edge-mlp-hidden-dim {128,256,512}` | Advance GraphSAGE edge-MLP width. Valid only when edge MLP is enabled. Default: `256`. |
+| `--num-bases {8,16,30,64}` | Number of shared relation-weight bases for R-GCN. Default: `30`. |
+
+R-GCN always prepares distinct inverse relation types and uses categorical relation-specific transformations with a trainable root transform. Its configurable options are layers, hidden dimension, dropout, and basis count; GraphSAGE classifier, edge-MLP, question-conditioning, normalization, edge-width, and reverse-edge flags are rejected. The existing GraphSAGE variants retain their semantic question–relation scalar weighting behavior.
 
 #### Adding another GNN architecture
 
@@ -191,7 +194,7 @@ The compact matrices are still copied into VRAM at the start of every process be
 | `--evaluation-embedding-cache-dtype {auto,float32,bfloat16}` | Storage precision for compact evaluation embeddings. `auto` uses BF16 on supported CUDA devices and float32 otherwise. |
 | `--evaluation-gpu-cache-reserve-gb EVALUATION_GPU_CACHE_RESERVE_GB` | VRAM kept free outside the evaluation embedding matrices. Default: `6.0`. |
 
-Evaluation compacts the selected test instances into unique node, relation, and question matrices before model inference. It uses the same incremental tensor shards as training, so matching dataset/model/type/dtype vectors are reused immediately. Only missing test vectors are fetched from Qdrant and appended; no Qdrant requests occur inside the per-instance inference loop. Evaluation uses `torch.inference_mode()` and BF16 autocast when BF16 cache storage is selected on CUDA.
+Evaluation compacts the selected test instances into reusable embedding matrices before model inference. GraphSAGE loads node, relation, and question embeddings; R-GCN loads only node embeddings and uses the saved categorical relation vocabulary. It uses the same incremental tensor shards as training, so matching dataset/model/type/dtype vectors are reused immediately. Only missing vectors are fetched from Qdrant and appended; no Qdrant requests occur inside the per-instance inference loop. Evaluation uses `torch.inference_mode()` and BF16 autocast when BF16 cache storage is selected on CUDA.
 
 ### LLM Inference And Results
 
@@ -213,7 +216,7 @@ Evaluation compacts the selected test instances into unique node, relation, and 
 
 New W&B runs use a dataset-wide sequential identifier in the form `run_number_YYYYMMDD_HHMMSS`, independent of which pipeline mode creates them. Full, training, and retriever stages reuse their logical experiment within the command. Every evaluation-only command creates a new W&B run and copies the selected model's training metrics, configuration, tags, and artifact before adding retrieval and optional inference results. Every inference-only command creates a new W&B run and copies the selected retriever metrics and configuration into it. This keeps repeated evaluations and LLM inference runs independently comparable without modifying their upstream W&B runs. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts.
 
-W&B tags are populated incrementally from the stages available in each mode. Depending on the completed stages, tags include the dataset, GNN architecture (`graphsage` or `aa-graphsage`), LLM id, embedding models, trained/evaluated instance counts, and model, evaluation, and inference run numbers. Resumed runs preserve their existing tags, and duplicate values are removed.
+W&B tags are populated incrementally from the stages available in each mode. Depending on the completed stages, tags include the dataset, GNN architecture (`graphsage`, `aa-graphsage`, or `rgcn`), LLM id, embedding models, trained/evaluated instance counts, and model, evaluation, and inference run numbers. Resumed runs preserve their existing tags, and duplicate values are removed.
 
 ### Execution Helpers
 
@@ -232,7 +235,7 @@ Processed WebQSP graph cache and vocabulary artifacts.
 
 `data/webqsp/models/<run>`
 
-GNN training outputs, including `model_config.json`, model weights, and loss history.
+GNN training outputs, including `model_config.json`, model weights, and loss history. R-GCN runs also contain the authoritative `relation_vocabulary.json` used to construct categorical edge types.
 
 `data/webqsp/training_embedding_tensors`
 

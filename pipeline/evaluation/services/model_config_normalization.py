@@ -77,6 +77,7 @@ def normalize_model_config(config: dict[str, Any]) -> dict[str, Any]:
         "edge_mlp_hidden_dim": raw.get(
             "edge_mlp_hidden_dim", training.get("edge_mlp_hidden_dim")
         ),
+        "num_bases": raw.get("num_bases", training.get("num_bases")),
     }
     try:
         defaults = architecture_defaults(architecture)
@@ -128,6 +129,9 @@ def normalize_model_config(config: dict[str, Any]) -> dict[str, Any]:
             "gnn_architecture_options": architecture_options,
         }
     )
+    architecture_context = raw.get("gnn_architecture_context")
+    if isinstance(architecture_context, dict) and architecture_context:
+        canonical["gnn_architecture_context"] = architecture_context
     if embedding_model is not None:
         canonical["embedding_model"] = embedding_model
     if embedding_dimension is not None:

@@ -11,11 +11,14 @@ from pipeline import (
     BuiltGnnAnswerRetriever,
     BuiltPipelineConfiguration,
     LoadedDataset,
+    PreparedWebQSPGraphDataset,
     Pipeline,
     PipelineException,
     StepContext,
     StepContextBuilder,
 )
+from pipeline.preparation.models.webqsp_local_graph import WebQSPVocabularyStore
+from pathlib import Path
 
 
 try:
@@ -38,18 +41,20 @@ class FakeConfigurationStep(AbstractStep[BuiltPipelineConfiguration, LoadedDatas
         return BuildGnnAnswerRetrieverStepTests.make_configuration()
 
 
-class FakeLoadedDatasetStep(AbstractStep[LoadedDataset, BuiltPipelineConfiguration]):
+class FakeLoadedDatasetStep(
+    AbstractStep[PreparedWebQSPGraphDataset, BuiltPipelineConfiguration]
+):
     def execute_default(
         self,
         context: StepContext[BuiltPipelineConfiguration],
-    ) -> LoadedDataset:
-        return LoadedDataset(
+    ) -> PreparedWebQSPGraphDataset:
+        return PreparedWebQSPGraphDataset(
             dataset_id="WebQSP",
-            dataset_family="question_answering",
-            hugging_face_dataset_name="ml1996/webqsp",
-            split_names=["train", "validation", "test"],
-            split_sizes={"train": 3, "validation": 2, "test": 1},
-            hugging_face_dataset=FakeDatasetDict(),
+            processing_version="test",
+            train_instances=[],
+            test_instances=[],
+            vocabulary_store=WebQSPVocabularyStore(),
+            cache_directory=Path("data/webqsp/processed"),
         )
 
 
@@ -76,16 +81,19 @@ class BuildGnnAnswerRetrieverStepTests(unittest.TestCase):
     @staticmethod
     def make_loaded_dataset_context(
         builder: StepContextBuilder,
-    ) -> StepContext[LoadedDataset]:
-        loaded_dataset = LoadedDataset(
+    ) -> StepContext[PreparedWebQSPGraphDataset]:
+        prepared_dataset = PreparedWebQSPGraphDataset(
             dataset_id="WebQSP",
-            dataset_family="question_answering",
-            hugging_face_dataset_name="ml1996/webqsp",
-            split_names=["train", "validation", "test"],
-            split_sizes={"train": 3, "validation": 2, "test": 1},
-            hugging_face_dataset=FakeDatasetDict(),
+            processing_version="test",
+            train_instances=[],
+            test_instances=[],
+            vocabulary_store=WebQSPVocabularyStore(),
+            cache_directory=Path("data/webqsp/processed"),
         )
-        return builder.create_context(result=loaded_dataset)
+        return builder.create_context(
+            result=prepared_dataset,
+            next_step=BuildGnnAnswerRetrieverStep(),
+        )
 
     @unittest.skipIf(torch is None, "PyTorch is not installed.")
     def test_builds_gnn_answer_retriever_from_loaded_dataset_and_stored_configuration(self) -> None:

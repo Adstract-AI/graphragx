@@ -8,6 +8,9 @@ from typing import Any
 
 from helpers.logging_config import get_logger
 from helpers.constants import GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME
+from pipeline.preparation.services.gnn_relation_vocabulary import (
+    RGCN_RELATION_VOCABULARY_FILENAME,
+)
 from pipeline.abstract import AbstractStep, StepContext
 from pipeline.exceptions import PipelineException
 from pipeline.evaluation.models import (
@@ -119,6 +122,14 @@ def _build_available_wandb_config(
         source_paths["training_model_config_path"] = model_config_path
     if model_weights_path is not None:
         source_paths["training_weights_path"] = model_weights_path
+    if model_config_path is not None:
+        relation_vocabulary_path = (
+            model_config_path.parent / RGCN_RELATION_VOCABULARY_FILENAME
+        )
+        if relation_vocabulary_path.exists():
+            source_paths["training_relation_vocabulary_path"] = (
+                relation_vocabulary_path
+            )
 
     if evaluation_config:
         runs["evaluation"] = _run_reference(evaluation_config)
@@ -193,10 +204,13 @@ class LogTrainingToWandbStep(
                 }
             )
         self.coordinator.persist_metadata(result.model_config_path)
+        model_artifact_paths = [result.model_config_path, result.model_artifact_path]
+        if result.relation_vocabulary_path is not None:
+            model_artifact_paths.append(result.relation_vocabulary_path)
         self.coordinator.log_artifact(
             name=f"model-{result.model_run_name}",
             artifact_type="gnn-model",
-            paths=[result.model_config_path, result.model_artifact_path],
+            paths=model_artifact_paths,
         )
         self.coordinator.persist_metadata(result.model_config_path)
         metadata = self.coordinator.metadata
@@ -344,13 +358,19 @@ class LogRetrieverToWandbStep(
                         "Training/gnn_training_loss": float(average_loss),
                     }
                 )
+        artifact_paths = [
+            model_config_path,
+            model_config_path.parent / GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
+        ]
+        relation_vocabulary_path = (
+            model_config_path.parent / RGCN_RELATION_VOCABULARY_FILENAME
+        )
+        if relation_vocabulary_path.exists():
+            artifact_paths.append(relation_vocabulary_path)
         self.coordinator.log_artifact(
             name=f"model-{model_config_path.parent.name}",
             artifact_type="gnn-model",
-            paths=[
-                model_config_path,
-                model_config_path.parent / GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
-            ],
+            paths=artifact_paths,
         )
 
     @staticmethod

@@ -306,8 +306,9 @@ class BuildPipelineConfigurationStep(
             question_aware_classifier=bool(
                 resolved_gnn_options.get("question_aware_classifier", False)
             ),
-            use_reverse_edges=bool(
-                resolved_gnn_options.get("use_reverse_edges", False)
+            use_reverse_edges=(
+                architecture.data_requirements.requires_reverse_edges
+                or bool(resolved_gnn_options.get("use_reverse_edges", False))
             ),
             add_layer_normalization=bool(
                 resolved_gnn_options.get("add_layer_normalization", False)

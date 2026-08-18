@@ -101,10 +101,24 @@ class GnnArchitectureDefinition(BaseModel):
     options: tuple[GnnArchitectureOptionDefinition, ...]
     model_builder_path: str
     validator_path: str | None = None
+    data_requirements: "GnnArchitectureDataRequirements" = Field(
+        default_factory=lambda: GnnArchitectureDataRequirements()
+    )
 
     @property
     def option_map(self) -> dict[str, GnnArchitectureOptionDefinition]:
         return {option.option_id: option for option in self.options}
+
+
+class GnnArchitectureDataRequirements(BaseModel):
+    """Architecture-owned graph and embedding input requirements."""
+
+    model_config = ConfigDict(frozen=True)
+
+    requires_reverse_edges: bool = False
+    uses_question_embeddings: bool = True
+    uses_relation_embeddings: bool = True
+    uses_relation_types: bool = False
 
 
 class OpenAiEmbeddingModelDefinition(BaseModel):
@@ -246,8 +260,9 @@ NODE_CLASSIFIERS: Final[dict[str, NodeClassifierDefinition]] = {
 
 GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "graphsage"
 AA_GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "aa-graphsage"
+RGCN_ARCHITECTURE_ID: Final[str] = "rgcn"
 
-GNN_SHARED_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+GNN_LAYER_COUNT_OPTION: Final[GnnArchitectureOptionDefinition] = (
     GnnArchitectureOptionDefinition(
         option_id="gnn_layer_count",
         display_name="GNN Layer Count",
@@ -256,7 +271,9 @@ GNN_SHARED_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
         choices=(2, 3),
         default=2,
         cli_flag="--gnn-layers",
-    ),
+    )
+)
+GNN_HIDDEN_DIMENSION_OPTION: Final[GnnArchitectureOptionDefinition] = (
     GnnArchitectureOptionDefinition(
         option_id="gnn_hidden_dimension",
         display_name="GNN Hidden Dimension",
@@ -265,7 +282,9 @@ GNN_SHARED_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
         choices=(128, 256, 512),
         default=256,
         cli_flag="--gnn-hidden-dim",
-    ),
+    )
+)
+NODE_CLASSIFIER_OPTION: Final[GnnArchitectureOptionDefinition] = (
     GnnArchitectureOptionDefinition(
         option_id="node_classifier",
         display_name="Node Classifier",
@@ -274,7 +293,9 @@ GNN_SHARED_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
         choices=("mlp", "linear"),
         default="mlp",
         cli_flag="--node-classifier",
-    ),
+    )
+)
+GNN_DROPOUT_OPTION: Final[GnnArchitectureOptionDefinition] = (
     GnnArchitectureOptionDefinition(
         option_id="dropout",
         display_name="GNN Dropout",
@@ -283,7 +304,14 @@ GNN_SHARED_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
         choices=(0.0, 0.1, 0.2, 0.3, 0.5),
         default=0.1,
         cli_flag="--dropout",
-    ),
+    )
+)
+
+GNN_SHARED_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GNN_LAYER_COUNT_OPTION,
+    GNN_HIDDEN_DIMENSION_OPTION,
+    NODE_CLASSIFIER_OPTION,
+    GNN_DROPOUT_OPTION,
 )
 
 AA_GRAPH_SAGE_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
@@ -315,6 +343,21 @@ AA_GRAPH_SAGE_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
     ),
 )
 
+RGCN_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GNN_LAYER_COUNT_OPTION,
+    GNN_HIDDEN_DIMENSION_OPTION,
+    GNN_DROPOUT_OPTION,
+    GnnArchitectureOptionDefinition(
+        option_id="num_bases",
+        display_name="R-GCN Basis Count",
+        description="Number of shared basis matrices used for relation transforms.",
+        value_type="integer",
+        choices=(8, 16, 30, 64),
+        default=30,
+        cli_flag="--num-bases",
+    ),
+)
+
 GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
     GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
         architecture_id=GRAPH_SAGE_ARCHITECTURE_ID,
@@ -335,6 +378,23 @@ GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
         ),
         validator_path=(
             "pipeline.preparation.helpers.gnn_architecture:validate_aa_graphsage_options"
+        ),
+    ),
+    RGCN_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=RGCN_ARCHITECTURE_ID,
+        display_name="R-GCN",
+        description=(
+            "Basis-decomposed relational graph convolution with mandatory inverse relations."
+        ),
+        options=RGCN_OPTIONS,
+        model_builder_path=(
+            "pipeline.preparation.models.rgcn_answer_retriever:build_rgcn_model"
+        ),
+        data_requirements=GnnArchitectureDataRequirements(
+            requires_reverse_edges=True,
+            uses_question_embeddings=False,
+            uses_relation_embeddings=False,
+            uses_relation_types=True,
         ),
     ),
 }

@@ -15,6 +15,7 @@ from helpers.constants import (
 )
 from helpers.logging_config import get_logger
 from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
+from pipeline.preparation.helpers.configuration_definitions import GNN_ARCHITECTURES
 from pipeline.preparation.models.gnn_training_data import (
     PreparedGnnTrainingData,
     PreparedGnnTrainingInstance,
@@ -32,6 +33,9 @@ from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
 )
 from pipeline.preparation.services.gnn_embedding_tensor_cache import (
     GnnEmbeddingTensorCacheService,
+)
+from pipeline.preparation.services.gnn_relation_vocabulary import (
+    build_sorted_typed_edges,
 )
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
@@ -64,6 +68,7 @@ class GnnTrainingDataPreparationService(AbstractService):
     """Build compact embedding matrices and integer-indexed training graphs."""
 
     bytes_per_gibibyte = 1024**3
+
     def __init__(
         self,
         embedding_cache_service: WebQSPEmbeddingCacheService | None = None,
@@ -113,20 +118,33 @@ class GnnTrainingDataPreparationService(AbstractService):
             configuration=configuration,
             preparation_config=preparation_config,
         )
+        architecture = GNN_ARCHITECTURES[built_retriever.gnn_architecture]
+        requirements = architecture.data_requirements
+        relation_vocabulary = self._resolve_relation_vocabulary(
+            cache_root=prepared_dataset.cache_directory.parent,
+            built_retriever=built_retriever,
+            preparation_config=preparation_config,
+        )
 
         node_texts, node_index_tensors = self._compact_text_index_tensors(
             instance_texts=[instance.nodes for instance in selected_instances],
             torch=torch,
         )
-        relation_texts, relation_index_tensors = self._compact_text_index_tensors(
-            instance_texts=[
-                instance.edge_relations for instance in selected_instances
-            ],
-            torch=torch,
-        )
-        question_texts, question_indices = self._compact_text_indices(
-            [[instance.question] for instance in selected_instances]
-        )
+        relation_texts: list[str] = []
+        relation_index_tensors: list[Tensor | None] = [None] * len(selected_instances)
+        if requirements.uses_relation_embeddings:
+            relation_texts, relation_index_tensors = self._compact_text_index_tensors(
+                instance_texts=[
+                    instance.edge_relations for instance in selected_instances
+                ],
+                torch=torch,
+            )
+        question_texts: list[str] = []
+        question_indices: list[list[int]] = [[] for _ in selected_instances]
+        if requirements.uses_question_embeddings:
+            question_texts, question_indices = self._compact_text_indices(
+                [[instance.question] for instance in selected_instances]
+            )
 
         cache_root = prepared_dataset.cache_directory.parent
         node_cache = self.embedding_cache_service.load_node_cache(
@@ -136,19 +154,27 @@ class GnnTrainingDataPreparationService(AbstractService):
             dataset_id=prepared_dataset.dataset_id,
             ensure_collection=False,
         )
-        relation_cache = self.embedding_cache_service.load_relation_cache(
-            cache_root=cache_root,
-            model_id=relation_embedding_model,
-            vocabulary={text: index for index, text in enumerate(relation_texts)},
-            dataset_id=prepared_dataset.dataset_id,
-            ensure_collection=False,
+        relation_cache = (
+            self.embedding_cache_service.load_relation_cache(
+                cache_root=cache_root,
+                model_id=relation_embedding_model,
+                vocabulary={text: index for index, text in enumerate(relation_texts)},
+                dataset_id=prepared_dataset.dataset_id,
+                ensure_collection=False,
+            )
+            if requirements.uses_relation_embeddings
+            else None
         )
-        question_cache = self.embedding_cache_service.load_question_cache(
-            cache_root=cache_root,
-            model_id=question_embedding_model,
-            vocabulary={text: index for index, text in enumerate(question_texts)},
-            dataset_id=prepared_dataset.dataset_id,
-            ensure_collection=False,
+        question_cache = (
+            self.embedding_cache_service.load_question_cache(
+                cache_root=cache_root,
+                model_id=question_embedding_model,
+                vocabulary={text: index for index, text in enumerate(question_texts)},
+                dataset_id=prepared_dataset.dataset_id,
+                ensure_collection=False,
+            )
+            if requirements.uses_question_embeddings
+            else None
         )
 
         embedding_dtype = self._resolve_embedding_dtype(
@@ -156,14 +182,14 @@ class GnnTrainingDataPreparationService(AbstractService):
             requested_dtype=preparation_config.embedding_cache_dtype,
             selected_device=selected_device,
         )
-        total_embedding_bytes = self._embedding_storage_bytes(
-            text_counts=(len(node_texts), len(relation_texts), len(question_texts)),
-            vector_sizes=(
-                node_cache.vector_size,
-                relation_cache.vector_size,
-                question_cache.vector_size,
-            ),
-            element_size=2 if embedding_dtype == "bfloat16" else 4,
+        cache_specs = [(node_cache, node_texts)]
+        if relation_cache is not None:
+            cache_specs.append((relation_cache, relation_texts))
+        if question_cache is not None:
+            cache_specs.append((question_cache, question_texts))
+        total_embedding_bytes = sum(
+            len(texts) * cache.vector_size * (2 if embedding_dtype == "bfloat16" else 4)
+            for cache, texts in cache_specs
         )
         embedding_device = self._resolve_embedding_device(
             torch=torch,
@@ -183,18 +209,18 @@ class GnnTrainingDataPreparationService(AbstractService):
         torch_dtype = torch.bfloat16 if embedding_dtype == "bfloat16" else torch.float32
         cuda_allocation_failed = False
         try:
-            (
-                node_embeddings,
-                relation_embeddings,
-                question_embeddings,
-            ) = self._load_embedding_matrices(
-                torch=torch,
-                caches=(node_cache, relation_cache, question_cache),
-                text_groups=(node_texts, relation_texts, question_texts),
-                dtype=torch_dtype,
-                dtype_name=embedding_dtype,
-                device=embedding_device,
-                cache_root=cache_root,
+            matrices = tuple(
+                self._load_embedding_matrix(
+                    torch=torch,
+                    cache_root=cache_root,
+                    cache=cache,
+                    texts=texts,
+                    dtype=torch_dtype,
+                    dtype_name=embedding_dtype,
+                    device=embedding_device,
+                    preprocess=cache.cache_kind == "relations",
+                )
+                for cache, texts in cache_specs
             )
         except torch.OutOfMemoryError as error:
             if not embedding_device.startswith("cuda"):
@@ -210,33 +236,67 @@ class GnnTrainingDataPreparationService(AbstractService):
                 "retrying with CPU storage."
             )
             embedding_device = "cpu"
-            (
-                node_embeddings,
-                relation_embeddings,
-                question_embeddings,
-            ) = self._load_embedding_matrices(
-                torch=torch,
-                caches=(node_cache, relation_cache, question_cache),
-                text_groups=(node_texts, relation_texts, question_texts),
-                dtype=torch_dtype,
-                dtype_name=embedding_dtype,
-                device=embedding_device,
-                cache_root=cache_root,
+            matrices = tuple(
+                self._load_embedding_matrix(
+                    torch=torch,
+                    cache_root=cache_root,
+                    cache=cache,
+                    texts=texts,
+                    dtype=torch_dtype,
+                    dtype_name=embedding_dtype,
+                    device=embedding_device,
+                    preprocess=cache.cache_kind == "relations",
+                )
+                for cache, texts in cache_specs
             )
             cuda_allocation_failed = True
         if cuda_allocation_failed:
             torch.cuda.empty_cache()
-        prepared_instances = [
-            PreparedGnnTrainingInstance(
-                source_instance_index=start_index + offset,
-                node_embedding_indices=node_index_tensors[offset],
-                relation_embedding_indices=relation_index_tensors[offset],
-                question_embedding_index=question_indices[offset][0],
-                edge_index=instance.edge_index,
-                node_labels=instance.node_labels,
+        node_embeddings = matrices[0]
+        matrix_offset = 1
+        relation_embeddings = None
+        if relation_cache is not None:
+            relation_embeddings = matrices[matrix_offset]
+            matrix_offset += 1
+        question_embeddings = (
+            matrices[matrix_offset] if question_cache is not None else None
+        )
+        prepared_instances: list[PreparedGnnTrainingInstance] = []
+        for offset, instance in enumerate(selected_instances):
+            edge_index = instance.edge_index
+            edge_type = None
+            if requirements.uses_relation_types:
+                if relation_vocabulary is None:
+                    raise GnnAnswerRetrieverTrainingException(
+                        "R-GCN training requires an authoritative relation vocabulary."
+                    )
+                try:
+                    edge_index, edge_type = build_sorted_typed_edges(
+                        edge_index=edge_index,
+                        edge_relations=instance.edge_relations,
+                        vocabulary=relation_vocabulary,
+                        torch=torch,
+                    )
+                except ValueError as error:
+                    raise GnnAnswerRetrieverTrainingException(
+                        f"Could not prepare R-GCN edge types for training instance "
+                        f"{start_index + offset}: {error}"
+                    ) from error
+            prepared_instances.append(
+                PreparedGnnTrainingInstance(
+                    source_instance_index=start_index + offset,
+                    node_embedding_indices=node_index_tensors[offset],
+                    relation_embedding_indices=relation_index_tensors[offset],
+                    question_embedding_index=(
+                        question_indices[offset][0]
+                        if question_indices[offset]
+                        else None
+                    ),
+                    edge_index=edge_index,
+                    edge_type=edge_type,
+                    node_labels=instance.node_labels,
+                )
             )
-            for offset, instance in enumerate(selected_instances)
-        ]
         logger.info(
             f"Prepared GNN training data once for epochs: "
             f"instances={len(prepared_instances)} device={embedding_device} "
@@ -258,6 +318,32 @@ class GnnTrainingDataPreparationService(AbstractService):
             relation_embedding_model=relation_embedding_model,
             cache_root=cache_root,
         )
+
+    def _resolve_relation_vocabulary(
+        self,
+        *,
+        cache_root: Path,
+        built_retriever: BuiltGnnAnswerRetriever,
+        preparation_config: GnnTrainingDataPreparationConfig,
+    ) -> dict[str, int] | None:
+        """Use a continued R-GCN run's saved relation IDs as authoritative."""
+        if (
+            preparation_config.continue_from_model_run_name is None
+            and preparation_config.continue_from_model_run_number is None
+        ):
+            return built_retriever.relation_vocabulary
+        saved_run = self.model_run_service.resolve_run(
+            model_root=cache_root / "models",
+            run_name=preparation_config.continue_from_model_run_name,
+            run_number=preparation_config.continue_from_model_run_number,
+        )
+        if saved_run.config.resolved_gnn_architecture != built_retriever.gnn_architecture:
+            raise GnnAnswerRetrieverTrainingException(
+                "Continued training cannot change GNN architecture from "
+                f"{saved_run.config.resolved_gnn_architecture} to "
+                f"{built_retriever.gnn_architecture}."
+            )
+        return saved_run.relation_vocabulary
 
     @staticmethod
     def _select_instances(

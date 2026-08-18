@@ -20,6 +20,7 @@ from pipeline.evaluation.models import (
 )
 from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
 from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
+    GnnAnswerRetrieverModelRunService,
     SavedGnnAnswerRetrieverConfig,
 )
 from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
@@ -188,6 +189,14 @@ class GnnRetrieverResultsService(AbstractService):
             "retriever model config",
         )
         model_architecture = infer_gnn_architecture(model_config_payload)
+        if model_architecture == "rgcn":
+            # Inference-only does not load the GNN weights, but its upstream
+            # R-GCN lineage must still include a valid authoritative vocabulary.
+            GnnAnswerRetrieverModelRunService().resolve_run(
+                model_root=model_run_directory.parent,
+                run_name=model_run_directory.name,
+                run_number=None,
+            )
         return GnnAnswerRetrieverEvaluationResult(
             dataset_id=dataset_id,
             gnn_architecture=str(model_architecture),

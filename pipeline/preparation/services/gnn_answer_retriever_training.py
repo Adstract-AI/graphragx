@@ -28,6 +28,7 @@ from helpers.constants import (
 )
 from helpers.logging_config import get_logger
 from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
+from pipeline.preparation.helpers.configuration_definitions import RGCN_ARCHITECTURE_ID
 from pipeline.preparation.models.gnn_training_data import PreparedGnnTrainingData
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
@@ -35,6 +36,10 @@ from pipeline.services import AbstractService
 from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
     GnnAnswerRetrieverModelRunService,
     LoadedGnnAnswerRetrieverRun,
+)
+from pipeline.preparation.services.gnn_relation_vocabulary import (
+    RGCN_RELATION_VOCABULARY_FILENAME,
+    validate_relation_architecture_context,
 )
 
 if TYPE_CHECKING:
@@ -122,6 +127,8 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
     dataset_id: str = Field(..., description="Dataset id used by the trained model.")
     gnn_architecture: str = Field(default="graphsage")
     gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
+    gnn_architecture_context: dict[str, Any] = Field(default_factory=dict)
+    relation_vocabulary_path: Path | None = None
     entity_embedding_model: str = Field(..., description="Entity embedding model id.")
     question_embedding_model: str = Field(..., description="Question embedding model id.")
     relation_embedding_model: str = Field(..., description="Relation embedding model id.")
@@ -269,27 +276,46 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     torch=torch,
                     device=device,
                 )
-                question_features = prepared_training_data.question_embeddings[
-                    instance.question_embedding_index
-                ].to(device=device, non_blocking=True)
-                relation_features = self._gather_embedding_features(
-                    embedding_matrix=prepared_training_data.relation_embeddings,
-                    indices=instance.relation_embedding_indices,
-                    torch=torch,
-                    device=device,
-                )
-                edge_weight = (
-                    None
-                    if effective_retriever.use_edge_mlp
-                    else self._build_edge_weight_tensor(
-                        relation_features=relation_features,
-                        question_features=question_features,
+                question_features = None
+                if prepared_training_data.question_embeddings is not None:
+                    if instance.question_embedding_index is None:
+                        raise GnnAnswerRetrieverTrainingException(
+                            "Prepared question embeddings are missing an instance index."
+                        )
+                    question_features = prepared_training_data.question_embeddings[
+                        instance.question_embedding_index
+                    ].to(device=device, non_blocking=True)
+                relation_features = None
+                if prepared_training_data.relation_embeddings is not None:
+                    if instance.relation_embedding_indices is None:
+                        raise GnnAnswerRetrieverTrainingException(
+                            "Prepared relation embeddings are missing instance indices."
+                        )
+                    relation_features = self._gather_embedding_features(
+                        embedding_matrix=prepared_training_data.relation_embeddings,
+                        indices=instance.relation_embedding_indices,
                         torch=torch,
-                        torch_functional=torch_functional,
                         device=device,
                     )
-                )
+                edge_weight = None
+                if relation_features is not None and question_features is not None:
+                    edge_weight = (
+                        None
+                        if effective_retriever.use_edge_mlp
+                        else self._build_edge_weight_tensor(
+                            relation_features=relation_features,
+                            question_features=question_features,
+                            torch=torch,
+                            torch_functional=torch_functional,
+                            device=device,
+                        )
+                    )
                 edge_index = instance.edge_index.to(device=device, non_blocking=True)
+                edge_type = (
+                    instance.edge_type.to(device=device, non_blocking=True)
+                    if instance.edge_type is not None
+                    else None
+                )
                 node_labels = instance.node_labels.to(device=device, non_blocking=True)
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
@@ -313,6 +339,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         edge_weight=edge_weight,
                         question_features=question_features,
                         relation_features=relation_features,
+                        edge_type=edge_type,
                     )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
@@ -457,6 +484,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             dataset_id=effective_retriever.dataset_id,
             gnn_architecture=effective_retriever.gnn_architecture,
             gnn_architecture_options=effective_retriever.gnn_architecture_options,
+            gnn_architecture_context=effective_retriever.gnn_architecture_context,
+            relation_vocabulary_path=(
+                model_run_directory / RGCN_RELATION_VOCABULARY_FILENAME
+                if effective_retriever.relation_vocabulary is not None
+                else None
+            ),
             entity_embedding_model=effective_retriever.entity_embedding_model,
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
@@ -503,8 +536,10 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
 
         used_cuda = prepared_training_data.embedding_cache_device.startswith("cuda")
         prepared_training_data.node_embeddings = torch.empty(0)
-        prepared_training_data.relation_embeddings = torch.empty(0)
-        prepared_training_data.question_embeddings = torch.empty(0)
+        if prepared_training_data.relation_embeddings is not None:
+            prepared_training_data.relation_embeddings = torch.empty(0)
+        if prepared_training_data.question_embeddings is not None:
+            prepared_training_data.question_embeddings = torch.empty(0)
         if used_cuda:
             torch.cuda.empty_cache()
 
@@ -543,6 +578,14 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 f"{continued_run.config.resolved_gnn_architecture} to "
                 f"{built_retriever.gnn_architecture}."
             )
+        if (
+            built_retriever.gnn_architecture == RGCN_ARCHITECTURE_ID
+            and built_retriever.gnn_architecture_options
+            != continued_run.config.resolved_gnn_architecture_options
+        ):
+            raise GnnAnswerRetrieverTrainingException(
+                "Continued R-GCN training cannot change resolved architecture options."
+            )
 
         return BuiltGnnAnswerRetriever(
             dataset_id=continued_run.config.dataset_id,
@@ -550,6 +593,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             gnn_architecture_options=(
                 continued_run.config.resolved_gnn_architecture_options
             ),
+            gnn_architecture_context=continued_run.config.gnn_architecture_context,
+            relation_vocabulary=continued_run.relation_vocabulary,
             entity_embedding_model=continued_run.config.resolved_embedding_model,
             entity_embedding_dimension=continued_run.config.resolved_embedding_dimension,
             question_embedding_dimension=(
@@ -565,7 +610,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             node_classifier=continued_run.config.node_classifier,
             use_edge_mlp=continued_run.config.use_edge_mlp,
             question_aware_classifier=continued_run.config.question_aware_classifier,
-            use_reverse_edges=continued_run.config.use_reverse_edges,
+            use_reverse_edges=continued_run.config.resolved_use_reverse_edges,
             add_layer_normalization=continued_run.config.add_layer_normalization,
             edge_mlp_hidden_dim=continued_run.config.resolved_edge_mlp_hidden_dim,
             dropout=continued_run.config.dropout,
@@ -747,6 +792,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 for key, value in built_retriever.gnn_architecture_options.items()
                 if value is not None
             },
+            "gnn_architecture_context": built_retriever.gnn_architecture_context,
             "run_name": model_run_name,
             "run_number": model_run_number,
             "embedding_model": built_retriever.entity_embedding_model,
@@ -761,6 +807,27 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     "continued_from_model_run_name": continued_run.run_name,
                     "continued_from_model_run_number": continued_run.run_number,
                 }
+            )
+        if built_retriever.relation_vocabulary is not None:
+            try:
+                validate_relation_architecture_context(
+                    built_retriever.gnn_architecture_context,
+                    built_retriever.relation_vocabulary,
+                )
+            except ValueError as error:
+                raise GnnAnswerRetrieverTrainingException(
+                    f"Cannot save invalid R-GCN relation vocabulary: {error}"
+                ) from error
+            relation_vocabulary_path = (
+                model_run_directory / RGCN_RELATION_VOCABULARY_FILENAME
+            )
+            relation_vocabulary_path.write_text(
+                json.dumps(
+                    built_retriever.relation_vocabulary,
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
             )
         torch.save(model.state_dict(), model_artifact_path)
         model_config_path.write_text(
