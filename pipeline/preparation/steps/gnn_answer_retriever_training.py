@@ -71,7 +71,7 @@ class TrainedGnnAnswerRetriever(StepResult):
     training_log_every: int = Field(..., description="Training progress log interval.")
     training_batch_size: int = Field(
         default=DEFAULT_TRAINING_BATCH_SIZE,
-        description="Configured R-GCN disconnected-graph batch size.",
+        description="Configured categorical-relation disconnected-graph batch size.",
     )
     training_device: str = Field(..., description="Requested training device.")
     training_profile: bool = Field(

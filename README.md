@@ -101,6 +101,12 @@ To run the advanced architecture with its recommended feature set:
 uv run python main.py --retriever-only --gnn-architecture aa-graphsage --default
 ```
 
+To train and evaluate the manual HGT architecture with its defaults:
+
+```bash
+uv run python main.py --retriever-only --gnn-architecture hgt --default
+```
+
 To run LLM inference from an existing retriever evaluation:
 
 ```bash
@@ -127,7 +133,7 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. |
 | `--subgraph-algorithm SUBGRAPH_ALGORITHM` | Subgraph construction algorithm. The current supported option is `shortest_path`. |
 | `--context-strategy CONTEXT_STRATEGY` | How the reasoning subgraph is represented for the LLM. The current supported option is `structured_triples`. |
-| `--gnn-architecture {graphsage,aa-graphsage,rgcn}` | Select GraphSAGE, Advance GraphSAGE, or R-GCN. GraphSAGE is the default; `aa-graphsage` and `rgcn` are the stable CLI/configuration ids. |
+| `--gnn-architecture {graphsage,aa-graphsage,rgcn,hgt}` | Select GraphSAGE, Advance GraphSAGE, R-GCN, or HGT. GraphSAGE is the default; the lowercase values are stable CLI/configuration ids. |
 | `--gnn-layers {2,3}` | Number of GNN message-passing layers. Default: `2`. |
 | `--gnn-hidden-dim {128,256,512}` | Hidden dimension used inside the GNN. Default: `256`. |
 | `--node-classifier NODE_CLASSIFIER` | Node classifier head used after the GNN. Supported options include `mlp` and `linear`. |
@@ -144,7 +150,7 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--training-max-instances TRAINING_MAX_INSTANCES` | Optional limit for how many WebQSP training instances to use. If omitted, the full train split is used. |
 | `--training-start-instance TRAINING_START_INSTANCE` | Zero-based train split index where training starts. With `--training-max-instances 100 --training-start-instance 101`, the slice is `[101:201]`. |
 | `--training-log-every TRAINING_LOG_EVERY` | How often training progress is written to the console, measured in processed instances. Use `0` to disable progress messages. |
-| `--training-batch-size TRAINING_BATCH_SIZE` | Number of WebQSP graphs combined into each disconnected R-GCN batch and optimizer step. Default: `16`. GraphSAGE retains its existing single-graph optimizer steps. |
+| `--training-batch-size TRAINING_BATCH_SIZE` | Number of WebQSP graphs combined into each disconnected categorical-relation batch and optimizer step. Default: `1`. R-GCN and HGT support opt-in batching; GraphSAGE retains single-graph optimizer steps. |
 | `--training-device {auto,cpu,cuda,mps}` | Device used for GNN training. `auto` selects the best available supported device. |
 | `--training-profile` | Reports synchronized input, forward, loss, backward, and optimizer timings. Use only for short diagnostics because synchronization reduces throughput. |
 | `--training-embedding-cache-device {auto,gpu,cpu}` | Placement for compact frozen embeddings prepared before training. `auto` uses CUDA when the matrices fit after the configured reserve. |
@@ -159,8 +165,11 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--add-layer-normalization` / `--no-add-layer-normalization` | Enable or disable Advance GraphSAGE residual LayerNorm blocks. |
 | `--edge-mlp-hidden-dim {128,256,512}` | Advance GraphSAGE edge-MLP width. Valid only when edge MLP is enabled. Default: `256`. |
 | `--num-bases {8,16,30,64}` | Number of shared relation-weight bases for R-GCN. Default: `30`. |
+| `--attention-heads {1,2,4,8}` | Number of attention heads for HGT. The hidden dimension must be divisible by this value. Default: `8`. |
 
 R-GCN always prepares distinct inverse relation types and uses categorical relation-specific transformations with a trainable root transform. Its configurable options are layers, hidden dimension, dropout, and basis count; GraphSAGE classifier, edge-MLP, question-conditioning, normalization, edge-width, and reverse-edge flags are rejected. The existing GraphSAGE variants retain their semantic question–relation scalar weighting behavior.
+
+HGT also uses mandatory distinct inverse relation types, but applies relation-aware multi-head attention and relation-specific message transformations. Its configurable options are layers, hidden dimension, dropout, and attention heads. It uses one `entity` node type, a learned residual path with fixed LayerNorm, and no question or textual relation embeddings.
 
 #### Adding another GNN architecture
 
@@ -174,7 +183,7 @@ After registering a new definition in `GNN_ARCHITECTURES`, the CLI union and int
 
 Before the epoch loop, training deduplicates embeddings used by the selected instance slice and builds compact integer-indexed matrices. Retrieved vectors are also persisted under `data/webqsp/training_embedding_tensors` as append-only local tensor shards. A full local hit bypasses Qdrant; a partial hit retrieves and appends only vectors that have not been persisted yet. For example, training first on 100 instances and then on 300 reuses the vectors from the first run and fills only embeddings introduced by the additional 200 instances. Separate local caches are maintained for each dataset, embedding model, text category, vector dimension, and storage dtype.
 
-R-GCN additionally precomputes relation-mean normalization and compact active-relation indices. Multiple question graphs are combined as disconnected components, and the vectorized layer constructs active relation transforms once per batch before processing edge messages in bounded chunks. Static batch graph tensors remain on the training device across epochs. Use `--training-batch-size 1` for the original per-graph optimizer-step behavior or to compare throughput.
+R-GCN precomputes relation-mean normalization and compact active-relation indices. HGT precomputes contiguous active-relation group boundaries for memory-bounded attention and message transforms. Both can combine multiple question graphs as disconnected components, with static graph tensors kept on the training device across epochs. Batch size `1` is the safe default; raise `--training-batch-size` only when VRAM permits.
 
 The compact matrices are still copied into VRAM at the start of every process because GPU memory is not persistent across runs. GPU-resident matrices remain frozen, are excluded from the optimizer and model checkpoint, and are released when training finishes. If the safe CUDA memory budget is exceeded in `auto` mode, the matrices remain on CPU.
 
@@ -197,7 +206,7 @@ The compact matrices are still copied into VRAM at the start of every process be
 | `--evaluation-embedding-cache-dtype {auto,float32,bfloat16}` | Storage precision for compact evaluation embeddings. `auto` uses BF16 on supported CUDA devices and float32 otherwise. |
 | `--evaluation-gpu-cache-reserve-gb EVALUATION_GPU_CACHE_RESERVE_GB` | VRAM kept free outside the evaluation embedding matrices. Default: `6.0`. |
 
-Evaluation compacts the selected test instances into reusable embedding matrices before model inference. GraphSAGE loads node, relation, and question embeddings; R-GCN loads only node embeddings and uses the saved categorical relation vocabulary. It uses the same incremental tensor shards as training, so matching dataset/model/type/dtype vectors are reused immediately. Only missing vectors are fetched from Qdrant and appended; no Qdrant requests occur inside the per-instance inference loop. Evaluation uses `torch.inference_mode()` and BF16 autocast when BF16 cache storage is selected on CUDA.
+Evaluation compacts the selected test instances into reusable embedding matrices before model inference. GraphSAGE loads node, relation, and question embeddings; R-GCN and HGT load only node embeddings and use the saved categorical relation vocabulary. It uses the same incremental tensor shards as training, so matching dataset/model/type/dtype vectors are reused immediately. Only missing vectors are fetched from Qdrant and appended; no Qdrant requests occur inside the per-instance inference loop. Evaluation uses `torch.inference_mode()` and BF16 autocast when BF16 cache storage is selected on CUDA.
 
 ### LLM Inference And Results
 
@@ -238,7 +247,7 @@ Processed WebQSP graph cache and vocabulary artifacts.
 
 `data/webqsp/models/<run>`
 
-GNN training outputs, including `model_config.json`, model weights, and loss history. R-GCN runs also contain the authoritative `relation_vocabulary.json` used to construct categorical edge types.
+GNN training outputs, including `model_config.json`, model weights, and loss history. R-GCN and HGT runs also contain the authoritative `relation_vocabulary.json` used to construct categorical edge types.
 
 `data/webqsp/training_embedding_tensors`
 

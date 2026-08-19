@@ -29,7 +29,10 @@ from helpers.constants import (
 )
 from helpers.logging_config import get_logger
 from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
-from pipeline.preparation.helpers.configuration_definitions import RGCN_ARCHITECTURE_ID
+from pipeline.preparation.helpers.configuration_definitions import (
+    HGT_ARCHITECTURE_ID,
+    RGCN_ARCHITECTURE_ID,
+)
 from pipeline.preparation.models.gnn_training_data import PreparedGnnTrainingData
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
@@ -105,19 +108,24 @@ class GnnTrainingPhaseTimings:
 
 
 @dataclass
-class PreparedRGCNTrainingBatch:
-    """One disconnected R-GCN graph batch cached for repeated epochs."""
+class PreparedTypedTrainingBatch:
+    """One disconnected categorical-relation graph batch cached across epochs."""
 
     instance_count: int
     node_embedding_indices: Tensor
     edge_index: Tensor
     edge_type: Tensor
-    edge_norm: Tensor
+    edge_norm: Tensor | None
     active_relation_ids: Tensor
-    edge_relation_index: Tensor
+    edge_relation_index: Tensor | None
+    active_relation_offsets: Tensor
     node_labels: Tensor
     positive_weights: Tensor
     node_loss_weights: Tensor
+
+
+# Compatibility for tests and callers written before HGT shared typed batching.
+PreparedRGCNTrainingBatch = PreparedTypedTrainingBatch
 
 
 class GnnAnswerRetrieverTrainingOutcome(BaseModel):
@@ -269,26 +277,30 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             lr=training_config.learning_rate,
             weight_decay=training_config.weight_decay,
         )
-        rgcn_batches = (
-            self._build_rgcn_training_batches(
+        typed_batches = (
+            self._build_typed_training_batches(
                 prepared_training_data=prepared_training_data,
                 batch_size=training_config.batch_size,
                 torch=torch,
                 device=device,
+                architecture_id=effective_retriever.gnn_architecture,
             )
-            if effective_retriever.gnn_architecture == RGCN_ARCHITECTURE_ID
+            if effective_retriever.gnn_architecture
+            in {RGCN_ARCHITECTURE_ID, HGT_ARCHITECTURE_ID}
             else None
         )
-        if rgcn_batches is not None:
+        if typed_batches is not None:
             logger.info(
-                f"Prepared R-GCN disconnected graph batches: "
-                f"batches={len(rgcn_batches)} batch_size={training_config.batch_size} "
+                f"Prepared {effective_retriever.gnn_architecture} disconnected "
+                f"graph batches: batches={len(typed_batches)} "
+                f"batch_size={training_config.batch_size} "
                 f"graph_tensors_device={device}"
             )
         elif training_config.batch_size != 1:
             logger.info(
                 "GraphSAGE training retains single-graph optimizer steps; "
-                f"configured batch_size={training_config.batch_size} is R-GCN-only."
+                f"configured batch_size={training_config.batch_size} only applies "
+                "to categorical-relation architectures."
             )
 
         final_loss = 0.0
@@ -300,7 +312,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             )
             epoch_loss = torch.zeros((), dtype=torch.float, device=device)
             phase_timings = GnnTrainingPhaseTimings()
-            training_units = rgcn_batches or prepared_training_data.instances
+            training_units = typed_batches or prepared_training_data.instances
             processed_instances = 0
             for training_unit in training_units:
                 previous_processed_instances = processed_instances
@@ -320,6 +332,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 edge_norm = None
                 active_relation_ids = None
                 edge_relation_index = None
+                active_relation_offsets = None
                 positive_weights = None
                 node_loss_weights = None
                 if isinstance(training_unit, PreparedRGCNTrainingBatch):
@@ -337,6 +350,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     edge_norm = training_unit.edge_norm
                     active_relation_ids = training_unit.active_relation_ids
                     edge_relation_index = training_unit.edge_relation_index
+                    active_relation_offsets = training_unit.active_relation_offsets
                     node_labels = training_unit.node_labels
                     positive_weights = training_unit.positive_weights
                     node_loss_weights = training_unit.node_loss_weights
@@ -409,6 +423,13 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         if instance.edge_relation_index is not None
                         else None
                     )
+                    active_relation_offsets = (
+                        instance.active_relation_offsets.to(
+                            device=device, non_blocking=True
+                        )
+                        if instance.active_relation_offsets is not None
+                        else None
+                    )
                     node_labels = instance.node_labels.to(
                         device=device, non_blocking=True
                     )
@@ -438,6 +459,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         edge_norm=edge_norm,
                         active_relation_ids=active_relation_ids,
                         edge_relation_index=edge_relation_index,
+                        active_relation_offsets=active_relation_offsets,
                     )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
@@ -665,7 +687,25 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         torch: ModuleType,
         device: str,
     ) -> list[PreparedRGCNTrainingBatch]:
-        """Cache disconnected R-GCN graph batches and loss metadata on device."""
+        """Backward-compatible wrapper for R-GCN batch construction."""
+        return GnnAnswerRetrieverTrainingService._build_typed_training_batches(
+            prepared_training_data=prepared_training_data,
+            batch_size=batch_size,
+            torch=torch,
+            device=device,
+            architecture_id=RGCN_ARCHITECTURE_ID,
+        )
+
+    @staticmethod
+    def _build_typed_training_batches(
+        *,
+        prepared_training_data: PreparedGnnTrainingData,
+        batch_size: int,
+        torch: ModuleType,
+        device: str,
+        architecture_id: str,
+    ) -> list[PreparedRGCNTrainingBatch]:
+        """Cache disconnected typed graph batches and graph-balanced loss metadata."""
         if batch_size <= 0:
             raise GnnAnswerRetrieverTrainingException(
                 "training_batch_size must be greater than zero."
@@ -684,9 +724,16 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             node_loss_weight_parts = []
             node_offset = 0
             for instance in batch_instances:
-                if instance.edge_type is None or instance.edge_norm is None:
+                if instance.edge_type is None:
                     raise GnnAnswerRetrieverTrainingException(
-                        "Prepared R-GCN instances require edge types and normalization."
+                        "Prepared categorical-relation instances require edge types."
+                    )
+                if (
+                    architecture_id == RGCN_ARCHITECTURE_ID
+                    and instance.edge_norm is None
+                ):
+                    raise GnnAnswerRetrieverTrainingException(
+                        "Prepared R-GCN instances require relation normalization."
                     )
                 node_count = int(instance.node_embedding_indices.shape[0])
                 if node_count <= 0:
@@ -696,7 +743,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 node_indices_parts.append(instance.node_embedding_indices)
                 edge_index_parts.append(instance.edge_index + node_offset)
                 edge_type_parts.append(instance.edge_type)
-                edge_norm_parts.append(instance.edge_norm)
+                if instance.edge_norm is not None:
+                    edge_norm_parts.append(instance.edge_norm)
                 labels = instance.node_labels.float()
                 label_parts.append(labels)
                 positive_count = float(labels.sum().item())
@@ -717,19 +765,28 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
 
             edge_index = torch.cat(edge_index_parts, dim=1)
             edge_type = torch.cat(edge_type_parts)
-            edge_norm = torch.cat(edge_norm_parts)
+            edge_norm = torch.cat(edge_norm_parts) if edge_norm_parts else None
             if edge_type.numel() > 0:
                 edge_order = torch.argsort(edge_type, stable=True)
                 edge_index = edge_index.index_select(1, edge_order)
                 edge_type = edge_type.index_select(0, edge_order)
-                edge_norm = edge_norm.index_select(0, edge_order)
+                if edge_norm is not None:
+                    edge_norm = edge_norm.index_select(0, edge_order)
                 active_relation_ids, edge_relation_index = torch.unique_consecutive(
                     edge_type,
                     return_inverse=True,
                 )
+                relation_counts = torch.bincount(
+                    edge_relation_index,
+                    minlength=active_relation_ids.numel(),
+                )
+                active_relation_offsets = torch.cat(
+                    [relation_counts.new_zeros(1), relation_counts.cumsum(dim=0)]
+                )
             else:
                 active_relation_ids = torch.empty(0, dtype=torch.long)
                 edge_relation_index = torch.empty(0, dtype=torch.long)
+                active_relation_offsets = torch.zeros(1, dtype=torch.long)
 
             batches.append(
                 PreparedRGCNTrainingBatch(
@@ -740,11 +797,20 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     ),
                     edge_index=edge_index.to(device=device, non_blocking=True),
                     edge_type=edge_type.to(device=device, non_blocking=True),
-                    edge_norm=edge_norm.to(device=device, non_blocking=True),
+                    edge_norm=(
+                        edge_norm.to(device=device, non_blocking=True)
+                        if edge_norm is not None
+                        else None
+                    ),
                     active_relation_ids=active_relation_ids.to(
                         device=device, non_blocking=True
                     ),
-                    edge_relation_index=edge_relation_index.to(
+                    edge_relation_index=(
+                        edge_relation_index.to(device=device, non_blocking=True)
+                        if architecture_id == RGCN_ARCHITECTURE_ID
+                        else None
+                    ),
+                    active_relation_offsets=active_relation_offsets.to(
                         device=device, non_blocking=True
                     ),
                     node_labels=torch.cat(label_parts).to(
@@ -812,12 +878,14 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 f"{built_retriever.gnn_architecture}."
             )
         if (
-            built_retriever.gnn_architecture == RGCN_ARCHITECTURE_ID
+            built_retriever.gnn_architecture
+            in {RGCN_ARCHITECTURE_ID, HGT_ARCHITECTURE_ID}
             and built_retriever.gnn_architecture_options
             != continued_run.config.resolved_gnn_architecture_options
         ):
             raise GnnAnswerRetrieverTrainingException(
-                "Continued R-GCN training cannot change resolved architecture options."
+                "Continued categorical-relation GNN training cannot change resolved "
+                "architecture options."
             )
 
         return BuiltGnnAnswerRetriever(
@@ -1001,7 +1069,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         )
         training_payload["batch_size"] = (
             training_config.batch_size
-            if built_retriever.gnn_architecture == RGCN_ARCHITECTURE_ID
+            if built_retriever.gnn_architecture
+            in {RGCN_ARCHITECTURE_ID, HGT_ARCHITECTURE_ID}
             else 1
         )
         # Keep model architecture and embedding identity at the model root.
@@ -1039,6 +1108,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             "final_loss": final_loss,
             "training": training_payload,
         }
+        if built_retriever.gnn_architecture == HGT_ARCHITECTURE_ID:
+            parameter_count = sum(parameter.numel() for parameter in model.parameters())
+            config_payload["parameter_count"] = parameter_count
+            config_payload["estimated_training_parameter_bytes"] = (
+                parameter_count * 16
+            )
         if continued_run is not None:
             config_payload.update(
                 {
@@ -1054,7 +1129,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 )
             except ValueError as error:
                 raise GnnAnswerRetrieverTrainingException(
-                    f"Cannot save invalid R-GCN relation vocabulary: {error}"
+                    f"Cannot save invalid categorical relation vocabulary: {error}"
                 ) from error
             relation_vocabulary_path = (
                 model_run_directory / RGCN_RELATION_VOCABULARY_FILENAME

@@ -30,6 +30,7 @@ class PreparedGnnTrainingInstance(BaseModel):
     edge_norm: TorchTensor | None = Field(default=None)
     active_relation_ids: TorchTensor | None = Field(default=None)
     edge_relation_index: TorchTensor | None = Field(default=None)
+    active_relation_offsets: TorchTensor | None = Field(default=None)
     node_labels: TorchTensor = Field(...)
 
 

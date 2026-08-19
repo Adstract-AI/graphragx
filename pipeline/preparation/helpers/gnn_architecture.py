@@ -76,15 +76,23 @@ def architecture_option_definitions() -> dict[str, Any]:
     for architecture in GNN_ARCHITECTURES.values():
         for option in architecture.options:
             existing = options.get(option.option_id)
-            if existing is not None and (
-                existing.cli_flag != option.cli_flag
-                or existing.value_type != option.value_type
-                or existing.choices != option.choices
-            ):
-                raise ValueError(
-                    f"Conflicting schemas for GNN option {option.option_id}."
+            if existing is not None:
+                if (
+                    existing.cli_flag != option.cli_flag
+                    or existing.value_type != option.value_type
+                ):
+                    raise ValueError(
+                        f"Conflicting schemas for GNN option {option.option_id}."
+                    )
+                options[option.option_id] = existing.model_copy(
+                    update={
+                        "choices": tuple(
+                            dict.fromkeys((*existing.choices, *option.choices))
+                        )
+                    }
                 )
-            options[option.option_id] = option
+            else:
+                options[option.option_id] = option
     return options
 
 
@@ -119,5 +127,23 @@ def validate_aa_graphsage_options(options: Mapping[str, Any]) -> None:
             message=(
                 "Advance GraphSAGE linear classification requires "
                 "--no-question-aware-classifier."
+            ),
+        )
+
+
+def validate_hgt_options(options: Mapping[str, Any]) -> None:
+    """Validate the HGT head partition against its hidden width."""
+    hidden_dimension = options.get("gnn_hidden_dimension")
+    attention_heads = options.get("attention_heads")
+    if (
+        isinstance(hidden_dimension, int)
+        and isinstance(attention_heads, int)
+        and hidden_dimension % attention_heads != 0
+    ):
+        raise GnnArchitectureOptionValidationError(
+            option_id="attention_heads",
+            message=(
+                "HGT hidden dimension must be divisible by the number of "
+                "attention heads."
             ),
         )

@@ -15,7 +15,10 @@ from helpers.constants import (
 )
 from helpers.logging_config import get_logger
 from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
-from pipeline.preparation.helpers.configuration_definitions import GNN_ARCHITECTURES
+from pipeline.preparation.helpers.configuration_definitions import (
+    GNN_ARCHITECTURES,
+    RGCN_ARCHITECTURE_ID,
+)
 from pipeline.preparation.models.gnn_training_data import (
     PreparedGnnTrainingData,
     PreparedGnnTrainingInstance,
@@ -35,6 +38,7 @@ from pipeline.preparation.services.gnn_embedding_tensor_cache import (
     GnnEmbeddingTensorCacheService,
 )
 from pipeline.preparation.services.gnn_relation_vocabulary import (
+    build_active_relation_groups,
     build_relation_aggregation_metadata,
     build_sorted_typed_edges,
 )
@@ -269,10 +273,12 @@ class GnnTrainingDataPreparationService(AbstractService):
             edge_norm = None
             active_relation_ids = None
             edge_relation_index = None
+            active_relation_offsets = None
             if requirements.uses_relation_types:
                 if relation_vocabulary is None:
                     raise GnnAnswerRetrieverTrainingException(
-                        "R-GCN training requires an authoritative relation vocabulary."
+                        "Categorical-relation training requires an authoritative "
+                        "relation vocabulary."
                     )
                 try:
                     edge_index, edge_type = build_sorted_typed_edges(
@@ -281,19 +287,26 @@ class GnnTrainingDataPreparationService(AbstractService):
                         vocabulary=relation_vocabulary,
                         torch=torch,
                     )
-                    (
-                        edge_norm,
-                        active_relation_ids,
-                        edge_relation_index,
-                    ) = build_relation_aggregation_metadata(
-                        edge_index=edge_index,
-                        edge_type=edge_type,
-                        node_count=len(instance.nodes),
-                        torch=torch,
+                    active_relation_ids, active_relation_offsets = (
+                        build_active_relation_groups(
+                            edge_type=edge_type,
+                            torch=torch,
+                        )
                     )
+                    if built_retriever.gnn_architecture == RGCN_ARCHITECTURE_ID:
+                        (
+                            edge_norm,
+                            active_relation_ids,
+                            edge_relation_index,
+                        ) = build_relation_aggregation_metadata(
+                            edge_index=edge_index,
+                            edge_type=edge_type,
+                            node_count=len(instance.nodes),
+                            torch=torch,
+                        )
                 except ValueError as error:
                     raise GnnAnswerRetrieverTrainingException(
-                        f"Could not prepare R-GCN edge types for training instance "
+                        f"Could not prepare categorical edge types for training instance "
                         f"{start_index + offset}: {error}"
                     ) from error
             prepared_instances.append(
@@ -311,6 +324,7 @@ class GnnTrainingDataPreparationService(AbstractService):
                     edge_norm=edge_norm,
                     active_relation_ids=active_relation_ids,
                     edge_relation_index=edge_relation_index,
+                    active_relation_offsets=active_relation_offsets,
                     node_labels=instance.node_labels,
                 )
             )
@@ -343,7 +357,7 @@ class GnnTrainingDataPreparationService(AbstractService):
         built_retriever: BuiltGnnAnswerRetriever,
         preparation_config: GnnTrainingDataPreparationConfig,
     ) -> dict[str, int] | None:
-        """Use a continued R-GCN run's saved relation IDs as authoritative."""
+        """Use a continued categorical model's saved relation IDs as authoritative."""
         if (
             preparation_config.continue_from_model_run_name is None
             and preparation_config.continue_from_model_run_number is None

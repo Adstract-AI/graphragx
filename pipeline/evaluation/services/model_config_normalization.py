@@ -79,6 +79,9 @@ def normalize_model_config(config: dict[str, Any]) -> dict[str, Any]:
             "edge_mlp_hidden_dim", training.get("edge_mlp_hidden_dim")
         ),
         "num_bases": raw.get("num_bases", training.get("num_bases")),
+        "attention_heads": raw.get(
+            "attention_heads", training.get("attention_heads")
+        ),
     }
     try:
         defaults = architecture_defaults(architecture)
@@ -142,6 +145,9 @@ def normalize_model_config(config: dict[str, Any]) -> dict[str, Any]:
             canonical[key] = raw[key]
         elif key in training:
             canonical[key] = training[key]
+    for key in ("parameter_count", "estimated_training_parameter_bytes"):
+        if key in raw:
+            canonical[key] = raw[key]
 
     canonical_training: dict[str, Any] = {}
     for key in _TRAINING_KEYS:

@@ -7,8 +7,12 @@ import json
 from typing import Any
 
 
-RGCN_RELATION_VOCABULARY_FILENAME = "relation_vocabulary.json"
-RGCN_ARCHITECTURE_CONTEXT_VERSION = 1
+RELATION_VOCABULARY_FILENAME = "relation_vocabulary.json"
+RELATION_ARCHITECTURE_CONTEXT_VERSION = 1
+
+# Backward-compatible aliases retained for existing imports and saved R-GCN runs.
+RGCN_RELATION_VOCABULARY_FILENAME = RELATION_VOCABULARY_FILENAME
+RGCN_ARCHITECTURE_CONTEXT_VERSION = RELATION_ARCHITECTURE_CONTEXT_VERSION
 
 
 def validate_relation_vocabulary(vocabulary: dict[str, int]) -> None:
@@ -40,9 +44,9 @@ def relation_vocabulary_sha256(vocabulary: dict[str, int]) -> str:
 def build_relation_architecture_context(
     vocabulary: dict[str, int],
 ) -> dict[str, Any]:
-    """Build persisted structural metadata for an R-GCN model."""
+    """Build persisted structural metadata for a categorical-relation model."""
     return {
-        "version": RGCN_ARCHITECTURE_CONTEXT_VERSION,
+        "version": RELATION_ARCHITECTURE_CONTEXT_VERSION,
         "relation_type_count": len(vocabulary),
         "relation_vocabulary_sha256": relation_vocabulary_sha256(vocabulary),
     }
@@ -57,7 +61,8 @@ def validate_relation_architecture_context(
     for key, expected_value in expected.items():
         if context.get(key) != expected_value:
             raise ValueError(
-                f"R-GCN architecture context {key}={context.get(key)!r} does not "
+                f"Categorical-relation architecture context "
+                f"{key}={context.get(key)!r} does not "
                 f"match relation vocabulary value {expected_value!r}."
             )
 
@@ -73,7 +78,8 @@ def relation_ids_for_edges(
     if missing:
         preview = ", ".join(missing[:5])
         raise ValueError(
-            f"Graph contains {len(missing)} relations missing from the saved R-GCN "
+            f"Graph contains {len(missing)} relations missing from the saved "
+            f"categorical-relation "
             f"vocabulary: {preview}"
         )
     return [vocabulary[relation] for relation in edge_relations]
@@ -133,3 +139,23 @@ def build_relation_aggregation_metadata(
     )
     edge_norm = counts.index_select(0, normalization_index).float().reciprocal()
     return edge_norm, active_relation_ids, edge_relation_index
+
+
+def build_active_relation_groups(*, edge_type, torch):
+    """Return active relation IDs and offsets for relation-sorted edges."""
+    if edge_type.numel() == 0:
+        return (
+            torch.empty(0, dtype=torch.long),
+            torch.zeros(1, dtype=torch.long),
+        )
+    if edge_type.numel() > 1 and torch.any(edge_type[1:] < edge_type[:-1]):
+        raise ValueError("edge_type must be sorted before building relation groups")
+    active_relation_ids, counts = torch.unique_consecutive(
+        edge_type,
+        return_counts=True,
+    )
+    offsets = torch.cat(
+        [counts.new_zeros(1), counts.cumsum(dim=0)],
+        dim=0,
+    )
+    return active_relation_ids, offsets

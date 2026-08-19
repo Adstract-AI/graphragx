@@ -158,6 +158,7 @@ class GnnAnswerRetriever(nn.Module, AnswerRetrieverModel):
         edge_norm: Tensor | None = None,
         active_relation_ids: Tensor | None = None,
         edge_relation_index: Tensor | None = None,
+        active_relation_offsets: Tensor | None = None,
     ) -> Tensor:
         node_features = self.entity_projection(entity_features)
         projected_question = self._project_question(question_features)

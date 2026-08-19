@@ -13,7 +13,10 @@ from pipeline.evaluation.models import (
     PreparedGnnEvaluationInstance,
 )
 from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
-from pipeline.preparation.helpers.configuration_definitions import GNN_ARCHITECTURES
+from pipeline.preparation.helpers.configuration_definitions import (
+    GNN_ARCHITECTURES,
+    RGCN_ARCHITECTURE_ID,
+)
 from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
 from pipeline.preparation.services.embedding_cache import (
     TextEmbeddingCache,
@@ -23,6 +26,7 @@ from pipeline.preparation.services.gnn_embedding_tensor_cache import (
     GnnEmbeddingTensorCacheService,
 )
 from pipeline.preparation.services.gnn_relation_vocabulary import (
+    build_active_relation_groups,
     build_relation_aggregation_metadata,
     build_sorted_typed_edges,
 )
@@ -202,10 +206,12 @@ class GnnEvaluationDataPreparationService(AbstractService):
             edge_norm = None
             active_relation_ids = None
             edge_relation_index = None
+            active_relation_offsets = None
             if requirements.uses_relation_types:
                 if relation_vocabulary is None:
                     raise GnnAnswerRetrieverEvaluationException(
-                        "R-GCN evaluation requires the saved relation vocabulary."
+                        "Categorical-relation evaluation requires the saved relation "
+                        "vocabulary."
                     )
                 try:
                     edge_index, edge_type = build_sorted_typed_edges(
@@ -214,19 +220,26 @@ class GnnEvaluationDataPreparationService(AbstractService):
                         vocabulary=relation_vocabulary,
                         torch=torch,
                     )
-                    (
-                        edge_norm,
-                        active_relation_ids,
-                        edge_relation_index,
-                    ) = build_relation_aggregation_metadata(
-                        edge_index=edge_index,
-                        edge_type=edge_type,
-                        node_count=len(instance.nodes),
-                        torch=torch,
+                    active_relation_ids, active_relation_offsets = (
+                        build_active_relation_groups(
+                            edge_type=edge_type,
+                            torch=torch,
+                        )
                     )
+                    if gnn_architecture == RGCN_ARCHITECTURE_ID:
+                        (
+                            edge_norm,
+                            active_relation_ids,
+                            edge_relation_index,
+                        ) = build_relation_aggregation_metadata(
+                            edge_index=edge_index,
+                            edge_type=edge_type,
+                            node_count=len(instance.nodes),
+                            torch=torch,
+                        )
                 except ValueError as error:
                     raise GnnAnswerRetrieverEvaluationException(
-                        f"Could not prepare R-GCN edge types for evaluation instance "
+                        f"Could not prepare categorical edge types for evaluation instance "
                         f"{instance_index}: {error}"
                     ) from error
             prepared_instances.append(
@@ -245,6 +258,7 @@ class GnnEvaluationDataPreparationService(AbstractService):
                     edge_norm=edge_norm,
                     active_relation_ids=active_relation_ids,
                     edge_relation_index=edge_relation_index,
+                    active_relation_offsets=active_relation_offsets,
                 )
             )
         return PreparedGnnEvaluationData(

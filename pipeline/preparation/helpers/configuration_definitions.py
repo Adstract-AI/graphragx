@@ -261,6 +261,7 @@ NODE_CLASSIFIERS: Final[dict[str, NodeClassifierDefinition]] = {
 GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "graphsage"
 AA_GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "aa-graphsage"
 RGCN_ARCHITECTURE_ID: Final[str] = "rgcn"
+HGT_ARCHITECTURE_ID: Final[str] = "hgt"
 
 GNN_LAYER_COUNT_OPTION: Final[GnnArchitectureOptionDefinition] = (
     GnnArchitectureOptionDefinition(
@@ -358,6 +359,21 @@ RGCN_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
     ),
 )
 
+HGT_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GNN_LAYER_COUNT_OPTION,
+    GNN_HIDDEN_DIMENSION_OPTION,
+    GNN_DROPOUT_OPTION,
+    GnnArchitectureOptionDefinition(
+        option_id="attention_heads",
+        display_name="HGT Attention Heads",
+        description="Number of heterogeneous attention heads.",
+        value_type="integer",
+        choices=(1, 2, 4, 8),
+        default=8,
+        cli_flag="--attention-heads",
+    ),
+)
+
 GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
     GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
         architecture_id=GRAPH_SAGE_ARCHITECTURE_ID,
@@ -389,6 +405,26 @@ GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
         options=RGCN_OPTIONS,
         model_builder_path=(
             "pipeline.preparation.models.rgcn_answer_retriever:build_rgcn_model"
+        ),
+        data_requirements=GnnArchitectureDataRequirements(
+            requires_reverse_edges=True,
+            uses_question_embeddings=False,
+            uses_relation_embeddings=False,
+            uses_relation_types=True,
+        ),
+    ),
+    HGT_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=HGT_ARCHITECTURE_ID,
+        display_name="HGT",
+        description=(
+            "Relation-aware heterogeneous multi-head attention with one entity node type."
+        ),
+        options=HGT_OPTIONS,
+        model_builder_path=(
+            "pipeline.preparation.models.hgt_answer_retriever:build_hgt_model"
+        ),
+        validator_path=(
+            "pipeline.preparation.helpers.gnn_architecture:validate_hgt_options"
         ),
         data_requirements=GnnArchitectureDataRequirements(
             requires_reverse_edges=True,

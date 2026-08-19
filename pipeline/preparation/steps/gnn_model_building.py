@@ -9,8 +9,11 @@ from pydantic import ConfigDict, Field
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext, StepResult
 from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInputException
-from pipeline.preparation.helpers.configuration_definitions import OPENAI_EMBEDDING_MODELS
-from pipeline.preparation.helpers.configuration_definitions import GNN_ARCHITECTURES
+from pipeline.preparation.helpers.configuration_definitions import (
+    GNN_ARCHITECTURES,
+    HGT_ARCHITECTURE_ID,
+    OPENAI_EMBEDDING_MODELS,
+)
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
@@ -158,6 +161,18 @@ class BuildGnnAnswerRetrieverStep(
             question_embedding_dimension=embedding_definition.dimensions,
             relation_embedding_dimension=embedding_definition.dimensions,
         )
+
+        if configuration.gnn_architecture == HGT_ARCHITECTURE_ID:
+            parameter_count = sum(parameter.numel() for parameter in model.parameters())
+            estimated_training_bytes = parameter_count * 16
+            logger.info(
+                "Built dense HGT parameterization: "
+                f"relations={architecture_context.get('relation_type_count')} "
+                f"attention_heads={architecture_options.get('attention_heads')} "
+                f"parameters={parameter_count} "
+                f"estimated_parameters_gradients_adam_gib="
+                f"{estimated_training_bytes / 1024**3:.2f}"
+            )
 
         logger.info(f"Built GNN answer retriever architecture")
         return BuiltGnnAnswerRetriever(

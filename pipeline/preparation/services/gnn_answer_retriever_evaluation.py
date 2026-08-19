@@ -215,7 +215,11 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         missing_gold_in_graph_count = 0
         total_candidate_count = 0
 
-        model = loaded_model_run.model
+        # Keep the evaluation boundary robust for injected/custom model-run
+        # services as well as the standard loader. Inputs below are placed on
+        # the selected device, so the model must follow them explicitly.
+        model = loaded_model_run.model.to(device)
+        model.eval()
         with torch.inference_mode():
             for prepared_instance in prepared_evaluation_data.instances:
                 instance = prepared_instance.instance
@@ -291,6 +295,13 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     if prepared_instance.edge_relation_index is not None
                     else None
                 )
+                active_relation_offsets = (
+                    prepared_instance.active_relation_offsets.to(
+                        device=device, non_blocking=True
+                    )
+                    if prepared_instance.active_relation_offsets is not None
+                    else None
+                )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
                     device=device,
@@ -317,6 +328,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                         edge_norm=edge_norm,
                         active_relation_ids=active_relation_ids,
                         edge_relation_index=edge_relation_index,
+                        active_relation_offsets=active_relation_offsets,
                     )
                 probabilities = torch.sigmoid(logits)
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(

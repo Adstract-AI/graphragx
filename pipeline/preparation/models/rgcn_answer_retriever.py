@@ -231,6 +231,7 @@ class RGCNAnswerRetriever(nn.Module, AnswerRetrieverModel):
         edge_norm: Tensor | None = None,
         active_relation_ids: Tensor | None = None,
         edge_relation_index: Tensor | None = None,
+        active_relation_offsets: Tensor | None = None,
     ) -> Tensor:
         if edge_type is None:
             raise ValueError("edge_type is required for R-GCN message passing.")

@@ -213,6 +213,7 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
             "use_reverse_edges": self.use_reverse_edges,
             "add_layer_normalization": self.add_layer_normalization,
             "edge_mlp_hidden_dim": self.resolved_edge_mlp_hidden_dim,
+            "attention_heads": persisted.get("attention_heads"),
         }
         supported = GNN_ARCHITECTURES[self.resolved_gnn_architecture].option_map
         resolved = {
@@ -491,7 +492,8 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
                 value = resolved_options.get(option.option_id)
                 if option.choices and value not in option.choices:
                     raise GnnAnswerRetrieverModelRunException(
-                        f"Saved R-GCN option {option.option_id}={value!r} is invalid; "
+                        f"Saved {architecture.architecture_id} option "
+                        f"{option.option_id}={value!r} is invalid; "
                         f"expected one of {option.choices}."
                     )
             relation_vocabulary_path = (
@@ -499,7 +501,8 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
             )
             if not relation_vocabulary_path.exists():
                 raise GnnAnswerRetrieverModelRunException(
-                    f"Selected R-GCN model run is missing relation vocabulary: "
+                    f"Selected {architecture.architecture_id} model run is missing "
+                    f"relation vocabulary: "
                     f"{relation_vocabulary_path}"
                 )
             try:
@@ -518,7 +521,8 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
                 )
             except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
                 raise GnnAnswerRetrieverModelRunException(
-                    f"Saved R-GCN relation vocabulary is invalid: "
+                    f"Saved {architecture.architecture_id} relation vocabulary is "
+                    f"invalid: "
                     f"{relation_vocabulary_path}"
                 ) from error
 
