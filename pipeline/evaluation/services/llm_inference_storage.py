@@ -16,7 +16,8 @@ from helpers.constants import (
     LLM_INFERENCE_CONFIG_FILENAME,
     LLM_INFERENCE_REASONING_FILENAME,
 )
-from helpers.path_serialization import make_project_paths_relative
+from helpers.path_serialization import make_project_paths_relative, project_absolute_path
+from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
 from pipeline.evaluation.models import (
     GeneratedAnswerForPrediction,
     GeneratedFinalAnswersBatch,
@@ -281,8 +282,14 @@ class LlmInferenceStorageService(AbstractService):
         )
         total_tokens = sum(item.total_tokens for item in answers.items)
         total_cost = sum(item.estimated_cost_usd for item in answers.items)
+        evaluation_config_path = evaluation_run_directory / "evaluation_config.json"
+        gnn_architecture = cls._load_inference_architecture(evaluation_config_path)
+        relation_vocabulary_path = cls._load_relation_vocabulary_path(
+            evaluation_config_path
+        )
         return {
             "dataset_id": answers.dataset_id,
+            "gnn_architecture": gnn_architecture,
             "run_name": run.inference_run_name,
             "run_number": run.inference_run_number,
             "evaluation_config": {
@@ -291,12 +298,16 @@ class LlmInferenceStorageService(AbstractService):
                     answers.evaluation_run_name
                 ),
                 "full_config_path": str(
-                    evaluation_run_directory
-                    / "evaluation_config.json"
+                    evaluation_config_path
                 ),
                 "predictions_path": str(
                     evaluation_run_directory
                     / "predictions.jsonl"
+                ),
+                **(
+                    {"relation_vocabulary_path": str(relation_vocabulary_path)}
+                    if relation_vocabulary_path is not None
+                    else {}
                 ),
             },
             "inference": {
@@ -310,6 +321,56 @@ class LlmInferenceStorageService(AbstractService):
             "successful_answers": answers.successful_answers,
             "failed_answers": answers.failed_answers,
         }
+
+    @staticmethod
+    def _load_inference_architecture(evaluation_config_path: Path) -> str:
+        try:
+            evaluation_config = json.loads(
+                evaluation_config_path.read_text(encoding="utf-8")
+            )
+            if not isinstance(evaluation_config, dict):
+                return "graphsage"
+            model_reference = evaluation_config.get("model_config", {})
+            model_config_value = (
+                model_reference.get("full_config_path")
+                if isinstance(model_reference, dict)
+                else None
+            )
+            if isinstance(model_config_value, str):
+                model_config = json.loads(
+                    project_absolute_path(model_config_value).read_text(encoding="utf-8")
+                )
+                if isinstance(model_config, dict):
+                    return infer_gnn_architecture(model_config)
+            explicit = evaluation_config.get("gnn_architecture")
+            if isinstance(explicit, str):
+                return explicit
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        return "graphsage"
+
+    @staticmethod
+    def _load_relation_vocabulary_path(
+        evaluation_config_path: Path,
+    ) -> Path | None:
+        """Resolve an optional R-GCN vocabulary reference for inference lineage."""
+        try:
+            evaluation_config = json.loads(
+                evaluation_config_path.read_text(encoding="utf-8")
+            )
+            model_reference = evaluation_config.get("model_config", {})
+            value = (
+                model_reference.get("relation_vocabulary_path")
+                if isinstance(model_reference, dict)
+                else None
+            )
+            if isinstance(value, str):
+                path = project_absolute_path(value)
+                if path.exists():
+                    return path
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        return None
 
     def _create_inference_run_directory(
         self,

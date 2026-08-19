@@ -7,6 +7,7 @@ from pipeline import (
     InvalidContextConstructionSelectionException,
     InvalidEntityEmbeddingModelSelectionException,
     InvalidGnnLayerCountSelectionException,
+    InvalidGnnArchitectureConfigurationException,
     InvalidMainLlmSelectionException,
     InvalidNodeClassifierSelectionException,
     InvalidSubgraphConstructionSelectionException,
@@ -45,6 +46,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         result = step.execute(self.make_dataset_context())
 
         self.assertEqual(result.dataset_id, "WebQSP")
+        self.assertEqual(result.gnn_architecture, "graphsage")
         self.assertEqual(result.main_llm_model, "gpt-5.4")
         self.assertEqual(result.subgraph_construction_algorithm, "shortest_path")
         self.assertEqual(result.context_construction_strategy, "structured_triples")
@@ -123,6 +125,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
 
     def test_constructor_gnn_architecture_flags_are_preserved(self) -> None:
         step = BuildPipelineConfigurationStep(
+            gnn_architecture="aa-graphsage",
             main_llm_model="gpt-5.4",
             subgraph_algorithm="shortest_path",
             context_strategy="structured_triples",
@@ -136,8 +139,8 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             question_aware_classifier=True,
             use_reverse_edges=True,
             add_layer_normalization=True,
-            edge_mlp_hidden_dim=64,
-            dropout=0.25,
+            edge_mlp_hidden_dim=128,
+            dropout=0.2,
         )
 
         result = step.execute(self.make_dataset_context())
@@ -146,11 +149,12 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertTrue(result.question_aware_classifier)
         self.assertTrue(result.use_reverse_edges)
         self.assertTrue(result.add_layer_normalization)
-        self.assertEqual(result.edge_mlp_hidden_dim, 64)
-        self.assertEqual(result.dropout, 0.25)
+        self.assertEqual(result.gnn_architecture, "aa-graphsage")
+        self.assertEqual(result.edge_mlp_hidden_dim, 128)
+        self.assertEqual(result.dropout, 0.2)
 
     def test_fully_interactive_path_works(self) -> None:
-        answers = iter(["1", "2", "1", "1", "1", "1", "1", "1", "1"])
+        answers = iter(["1", "1", "2", "1", "2", "1", "1", "1", "1", "1", "1"])
 
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
         result = step.execute(self.make_dataset_context())
@@ -164,6 +168,60 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.question_embedding_model, "text-embedding-3-small")
         self.assertEqual(result.relation_embedding_model, "text-embedding-3-small")
         self.assertEqual(result.entity_embedding_model, "text-embedding-3-small")
+
+    def test_graphsage_rejects_explicit_aa_negative_option(self) -> None:
+        step = BuildPipelineConfigurationStep(
+            gnn_architecture="graphsage",
+            gnn_layer_count=2,
+            gnn_hidden_dimension=256,
+            node_classifier="mlp",
+            use_edge_mlp=False,
+        )
+
+        with self.assertRaisesRegex(
+            InvalidGnnArchitectureConfigurationException,
+            "does not support: use_edge_mlp",
+        ):
+            step.execute(self.make_dataset_context())
+
+    def test_aa_linear_requires_question_aware_classifier_disabled(self) -> None:
+        step = BuildPipelineConfigurationStep(
+            gnn_architecture="aa-graphsage",
+            gnn_layer_count=2,
+            gnn_hidden_dimension=256,
+            node_classifier="linear",
+            dropout=0.1,
+            use_edge_mlp=False,
+            use_reverse_edges=True,
+            question_aware_classifier=True,
+            add_layer_normalization=True,
+        )
+
+        with self.assertRaisesRegex(
+            InvalidGnnArchitectureConfigurationException,
+            "linear classification requires",
+        ):
+            step.execute(self.make_dataset_context())
+
+    def test_edge_width_is_rejected_when_edge_mlp_is_disabled(self) -> None:
+        step = BuildPipelineConfigurationStep(
+            gnn_architecture="aa-graphsage",
+            gnn_layer_count=2,
+            gnn_hidden_dimension=256,
+            node_classifier="mlp",
+            dropout=0.1,
+            use_edge_mlp=False,
+            use_reverse_edges=True,
+            question_aware_classifier=True,
+            add_layer_normalization=True,
+            edge_mlp_hidden_dim=256,
+        )
+
+        with self.assertRaisesRegex(
+            InvalidGnnArchitectureConfigurationException,
+            "cannot be used when use_edge_mlp is disabled",
+        ):
+            step.execute(self.make_dataset_context())
 
     def test_invalid_main_llm_constructor_value_raises(self) -> None:
         step = BuildPipelineConfigurationStep(
@@ -262,7 +320,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
             step.execute(self.make_dataset_context())
 
     def test_interactive_invalid_numeric_input_reprompts(self) -> None:
-        answers = iter(["abc", "1", "2", "1", "1", "1", "1", "1", "1", "1"])
+        answers = iter(["abc", "1", "1", "2", "1", "2", "1", "1", "1", "1", "1", "1"])
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
 
         result = step.execute(self.make_dataset_context())
@@ -270,7 +328,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.gnn_layer_count, 2)
 
     def test_interactive_out_of_range_input_reprompts(self) -> None:
-        answers = iter(["99", "1", "2", "1", "1", "1", "1", "1", "1", "1"])
+        answers = iter(["99", "1", "1", "2", "1", "2", "1", "1", "1", "1", "1", "1"])
         step = BuildPipelineConfigurationStep(input_func=lambda _: next(answers))
 
         result = step.execute(self.make_dataset_context())

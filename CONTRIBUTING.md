@@ -17,18 +17,20 @@ The `metadata/` folder contains the human-facing project explanation, architectu
 
 ## Development Setup
 
-Create and activate a virtual environment:
+Create the Python 3.11 environment and install the locked runtime and development dependencies:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+uv sync
 ```
 
-Install dependencies:
+Run commands through the managed environment:
 
 ```bash
-pip install -r requirements.txt
+uv run python main.py
+uv run pytest
 ```
+
+When dependencies change, update `pyproject.toml` and regenerate the lockfile with `uv lock`. Commit both files so local and remote development environments resolve the same package versions. `requirements.txt` remains available only for pip compatibility.
 
 Create a local environment file:
 
@@ -61,13 +63,13 @@ The agent metadata explains the project architecture, conventions, error-handlin
 Run focused tests for the area you changed. For example:
 
 ```bash
-python -m pytest tests/evaluation/test_final_results_evaluation.py -q
+uv run pytest tests/evaluation/test_final_results_evaluation.py -q
 ```
 
 For a broader sanity check around the current final pipeline behavior:
 
 ```bash
-python -m pytest tests/test_main.py tests/evaluation/test_final_results_evaluation.py tests/evaluation/test_wandb_final_results.py -q
+uv run pytest tests/test_main.py tests/evaluation/test_final_results_evaluation.py tests/evaluation/test_wandb_final_results.py -q
 ```
 
 Some tests require optional heavy dependencies such as PyTorch. If a dependency is missing, install the project requirements or note clearly which tests could not be run.

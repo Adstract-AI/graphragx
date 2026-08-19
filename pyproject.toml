@@ -1,0 +1,29 @@
+[project]
+name = "graphragx"
+version = "0.1.0"
+description = "A GNN-RAG pipeline for knowledge-graph question answering on WebQSP."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = "MIT"
+authors = [
+    { name = "Andrea Stevanoska" },
+    { name = "Viktor Kostadinoski" },
+]
+dependencies = [
+    "datasets",
+    "langchain-openai",
+    "pydantic",
+    "python-dotenv",
+    "qdrant-client",
+    "torch",
+    "wandb",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "torch-geometric",
+]
+
+[tool.uv]
+package = false

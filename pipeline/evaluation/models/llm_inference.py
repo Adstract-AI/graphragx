@@ -129,3 +129,7 @@ class SavedLlmInferenceRun(StepResult):
     reasoning_path: Path = Field(..., description="Saved reasoning path.")
     answers_path: Path = Field(..., description="Saved answers path.")
     inference_config_path: Path = Field(..., description="Saved inference config path.")
+    wandb_status: str | None = None
+    wandb_run_id: str | None = None
+    wandb_run_url: str | None = None
+    wandb_error_message: str | None = None

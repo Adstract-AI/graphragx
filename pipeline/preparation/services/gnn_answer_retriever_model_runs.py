@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,11 +14,22 @@ from helpers.constants import (
     GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
 )
 from helpers.logging_config import get_logger
-from pipeline.preparation.helpers.configuration_definitions import OPENAI_EMBEDDING_MODELS
+from pipeline.preparation.helpers.configuration_definitions import (
+    GNN_ARCHITECTURES,
+    OPENAI_EMBEDDING_MODELS,
+)
+from pipeline.preparation.helpers.gnn_architecture import (
+    architecture_defaults,
+    infer_gnn_architecture,
+)
 from pipeline.preparation.exceptions import GnnAnswerRetrieverModelRunException
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.services import AbstractService
+from pipeline.preparation.services.gnn_relation_vocabulary import (
+    RGCN_RELATION_VOCABULARY_FILENAME,
+    validate_relation_architecture_context,
+)
 
 logger = get_logger(__name__)
 
@@ -25,13 +37,25 @@ logger = get_logger(__name__)
 class SavedGnnAnswerRetrieverTrainingConfig(BaseModel):
     """Training config loaded from a saved model run."""
 
-    epochs: int
-    learning_rate: float
-    weight_decay: float
+    epochs: int = 0
+    learning_rate: float = 0.0
+    weight_decay: float = 0.0
     max_instances: int | None = None
     start_instance: int = 0
-    log_every: int
-    device: str
+    log_every: int = 0
+    batch_size: int = 1
+    device: str = "cpu"
+    profile: bool = False
+    embedding_cache_device: str | None = None
+    embedding_cache_dtype: str | None = None
+    loss_history: list[dict[str, float | int]] = Field(default_factory=list)
+    final_loss: float | None = None
+    trained_instances: dict[str, int] | int | None = None
+    training_start_instance: int | None = None
+    training_end_instance: int | None = None
+    trained_instance_range: dict[str, int] | None = None
+    gnn_architecture: str | None = None
+    gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
     gnn_layer_count: int | None = None
     hidden_dimension: int | None = None
     loss_function: str | None = None
@@ -47,22 +71,30 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     """Architecture and training metadata loaded from a saved model run."""
 
     dataset_id: str
-    entity_embedding_model: str
+    gnn_architecture: str | None = None
+    gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
+    gnn_architecture_context: dict[str, Any] = Field(default_factory=dict)
+    embedding_model: str | None = None
+    embedding_dimension: int | None = None
+    # Legacy per-resource fields are accepted only when loading old artifacts.
+    entity_embedding_model: str | None = None
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
-    entity_embedding_dimension: int
+    entity_embedding_dimension: int | None = None
     question_embedding_dimension: int | None = None
     relation_embedding_dimension: int | None = None
     hidden_dimension: int | None = None
     gnn_layer_count: int | None = None
-    node_classifier: str
+    node_classifier: str | None = None
     use_edge_mlp: bool = False
     question_aware_classifier: bool = False
     use_reverse_edges: bool = False
     add_layer_normalization: bool = False
     edge_mlp_hidden_dim: int | None = None
     dropout: float = 0.0
-    training: SavedGnnAnswerRetrieverTrainingConfig
+    training: SavedGnnAnswerRetrieverTrainingConfig = Field(
+        default_factory=SavedGnnAnswerRetrieverTrainingConfig
+    )
     run_name: str | None = None
     run_number: int | None = None
     is_fine_tuned_model: bool = False
@@ -72,16 +104,126 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     training_end_instance: int | None = None
     trained_instance_range: dict[str, int] | None = None
     loss_history: list[dict[str, float | int]] = Field(default_factory=list)
-    final_loss: float
-    trained_instances: int
+    final_loss: float = 0.0
+    trained_instances: int = 0
+
+    @property
+    def resolved_embedding_model(self) -> str:
+        """Return the unified embedding model, with legacy fallback."""
+        return (
+            self.embedding_model
+            or self.entity_embedding_model
+            or self.question_embedding_model
+            or self.relation_embedding_model
+            or "text-embedding-3-small"
+        )
+
+    @property
+    def resolved_embedding_dimension(self) -> int:
+        """Return the unified embedding dimension, with legacy fallback."""
+        if self.embedding_dimension is not None:
+            return self.embedding_dimension
+        for dimension in (
+            self.entity_embedding_dimension,
+            self.question_embedding_dimension,
+            self.relation_embedding_dimension,
+        ):
+            if dimension is not None:
+                return dimension
+        return OPENAI_EMBEDDING_MODELS[self.resolved_embedding_model].dimensions
+
+    @property
+    def resolved_loss_history(self) -> list[dict[str, float | int]]:
+        return self.loss_history or self.training.loss_history
+
+    @property
+    def resolved_training_instance_range(self) -> dict[str, int]:
+        """Return the unified training range/count, including legacy fallback."""
+        training_instances = self.training.trained_instances
+        if isinstance(training_instances, dict):
+            start = int(training_instances.get("start", 0))
+            count = int(training_instances.get("count", 0))
+            end = int(training_instances.get("end", 0))
+            return {"start": start, "end": end or start + count, "count": count}
+        if isinstance(training_instances, int):
+            return {"start": 0, "end": training_instances, "count": training_instances}
+        if self.trained_instance_range is not None:
+            start = int(self.trained_instance_range.get("start", 0))
+            end = int(self.trained_instance_range.get("end", 0))
+            return {
+                "start": start,
+                "end": end,
+                "count": int(self.trained_instances or max(end - start, 0)),
+            }
+        start = int(self.training_start_instance or 0)
+        end = int(self.training_end_instance or 0)
+        count = int(self.trained_instances or max(end - start, 0))
+        return {"start": start, "end": end or start + count, "count": count}
+
+    @property
+    def resolved_final_loss(self) -> float:
+        return self.final_loss or self.training.final_loss or 0.0
+
+    @property
+    def resolved_trained_instances(self) -> int:
+        training_instances = self.training.trained_instances
+        if isinstance(training_instances, dict):
+            return int(training_instances.get("count", 0))
+        if isinstance(training_instances, int):
+            return training_instances
+        return self.trained_instances or 0
 
     @property
     def resolved_hidden_dimension(self) -> int:
-        return self.hidden_dimension or self.training.hidden_dimension or 0
+        return (
+            self.gnn_architecture_options.get("gnn_hidden_dimension")
+            or self.hidden_dimension
+            or self.training.hidden_dimension
+            or 0
+        )
 
     @property
     def resolved_gnn_layer_count(self) -> int:
-        return self.gnn_layer_count or self.training.gnn_layer_count or 0
+        return (
+            self.gnn_architecture_options.get("gnn_layer_count")
+            or self.gnn_layer_count
+            or self.training.gnn_layer_count
+            or 0
+        )
+
+    @property
+    def resolved_gnn_architecture(self) -> str:
+        return infer_gnn_architecture(self.model_dump())
+
+    @property
+    def resolved_gnn_architecture_options(self) -> dict[str, Any]:
+        defaults = architecture_defaults(self.resolved_gnn_architecture)
+        defaults.pop("gnn_architecture", None)
+        persisted = {
+            **self.training.gnn_architecture_options,
+            **self.gnn_architecture_options,
+        }
+        legacy_values = {
+            "gnn_layer_count": self.resolved_gnn_layer_count,
+            "gnn_hidden_dimension": self.resolved_hidden_dimension,
+            "node_classifier": self.node_classifier,
+            "dropout": self.dropout,
+            "use_edge_mlp": self.use_edge_mlp,
+            "question_aware_classifier": self.question_aware_classifier,
+            "use_reverse_edges": self.use_reverse_edges,
+            "add_layer_normalization": self.add_layer_normalization,
+            "edge_mlp_hidden_dim": self.resolved_edge_mlp_hidden_dim,
+            "attention_heads": persisted.get("attention_heads"),
+        }
+        supported = GNN_ARCHITECTURES[self.resolved_gnn_architecture].option_map
+        resolved = {
+            option_id: persisted.get(option_id, legacy_values.get(option_id, default))
+            for option_id, default in defaults.items()
+            if option_id in supported
+        }
+        if resolved.get("use_edge_mlp") is False:
+            resolved["edge_mlp_hidden_dim"] = None
+        return resolved
 
     @property
     def resolved_edge_mlp_hidden_dim(self) -> int:
@@ -89,6 +231,16 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
             self.edge_mlp_hidden_dim
             or self.training.edge_mlp_hidden_dim
             or self.resolved_hidden_dimension
+        )
+
+    @property
+    def resolved_use_reverse_edges(self) -> bool:
+        """Include architecture-mandated inverse edges for saved runs."""
+        architecture = GNN_ARCHITECTURES[self.resolved_gnn_architecture]
+        return (
+            architecture.data_requirements.requires_reverse_edges
+            or self.use_reverse_edges
+            or self.training.use_reverse_edges
         )
 
 
@@ -101,6 +253,8 @@ class SavedGnnAnswerRetrieverRun(BaseModel):
     weights_path: Path = Field(..., description="Saved state-dict path.")
     config_path: Path = Field(..., description="Saved model config path.")
     config: SavedGnnAnswerRetrieverConfig = Field(..., description="Saved config.")
+    relation_vocabulary_path: Path | None = None
+    relation_vocabulary: dict[str, int] | None = None
 
 
 class LoadedGnnAnswerRetrieverRun(BaseModel):
@@ -114,6 +268,8 @@ class LoadedGnnAnswerRetrieverRun(BaseModel):
     weights_path: Path = Field(..., description="Saved state-dict path.")
     config_path: Path = Field(..., description="Saved model config path.")
     config: SavedGnnAnswerRetrieverConfig = Field(..., description="Saved config.")
+    relation_vocabulary_path: Path | None = None
+    relation_vocabulary: dict[str, int] | None = None
     model: AnswerRetrieverModel = Field(..., description="Loaded PyTorch model.")
     question_embedding_model: str = Field(..., description="Question embedding model id.")
     relation_embedding_model: str = Field(..., description="Relation embedding model id.")
@@ -173,28 +329,23 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
             run_name=run_name,
             run_number=run_number,
         )
-        from pipeline.preparation.models.gnn_answer_retriever import GnnAnswerRetriever
+        from pipeline.preparation.models.gnn_answer_retriever import build_gnn_answer_retriever
 
-        model = GnnAnswerRetriever(
-            entity_embedding_dimension=saved_run.config.entity_embedding_dimension,
+        model = build_gnn_answer_retriever(
+            gnn_architecture=saved_run.config.resolved_gnn_architecture,
+            architecture_options=saved_run.config.resolved_gnn_architecture_options,
+            architecture_context=saved_run.config.gnn_architecture_context,
+            entity_embedding_dimension=saved_run.config.resolved_embedding_dimension,
             question_embedding_dimension=self._embedding_dimension(
                 saved_run.config.question_embedding_model,
                 saved_run.config.question_embedding_dimension,
-                pipeline_configuration.question_embedding_model,
+                pipeline_configuration.embedding_model,
             ),
             relation_embedding_dimension=self._embedding_dimension(
                 saved_run.config.relation_embedding_model,
                 saved_run.config.relation_embedding_dimension,
-                pipeline_configuration.relation_embedding_model,
+                pipeline_configuration.embedding_model,
             ),
-            hidden_dimension=saved_run.config.resolved_hidden_dimension,
-            gnn_layer_count=saved_run.config.resolved_gnn_layer_count,
-            node_classifier=saved_run.config.node_classifier,
-            use_edge_mlp=saved_run.config.use_edge_mlp,
-            question_aware_classifier=saved_run.config.question_aware_classifier,
-            add_layer_normalization=saved_run.config.add_layer_normalization,
-            edge_mlp_hidden_dim=saved_run.config.resolved_edge_mlp_hidden_dim,
-            dropout=saved_run.config.dropout,
         )
         try:
             state_dict = torch.load(saved_run.weights_path, map_location=device)
@@ -207,21 +358,21 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
         model.to(device)
         model.eval()
 
-        question_embedding_model = (
-            saved_run.config.question_embedding_model
-            or pipeline_configuration.question_embedding_model
-        )
-        relation_embedding_model = (
-            saved_run.config.relation_embedding_model
-            or pipeline_configuration.relation_embedding_model
-        )
-        if saved_run.config.question_embedding_model is None:
+        question_embedding_model = saved_run.config.resolved_embedding_model
+        relation_embedding_model = saved_run.config.resolved_embedding_model
+        if (
+            saved_run.config.question_embedding_model is None
+            and saved_run.config.embedding_model is None
+        ):
             logger.warning(
                 f"Model run {saved_run.run_name} does not store a question embedding "
                 f"model id. Falling back to current configuration value "
                 f"{question_embedding_model}."
             )
-        if saved_run.config.relation_embedding_model is None:
+        if (
+            saved_run.config.relation_embedding_model is None
+            and saved_run.config.embedding_model is None
+        ):
             logger.warning(
                 f"Model run {saved_run.run_name} does not store a relation embedding "
                 f"model id. Falling back to current configuration value "
@@ -239,6 +390,8 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
             weights_path=saved_run.weights_path,
             config_path=saved_run.config_path,
             config=saved_run.config,
+            relation_vocabulary_path=saved_run.relation_vocabulary_path,
+            relation_vocabulary=saved_run.relation_vocabulary,
             model=model,
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
@@ -248,11 +401,11 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
     def _embedding_dimension(
         saved_model_id: str | None,
         saved_dimension: int | None,
-        fallback_model_id: str,
+        fallback_model_id: str | None,
     ) -> int:
         if saved_dimension is not None:
             return saved_dimension
-        model_id = saved_model_id or fallback_model_id
+        model_id = saved_model_id or fallback_model_id or "text-embedding-3-small"
         return OPENAI_EMBEDDING_MODELS[model_id].dimensions
 
     @classmethod
@@ -330,6 +483,49 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
                 f"Saved model config is invalid: {config_path}"
             ) from error
 
+        relation_vocabulary_path: Path | None = None
+        relation_vocabulary: dict[str, int] | None = None
+        architecture = GNN_ARCHITECTURES[config.resolved_gnn_architecture]
+        if architecture.data_requirements.uses_relation_types:
+            resolved_options = config.resolved_gnn_architecture_options
+            for option in architecture.options:
+                value = resolved_options.get(option.option_id)
+                if option.choices and value not in option.choices:
+                    raise GnnAnswerRetrieverModelRunException(
+                        f"Saved {architecture.architecture_id} option "
+                        f"{option.option_id}={value!r} is invalid; "
+                        f"expected one of {option.choices}."
+                    )
+            relation_vocabulary_path = (
+                run_directory / RGCN_RELATION_VOCABULARY_FILENAME
+            )
+            if not relation_vocabulary_path.exists():
+                raise GnnAnswerRetrieverModelRunException(
+                    f"Selected {architecture.architecture_id} model run is missing "
+                    f"relation vocabulary: "
+                    f"{relation_vocabulary_path}"
+                )
+            try:
+                relation_vocabulary_payload = json.loads(
+                    relation_vocabulary_path.read_text(encoding="utf-8")
+                )
+                if not isinstance(relation_vocabulary_payload, dict):
+                    raise ValueError("relation vocabulary must be a JSON object")
+                relation_vocabulary = {
+                    str(key): int(value)
+                    for key, value in relation_vocabulary_payload.items()
+                }
+                validate_relation_architecture_context(
+                    config.gnn_architecture_context,
+                    relation_vocabulary,
+                )
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+                raise GnnAnswerRetrieverModelRunException(
+                    f"Saved {architecture.architecture_id} relation vocabulary is "
+                    f"invalid: "
+                    f"{relation_vocabulary_path}"
+                ) from error
+
         return SavedGnnAnswerRetrieverRun(
             run_directory=run_directory,
             run_name=run_directory.name,
@@ -337,6 +533,8 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
             weights_path=weights_path,
             config_path=config_path,
             config=config,
+            relation_vocabulary_path=relation_vocabulary_path,
+            relation_vocabulary=relation_vocabulary,
         )
 
     @staticmethod

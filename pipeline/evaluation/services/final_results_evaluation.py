@@ -31,6 +31,10 @@ from pipeline.evaluation.models import (
     SavedLlmInferenceRun,
 )
 from pipeline.evaluation.models.final_results import ExplanationGroundingMetrics
+from pipeline.evaluation.services.gnn_retriever_results import (
+    GnnRetrieverResultsService,
+)
+from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
 from pipeline.services import AbstractService
 
 
@@ -67,6 +71,14 @@ class FinalResultsEvaluationService(AbstractService):
     arrow_triple_pattern = re.compile(
         r"([^.;\n]+?)\s*->\s*([A-Za-z0-9_./-]+)\s*->\s*([^.;\n]+)"
     )
+
+    def __init__(
+        self,
+        retriever_results_service: GnnRetrieverResultsService | None = None,
+    ) -> None:
+        self.retriever_results_service = (
+            retriever_results_service or GnnRetrieverResultsService()
+        )
 
     def evaluate(
         self,
@@ -107,10 +119,15 @@ class FinalResultsEvaluationService(AbstractService):
             )
             for instance_index in sorted(answers_by_index)
         ]
-        retrieval_metrics = self._build_retrieval_metrics(
-            gnn_evaluation_result=gnn_evaluation_result,
+        retrieval_metrics = self.retriever_results_service.build_metrics(
+            dataset_id=gnn_evaluation_result.dataset_id,
+            model_run_name=gnn_evaluation_result.model_run_name,
+            model_run_number=gnn_evaluation_result.model_run_number,
             predictions=predictions,
-        )
+            candidate_limit=candidate_limit,
+            evaluation_run_name=gnn_evaluation_result.evaluation_run_name,
+            evaluation_run_number=gnn_evaluation_result.evaluation_run_number,
+        ).model_dump(mode="json")
         reasoning_metrics = self._build_reasoning_metrics(
             gnn_evaluation_result=gnn_evaluation_result,
             llm_inference_run=llm_inference_run,
@@ -120,11 +137,14 @@ class FinalResultsEvaluationService(AbstractService):
         model_config_path = (
             gnn_evaluation_result.model_run_directory / "model_config.json"
         )
-        gnn_id = self._build_gnn_id(model_config_path)
+        gnn_architecture = self._build_gnn_architecture(model_config_path)
         results_config = FinalResultsConfig(
             dataset_id=llm_inference_run.dataset_id,
+            model_run_name=gnn_evaluation_result.model_run_name,
+            evaluation_run_name=gnn_evaluation_result.evaluation_run_name,
+            inference_run_name=llm_inference_run.inference_run_name,
             model_id=llm_inference_run.model_id,
-            gnn_id=gnn_id,
+            gnn_architecture=gnn_architecture,
             configs={
                 "model_config_path": model_config_path,
                 "evaluation_config_path": gnn_evaluation_result.evaluation_config_path,
@@ -137,6 +157,19 @@ class FinalResultsEvaluationService(AbstractService):
                     "weights_path": str(
                         gnn_evaluation_result.model_run_directory
                         / "gnn_answer_retriever.pt"
+                    ),
+                    **(
+                        {
+                            "relation_vocabulary_path": str(
+                                gnn_evaluation_result.model_run_directory
+                                / "relation_vocabulary.json"
+                            )
+                        }
+                        if (
+                            gnn_evaluation_result.model_run_directory
+                            / "relation_vocabulary.json"
+                        ).exists()
+                        else {}
                     ),
                 },
                 "evaluation": {
@@ -167,88 +200,6 @@ class FinalResultsEvaluationService(AbstractService):
             storage_result=storage_result,
             reasoning_metrics=reasoning_metrics,
             per_instance_results=per_instance_results,
-        )
-
-    @staticmethod
-    def _build_retrieval_metrics(
-        gnn_evaluation_result: GnnAnswerRetrieverEvaluationResult,
-        predictions: list[EvaluatedAnswerRetrievalInstance],
-    ) -> dict[str, Any]:
-        evaluated_instances = len(predictions)
-        hits_at_1_count = sum(1 for prediction in predictions if prediction.hit_at_1)
-        hits_at_5_count = sum(
-            1
-            for prediction in predictions
-            if FinalResultsEvaluationService._retrieval_hits_at_k(prediction, 5)
-        )
-        hits_at_10_count = sum(
-            1
-            for prediction in predictions
-            if FinalResultsEvaluationService._retrieval_hits_at_k(prediction, 10)
-        )
-        candidate_limit = FinalResultsEvaluationService._extract_candidate_limit(
-            FinalResultsEvaluationService._load_json_object(
-                gnn_evaluation_result.evaluation_config_path
-            )
-        )
-        hits_at_candidate_limit_count = sum(
-            1
-            for prediction in predictions
-            if FinalResultsEvaluationService._retrieval_hits_at_k(
-                prediction,
-                candidate_limit,
-            )
-        )
-        total_candidate_count = sum(
-            len(prediction.answer_candidates)
-            for prediction in predictions
-        )
-        missing_gold_in_graph_count = sum(
-            1 for prediction in predictions if prediction.missing_gold_in_graph
-        )
-        return {
-            "dataset_id": gnn_evaluation_result.dataset_id,
-            "model_run_name": gnn_evaluation_result.model_run_name,
-            "model_run_number": gnn_evaluation_result.model_run_number,
-            "evaluation_run_name": gnn_evaluation_result.evaluation_run_name,
-            "evaluation_run_number": gnn_evaluation_result.evaluation_run_number,
-            "evaluated_instances": evaluated_instances,
-            "hits_at_1": FinalResultsEvaluationService._safe_divide(
-                hits_at_1_count,
-                evaluated_instances,
-            ),
-            "hits_at_1_count": hits_at_1_count,
-            "hits_at_5": FinalResultsEvaluationService._safe_divide(
-                hits_at_5_count,
-                evaluated_instances,
-            ),
-            "hits_at_5_count": hits_at_5_count,
-            "hits_at_10": FinalResultsEvaluationService._safe_divide(
-                hits_at_10_count,
-                evaluated_instances,
-            ),
-            "hits_at_10_count": hits_at_10_count,
-            "hits_at_candidate_limit": FinalResultsEvaluationService._safe_divide(
-                hits_at_candidate_limit_count,
-                evaluated_instances,
-            ),
-            "hits_at_candidate_limit_count": hits_at_candidate_limit_count,
-            "candidate_limit": candidate_limit,
-            "average_candidate_count": FinalResultsEvaluationService._safe_divide(
-                total_candidate_count,
-                evaluated_instances,
-            ),
-            "missing_gold_in_graph_count": missing_gold_in_graph_count,
-        }
-
-    @staticmethod
-    def _retrieval_hits_at_k(
-        prediction: EvaluatedAnswerRetrievalInstance,
-        k: int,
-    ) -> bool:
-        return any(
-            candidate.is_gold_answer
-            for candidate in prediction.answer_candidates[:k]
         )
 
     def _build_per_instance_result(
@@ -693,7 +644,7 @@ class FinalResultsEvaluationService(AbstractService):
         return 10
 
     @classmethod
-    def _build_gnn_id(cls, model_config_path: Path) -> str:
+    def _build_gnn_architecture(cls, model_config_path: Path) -> str:
         if not model_config_path.exists():
             for legacy_filename in ["model.config", "gnn_answer_retriever_config.json"]:
                 legacy_config_path = model_config_path.with_name(legacy_filename)
@@ -703,16 +654,10 @@ class FinalResultsEvaluationService(AbstractService):
         if model_config_path.exists():
             try:
                 model_config = cls._load_json_object(model_config_path)
-                training_config = model_config.get("training", {})
-                if not isinstance(training_config, dict):
-                    training_config = {}
-                layers = training_config.get("gnn_layer_count") or model_config.get("gnn_layer_count")
-                hidden = training_config.get("hidden_dimension") or model_config.get("hidden_dimension")
-                if isinstance(layers, int) and isinstance(hidden, int):
-                    return f"{layers}-{hidden}-gnn"
+                return infer_gnn_architecture(model_config)
             except FinalResultsEvaluationException:
                 pass
-        return "unknown-gnn"
+        return "graphsage"
 
     def _create_results_run_directory(self, results_root: Path) -> Path:
         results_root.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,60 @@
+"""Prepared tensors used by GNN answer-retriever training."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from pipeline.abstract import StepResult
+from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
+
+if TYPE_CHECKING:
+    from torch import Tensor as TorchTensor
+else:
+    TorchTensor = Any
+
+
+class PreparedGnnTrainingInstance(BaseModel):
+    """Indexed graph tensors for one selected training instance."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    source_instance_index: int = Field(..., description="Index in the train split.")
+    node_embedding_indices: TorchTensor = Field(...)
+    relation_embedding_indices: TorchTensor | None = Field(default=None)
+    question_embedding_index: int | None = Field(default=None)
+    edge_index: TorchTensor = Field(...)
+    edge_type: TorchTensor | None = Field(default=None)
+    edge_norm: TorchTensor | None = Field(default=None)
+    active_relation_ids: TorchTensor | None = Field(default=None)
+    edge_relation_index: TorchTensor | None = Field(default=None)
+    active_relation_offsets: TorchTensor | None = Field(default=None)
+    node_labels: TorchTensor = Field(...)
+
+
+class PreparedGnnTrainingData(StepResult):
+    """Compact frozen embedding matrices and indexed graphs ready for training."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    built_retriever: BuiltGnnAnswerRetriever = Field(...)
+    instances: list[PreparedGnnTrainingInstance] = Field(default_factory=list)
+    node_embeddings: TorchTensor = Field(...)
+    relation_embeddings: TorchTensor | None = Field(default=None)
+    question_embeddings: TorchTensor | None = Field(default=None)
+    training_start_instance: int = Field(...)
+    training_end_instance: int = Field(...)
+    selected_device: str = Field(...)
+    embedding_cache_device: str = Field(...)
+    embedding_cache_dtype: str = Field(...)
+    entity_embedding_model: str = Field(...)
+    question_embedding_model: str = Field(...)
+    relation_embedding_model: str = Field(...)
+    cache_root: Path = Field(...)
+
+    @property
+    def uses_bfloat16(self) -> bool:
+        """Return whether frozen embeddings use BF16 storage."""
+        return self.embedding_cache_dtype == "bfloat16"

@@ -8,6 +8,9 @@ from pipeline.evaluation.services.final_results_evaluation import (
     FinalResultsEvaluationService,
     FinalResultsStorageResult,
 )
+from pipeline.evaluation.services.gnn_retriever_results import (
+    GnnRetrieverResultsService,
+)
 from pipeline.evaluation.services.llm_inference_storage import (
     CreatedLlmInferenceRun,
     LlmInferenceStoragePayload,
@@ -22,12 +25,18 @@ from pipeline.evaluation.services.wandb_final_results import (
     WandbFinalResultsLoggingService,
     WandbFinalResultsLogResult,
 )
+from pipeline.evaluation.services.wandb_experiment import (
+    WandbExperimentCoordinator,
+    WandbRunIdentifierService,
+    WandbTrackingMetadata,
+)
 
 __all__ = [
     "CreatedLlmInferenceRun",
     "FinalResultsEvaluationOutcome",
     "FinalResultsEvaluationService",
     "FinalResultsStorageResult",
+    "GnnRetrieverResultsService",
     "LangChainOpenAiAnswerGenerationService",
     "LlmInferenceStoragePayload",
     "LlmInferenceStorageResult",
@@ -36,4 +45,7 @@ __all__ = [
     "WandbFinalResultsConfig",
     "WandbFinalResultsLoggingService",
     "WandbFinalResultsLogResult",
+    "WandbExperimentCoordinator",
+    "WandbRunIdentifierService",
+    "WandbTrackingMetadata",
 ]

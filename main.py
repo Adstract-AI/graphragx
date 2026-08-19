@@ -5,18 +5,28 @@ from __future__ import annotations
 import argparse
 from typing import Any, Literal, Sequence
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE,
+    DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE,
+    DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB,
     DEFAULT_EVALUATION_LOG_EVERY,
+    DEFAULT_EVALUATION_PROFILE,
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
     DEFAULT_TRAINING_LOG_EVERY,
+    DEFAULT_TRAINING_BATCH_SIZE,
+    DEFAULT_TRAINING_PROFILE,
+    DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE,
+    DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE,
+    DEFAULT_TRAINING_GPU_CACHE_RESERVE_GB,
     DEFAULT_TRAINING_WEIGHT_DECAY,
+    DEFAULT_WANDB_TRAINING_LOG_EVERY,
 )
 from helpers.logging_config import get_logger, setup_logger
 from pipeline import (
@@ -27,6 +37,7 @@ from pipeline import (
     LoadDatasetStep,
     Pipeline,
     PipelineExecutionResult,
+    PrepareGnnTrainingDataStep,
     SelectDatasetStep,
     StepContext,
     TrainGnnAnswerRetrieverStep,
@@ -36,41 +47,135 @@ from pipeline import (
     ExtractShortestPathsBatchStep,
     GenerateAndSaveFinalAnswersBatchesStep,
     LogFinalResultsToWandbStep,
+    LogRetrieverToWandbStep,
+    LogTrainingToWandbStep,
+    LogInferenceToWandbStep,
+    LoadGnnAnswerRetrieverRunStep,
+    GnnRetrieverResultsService,
     PipelineException,
 )
 from pipeline.preparation.helpers.configuration_definitions import (
+    GNN_ARCHITECTURES,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
-    RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
-    RECOMMENDED_GNN_HIDDEN_DIMENSION,
-    RECOMMENDED_GNN_LAYER_COUNT,
+    RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
-    RECOMMENDED_NODE_CLASSIFIER_ID,
     RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
-    RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
 )
-from pipeline.preparation.helpers.dataset_definitions import WEBQSP_DATASET_ID
+from pipeline.preparation.helpers.gnn_architecture import (
+    architecture_defaults,
+    architecture_option_definitions,
+)
+from pipeline.preparation.helpers.dataset_definitions import (
+    DATASET_LOADERS,
+    WEBQSP_DATASET_ID,
+)
+from pipeline.evaluation.services.wandb_experiment import WandbExperimentCoordinator
+from pipeline.preparation.services.gnn_answer_retriever_training import (
+    GnnAnswerRetrieverTrainingService,
+)
+from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
+    GnnAnswerRetrieverModelRunService,
+    SavedGnnAnswerRetrieverConfig,
+)
 
 logger = get_logger(__name__)
+
+
+def _saved_model_conflicts(
+    requested: "PipelineRuntimeConfig",
+    saved: SavedGnnAnswerRetrieverConfig,
+) -> list[str]:
+    """Return explicitly requested fields that disagree with saved lineage."""
+    requested_embedding_model = (
+        requested.embedding_model
+        or requested.entity_embedding_model
+        or requested.question_embedding_model
+        or requested.relation_embedding_model
+    )
+    comparisons = {
+        "gnn_architecture": (requested.gnn_architecture, saved.resolved_gnn_architecture),
+        "embedding_model": (
+            requested_embedding_model,
+            saved.resolved_embedding_model,
+        ),
+    }
+    requested_options = dict(requested.gnn_options)
+    for option_id in architecture_option_definitions():
+        if hasattr(requested, option_id):
+            value = getattr(requested, option_id)
+            if value is not None:
+                requested_options[option_id] = value
+    saved_options = saved.resolved_gnn_architecture_options
+    for option_id, requested_value in requested_options.items():
+        comparisons[option_id] = (requested_value, saved_options.get(option_id))
+    conflicts = {
+        name
+        for name, (requested_value, saved_value) in comparisons.items()
+        if requested_value is not None and requested_value != saved_value
+    }
+    return sorted(conflicts)
+
+
+def _apply_saved_model_config(
+    resolved: "PipelineRuntimeConfig",
+    saved: SavedGnnAnswerRetrieverConfig,
+) -> "PipelineRuntimeConfig":
+    options = saved.resolved_gnn_architecture_options
+    architecture = GNN_ARCHITECTURES[saved.resolved_gnn_architecture]
+    return resolved.model_copy(
+        update={
+            "dataset": saved.dataset_id,
+            "gnn_architecture": saved.resolved_gnn_architecture,
+            "gnn_options": options,
+            "gnn_layer_count": options.get("gnn_layer_count"),
+            "gnn_hidden_dimension": options.get("gnn_hidden_dimension"),
+            "node_classifier": options.get("node_classifier"),
+            "use_edge_mlp": options.get("use_edge_mlp"),
+            "question_aware_classifier": options.get("question_aware_classifier"),
+            "use_reverse_edges": (
+                architecture.data_requirements.requires_reverse_edges
+                or options.get("use_reverse_edges")
+            ),
+            "add_layer_normalization": options.get("add_layer_normalization"),
+            "edge_mlp_hidden_dim": options.get("edge_mlp_hidden_dim"),
+            "dropout": options.get("dropout"),
+            "embedding_model": saved.resolved_embedding_model,
+            # Compatibility aliases for existing preparation services.
+            "question_embedding_model": saved.resolved_embedding_model,
+            "relation_embedding_model": saved.resolved_embedding_model,
+            "entity_embedding_model": saved.resolved_embedding_model,
+        }
+    )
 
 
 class PipelineRuntimeConfig(BaseModel):
     """Runtime configuration used to initialize the current framework pipeline."""
 
-    run_mode: Literal["full", "train-only", "evaluation-only"] = "full"
+    run_mode: Literal[
+        "full",
+        "train-only",
+        "retriever-only",
+        "evaluation-only",
+        "inference-only",
+    ] = "full"
     dataset: str | None = None
     main_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
+    gnn_architecture: str | None = None
     gnn_layer_count: int | None = None
     gnn_hidden_dimension: int | None = None
     node_classifier: str | None = None
-    use_edge_mlp: bool = False
-    question_aware_classifier: bool = False
-    use_reverse_edges: bool = False
-    add_layer_normalization: bool = False
+    use_edge_mlp: bool | None = None
+    question_aware_classifier: bool | None = None
+    use_reverse_edges: bool | None = None
+    add_layer_normalization: bool | None = None
     edge_mlp_hidden_dim: int | None = None
-    dropout: float = 0.1
+    dropout: float | None = None
+    gnn_options: dict[str, Any] = Field(default_factory=dict)
+    embedding_model: str | None = None
+    # Deprecated compatibility inputs. New CLI/configuration uses embedding_model.
     question_embedding_model: str | None = None
     relation_embedding_model: str | None = None
     entity_embedding_model: str | None = None
@@ -80,7 +185,14 @@ class PipelineRuntimeConfig(BaseModel):
     training_max_instances: int | None = None
     training_start_instance: int = 0
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
+    training_batch_size: int = DEFAULT_TRAINING_BATCH_SIZE
+    wandb_training_log_every: int = DEFAULT_WANDB_TRAINING_LOG_EVERY
+    wandb_upload_retriever: bool = False
     training_device: str = DEFAULT_TRAINING_DEVICE
+    training_profile: bool = DEFAULT_TRAINING_PROFILE
+    training_embedding_cache_device: str = DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE
+    training_embedding_cache_dtype: str = DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE
+    training_gpu_cache_reserve_gb: float = DEFAULT_TRAINING_GPU_CACHE_RESERVE_GB
     training_run_name: str | None = None
     continue_training_model_run_name: str | None = None
     continue_training_model_run_number: int | None = None
@@ -90,8 +202,14 @@ class PipelineRuntimeConfig(BaseModel):
     candidate_top_k: int = DEFAULT_CANDIDATE_TOP_K
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
     evaluation_run_name: str | None = None
+    retriever_run_name: str | None = None
+    retriever_run_number: int | None = None
     evaluation_max_instances: int | None = None
     evaluation_log_every: int = DEFAULT_EVALUATION_LOG_EVERY
+    evaluation_profile: bool = DEFAULT_EVALUATION_PROFILE
+    evaluation_embedding_cache_device: str = DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE
+    evaluation_embedding_cache_dtype: str = DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE
+    evaluation_gpu_cache_reserve_gb: float = DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB
     no_llm_inference: bool = False
     inference_run_name: str | None = None
     llm_inference_batch_size: int = 10
@@ -107,6 +225,34 @@ class PipelineRuntimeConfig(BaseModel):
         if not self.use_default_config_values:
             return self
 
+        architecture_id = self.gnn_architecture or RECOMMENDED_GNN_ARCHITECTURE_ID
+        defaults = architecture_defaults(architecture_id)
+        defaults.pop("gnn_architecture", None)
+        requested_options = dict(self.gnn_options)
+        for option_id in architecture_option_definitions():
+            if hasattr(self, option_id):
+                value = getattr(self, option_id)
+                if value is not None:
+                    requested_options[option_id] = value
+        resolved_options = {**defaults, **requested_options}
+        architecture = GNN_ARCHITECTURES[architecture_id]
+        for option in architecture.options:
+            if (
+                option.enabled_when_option is not None
+                and resolved_options.get(option.enabled_when_option)
+                != option.enabled_when_value
+                and option.option_id not in requested_options
+            ):
+                resolved_options[option.option_id] = None
+        architecture_updates = {
+            option_id: value
+            for option_id, value in resolved_options.items()
+            if hasattr(self, option_id)
+        }
+        architecture_updates.update(
+            gnn_architecture=architecture_id,
+            gnn_options=resolved_options,
+        )
         return self.model_copy(
             update={
                 "dataset": self.dataset or WEBQSP_DATASET_ID,
@@ -115,46 +261,151 @@ class PipelineRuntimeConfig(BaseModel):
                 or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
                 "context_strategy": self.context_strategy
                 or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
-                "gnn_layer_count": self.gnn_layer_count
-                or RECOMMENDED_GNN_LAYER_COUNT,
-                "gnn_hidden_dimension": self.gnn_hidden_dimension
-                or RECOMMENDED_GNN_HIDDEN_DIMENSION,
-                "node_classifier": self.node_classifier
-                or RECOMMENDED_NODE_CLASSIFIER_ID,
-                "question_embedding_model": self.question_embedding_model
-                or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
-                "relation_embedding_model": self.relation_embedding_model
-                or RECOMMENDED_RELATION_EMBEDDING_MODEL_ID,
-                "entity_embedding_model": self.entity_embedding_model
-                or RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID,
+                **architecture_updates,
+                "embedding_model": (
+                    self.embedding_model
+                    or self.entity_embedding_model
+                    or self.question_embedding_model
+                    or self.relation_embedding_model
+                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
+                ),
+                "question_embedding_model": (
+                    self.embedding_model
+                    or self.entity_embedding_model
+                    or self.question_embedding_model
+                    or self.relation_embedding_model
+                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
+                ),
+                "relation_embedding_model": (
+                    self.embedding_model
+                    or self.entity_embedding_model
+                    or self.question_embedding_model
+                    or self.relation_embedding_model
+                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
+                ),
+                "entity_embedding_model": (
+                    self.embedding_model
+                    or self.entity_embedding_model
+                    or self.question_embedding_model
+                    or self.relation_embedding_model
+                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
+                ),
             }
         )
 
 
 def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     """Build the current runnable graphragX pipeline."""
-    if config.no_llm_inference and not config.no_wandb:
+    if config.run_mode == "inference-only" and config.no_llm_inference:
         raise PipelineException(
-            "WandB logging requires LLM inference. Use --no-wandb together with "
-            "--no-llm-inference when skipping final LLM reasoning results."
+            "--no-llm-inference is not valid with --inference-only."
+        )
+    if (
+        config.run_mode == "inference-only"
+        and config.retriever_run_name is None
+        and config.retriever_run_number is None
+    ):
+        raise PipelineException(
+            "Inference-only mode requires --retriever-run-name or "
+            "--retriever-run-number."
+        )
+    if config.retriever_run_name is not None and config.retriever_run_number is not None:
+        raise PipelineException(
+            "Select a retriever run by --retriever-run-name or "
+            "--retriever-run-number, not both."
         )
     if config.training_start_instance < 0:
         raise PipelineException(
             "--training-start-instance must be greater than or equal to 0."
         )
-    if config.edge_mlp_hidden_dim is not None and config.edge_mlp_hidden_dim <= 0:
-        raise PipelineException("--edge-mlp-hidden-dim must be greater than zero.")
-    if config.dropout < 0 or config.dropout >= 1:
-        raise PipelineException("--dropout must be greater than or equal to 0 and less than 1.")
-    if config.run_mode == "evaluation-only" and (
+    if config.training_log_every < 0:
+        raise PipelineException(
+            "--training-log-every must be greater than or equal to 0."
+        )
+    if config.wandb_training_log_every < 0:
+        raise PipelineException(
+            "--wandb-training-log-every must be greater than or equal to 0."
+        )
+    if config.run_mode in {"evaluation-only", "inference-only"} and (
         config.continue_training_model_run_name is not None
         or config.continue_training_model_run_number is not None
     ):
         raise PipelineException(
-            "Training continuation flags are not valid in evaluation-only mode."
+            f"Training continuation flags are not valid in {config.run_mode} mode."
+        )
+    if config.run_mode == "inference-only" and (
+        config.evaluation_model_run_name is not None
+        or config.evaluation_model_run_number is not None
+    ):
+        raise PipelineException(
+            "Evaluation model selectors are not valid in inference-only mode; "
+            "select the persisted retriever run instead."
         )
 
     resolved_config = config.with_defaulted_user_inputs()
+    dataset_id = resolved_config.dataset or WEBQSP_DATASET_ID
+    loader_definition = DATASET_LOADERS.get(dataset_id)
+    if loader_definition is None:
+        raise PipelineException(f"Unsupported dataset {dataset_id}.")
+
+    saved_model_config: SavedGnnAnswerRetrieverConfig | None = None
+    lineage_label: str | None = None
+    if resolved_config.run_mode == "inference-only":
+        saved_model_config = GnnRetrieverResultsService().load_model_config(
+            evaluation_root=loader_definition.cache_root / "evaluations",
+            run_name=resolved_config.retriever_run_name,
+            run_number=resolved_config.retriever_run_number,
+        )
+        lineage_label = "saved retriever run"
+    elif resolved_config.run_mode == "evaluation-only":
+        saved_model_config = GnnAnswerRetrieverModelRunService().resolve_run(
+            model_root=loader_definition.cache_root / "models",
+            run_name=resolved_config.evaluation_model_run_name,
+            run_number=resolved_config.evaluation_model_run_number,
+        ).config
+        lineage_label = "saved model run"
+    elif (
+        resolved_config.continue_training_model_run_name is not None
+        or resolved_config.continue_training_model_run_number is not None
+    ):
+        saved_model_config = GnnAnswerRetrieverModelRunService().resolve_run(
+            model_root=loader_definition.cache_root / "models",
+            run_name=resolved_config.continue_training_model_run_name,
+            run_number=resolved_config.continue_training_model_run_number,
+        ).config
+        lineage_label = "continued model run"
+
+    if saved_model_config is not None:
+        if config.dataset is not None and config.dataset != saved_model_config.dataset_id:
+            raise PipelineException(
+                f"Dataset {config.dataset} conflicts with {lineage_label} dataset "
+                f"{saved_model_config.dataset_id}."
+            )
+        conflicting_fields = _saved_model_conflicts(config, saved_model_config)
+        if conflicting_fields:
+            raise PipelineException(
+                f"Configuration conflicts with the {lineage_label}: "
+                + ", ".join(conflicting_fields)
+            )
+        resolved_config = _apply_saved_model_config(
+            resolved_config,
+            saved_model_config,
+        )
+    wandb_dataset_id = resolved_config.dataset or WEBQSP_DATASET_ID
+    wandb_loader_definition = DATASET_LOADERS.get(wandb_dataset_id)
+    if wandb_loader_definition is None:
+        raise PipelineException(
+            f"W&B run identifiers do not support dataset {wandb_dataset_id}."
+        )
+    wandb_coordinator = WandbExperimentCoordinator(
+        project=resolved_config.wandb_project,
+        entity=resolved_config.wandb_entity,
+        mode=resolved_config.wandb_mode,
+        enabled=not resolved_config.no_wandb,
+        resume_from_lineage=resolved_config.run_mode
+        not in {"evaluation-only", "inference-only"},
+        run_root=wandb_loader_definition.cache_root / "wandb_runs",
+    )
     setup_steps = [
         SelectDatasetStep(
             requested_dataset=resolved_config.dataset,
@@ -163,6 +414,8 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             main_llm_model=resolved_config.main_llm_model,
             subgraph_algorithm=resolved_config.subgraph_algorithm,
             context_strategy=resolved_config.context_strategy,
+            gnn_architecture=resolved_config.gnn_architecture,
+            gnn_options=resolved_config.gnn_options,
             gnn_layer_count=resolved_config.gnn_layer_count,
             gnn_hidden_dimension=resolved_config.gnn_hidden_dimension,
             node_classifier=resolved_config.node_classifier,
@@ -172,6 +425,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             add_layer_normalization=resolved_config.add_layer_normalization,
             edge_mlp_hidden_dim=resolved_config.edge_mlp_hidden_dim,
             dropout=resolved_config.dropout,
+            embedding_model=resolved_config.embedding_model,
             question_embedding_model=resolved_config.question_embedding_model,
             relation_embedding_model=resolved_config.relation_embedding_model,
             entity_embedding_model=resolved_config.entity_embedding_model,
@@ -181,15 +435,19 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     ]
     training_steps = [
         BuildGnnAnswerRetrieverStep(),
-        TrainGnnAnswerRetrieverStep(
-            training_epochs=resolved_config.training_epochs,
-            training_learning_rate=resolved_config.training_learning_rate,
-            training_weight_decay=resolved_config.training_weight_decay,
+        PrepareGnnTrainingDataStep(
             training_max_instances=resolved_config.training_max_instances,
             training_start_instance=resolved_config.training_start_instance,
-            training_log_every=resolved_config.training_log_every,
             training_device=resolved_config.training_device,
-            training_run_name=resolved_config.training_run_name,
+            training_embedding_cache_device=(
+                resolved_config.training_embedding_cache_device
+            ),
+            training_embedding_cache_dtype=(
+                resolved_config.training_embedding_cache_dtype
+            ),
+            training_gpu_cache_reserve_gb=(
+                resolved_config.training_gpu_cache_reserve_gb
+            ),
             continue_training_model_run_name=(
                 resolved_config.continue_training_model_run_name
             ),
@@ -197,8 +455,42 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
                 resolved_config.continue_training_model_run_number
             ),
         ),
+        TrainGnnAnswerRetrieverStep(
+            training_epochs=resolved_config.training_epochs,
+            training_learning_rate=resolved_config.training_learning_rate,
+            training_weight_decay=resolved_config.training_weight_decay,
+            training_max_instances=resolved_config.training_max_instances,
+            training_start_instance=resolved_config.training_start_instance,
+            training_log_every=resolved_config.training_log_every,
+            training_batch_size=resolved_config.training_batch_size,
+            training_device=resolved_config.training_device,
+            training_profile=resolved_config.training_profile,
+            training_run_name=resolved_config.training_run_name,
+            continue_training_model_run_name=(
+                resolved_config.continue_training_model_run_name
+            ),
+            continue_training_model_run_number=(
+                resolved_config.continue_training_model_run_number
+            ),
+            training_service=GnnAnswerRetrieverTrainingService(
+                progress_callback=wandb_coordinator.log_training_progress
+                if not resolved_config.no_wandb
+                else None,
+                epoch_callback=wandb_coordinator.log_training_epoch
+                if not resolved_config.no_wandb
+                else None,
+                progress_callback_every=resolved_config.wandb_training_log_every,
+            ),
+        ),
     ]
-    evaluation_steps = [
+    if not resolved_config.no_wandb:
+        training_steps.append(
+            LogTrainingToWandbStep(
+                coordinator=wandb_coordinator,
+                upload_retriever=resolved_config.wandb_upload_retriever,
+            )
+        )
+    retriever_steps = [
         EvaluateGnnAnswerRetrieverStep(
             model_run_name=resolved_config.evaluation_model_run_name,
             model_run_number=resolved_config.evaluation_model_run_number,
@@ -208,44 +500,92 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             evaluation_run_name=resolved_config.evaluation_run_name,
             evaluation_max_instances=resolved_config.evaluation_max_instances,
             evaluation_log_every=resolved_config.evaluation_log_every,
+            evaluation_profile=resolved_config.evaluation_profile,
+            evaluation_embedding_cache_device=(
+                resolved_config.evaluation_embedding_cache_device
+            ),
+            evaluation_embedding_cache_dtype=(
+                resolved_config.evaluation_embedding_cache_dtype
+            ),
+            evaluation_gpu_cache_reserve_gb=(
+                resolved_config.evaluation_gpu_cache_reserve_gb
+            ),
         ),
     ]
-    if not resolved_config.no_llm_inference:
-        evaluation_steps.extend(
-            [
-                BuildReasoningSamplesFromGnnEvaluationStep(),
-                ExtractShortestPathsBatchStep(),
-                GenerateAndSaveFinalAnswersBatchesStep(
-                    model_id=resolved_config.main_llm_model,
-                    inference_run_name=resolved_config.inference_run_name,
-                    inference_batch_size=resolved_config.llm_inference_batch_size,
-                ),
-                ComputeFinalResultsStep(),
-            ]
-        )
-        if not resolved_config.no_wandb:
-            evaluation_steps.append(
-                LogFinalResultsToWandbStep(
-                    project=resolved_config.wandb_project,
-                    entity=resolved_config.wandb_entity,
-                    mode=resolved_config.wandb_mode,
-                )
+    if not resolved_config.no_wandb:
+        retriever_steps.append(
+            LogRetrieverToWandbStep(
+                coordinator=wandb_coordinator,
+                upload_retriever=resolved_config.wandb_upload_retriever,
             )
+        )
+    inference_steps = [
+        BuildReasoningSamplesFromGnnEvaluationStep(),
+        ExtractShortestPathsBatchStep(),
+        GenerateAndSaveFinalAnswersBatchesStep(
+            model_id=resolved_config.main_llm_model,
+            inference_run_name=resolved_config.inference_run_name,
+            inference_batch_size=resolved_config.llm_inference_batch_size,
+        ),
+    ]
+    if not resolved_config.no_wandb:
+        inference_steps.append(
+            LogInferenceToWandbStep(coordinator=wandb_coordinator)
+        )
+    inference_steps.append(ComputeFinalResultsStep())
+    if not resolved_config.no_wandb:
+        inference_steps.append(
+            LogFinalResultsToWandbStep(
+                project=resolved_config.wandb_project,
+                entity=resolved_config.wandb_entity,
+                mode=resolved_config.wandb_mode,
+                coordinator=wandb_coordinator,
+            )
+        )
 
     if resolved_config.run_mode == "train-only":
         preparation_steps = [*setup_steps, *training_steps]
         selected_evaluation_steps = []
+    elif resolved_config.run_mode == "retriever-only":
+        preparation_steps = [*setup_steps, *training_steps]
+        selected_evaluation_steps = retriever_steps
     elif resolved_config.run_mode == "evaluation-only":
         preparation_steps = setup_steps
-        selected_evaluation_steps = evaluation_steps
+        selected_evaluation_steps = [*retriever_steps]
+        if not resolved_config.no_llm_inference:
+            selected_evaluation_steps.extend(inference_steps)
+    elif resolved_config.run_mode == "inference-only":
+        preparation_steps = setup_steps
+        selected_evaluation_steps = [
+            LoadGnnAnswerRetrieverRunStep(
+                run_name=resolved_config.retriever_run_name,
+                run_number=resolved_config.retriever_run_number,
+            ),
+            *(
+                [
+                    LogRetrieverToWandbStep(
+                        coordinator=wandb_coordinator,
+                        copy_to_new_experiment=True,
+                    )
+                ]
+                if not resolved_config.no_wandb
+                else []
+            ),
+            *inference_steps,
+        ]
     else:
         preparation_steps = [*setup_steps, *training_steps]
-        selected_evaluation_steps = evaluation_steps
+        selected_evaluation_steps = [*retriever_steps]
+        if not resolved_config.no_llm_inference:
+            selected_evaluation_steps.extend(inference_steps)
 
     return Pipeline(
         preparation_steps=preparation_steps,
         evaluation_steps=selected_evaluation_steps,
         force_all_default=resolved_config.force_all_default,
+        completion_callbacks=[wandb_coordinator.finish]
+        if not resolved_config.no_wandb
+        else [],
     )
 
 
@@ -259,6 +599,15 @@ def run_pipeline(config: PipelineRuntimeConfig) -> PipelineExecutionResult:
         raise PipelineException(
             "Evaluation-only mode requires --evaluation-model-run-name or "
             "--evaluation-model-run-number."
+        )
+    if (
+        config.run_mode == "inference-only"
+        and config.retriever_run_name is None
+        and config.retriever_run_number is None
+    ):
+        raise PipelineException(
+            "Inference-only mode requires --retriever-run-name or "
+            "--retriever-run-number."
         )
 
     pipeline = build_pipeline(config=config)
@@ -312,6 +661,10 @@ def _build_success_summary_lines(result: PipelineExecutionResult) -> list[str]:
         return lines
 
     summary_fields = [
+        "gnn_architecture",
+        "model_run_name",
+        "evaluation_run_name",
+        "inference_run_name",
         "results_run_name",
         "evaluated_instances",
         "hit_rate",
@@ -381,6 +734,24 @@ def log_error_summary(
     )
 
 
+def _add_gnn_architecture_option_arguments(parser: argparse.ArgumentParser) -> None:
+    """Generate the union of architecture-owned CLI flags from the registry."""
+    type_map = {"integer": int, "float": float, "string": str}
+    for option in architecture_option_definitions().values():
+        kwargs: dict[str, Any] = {
+            "dest": option.option_id,
+            "default": None,
+            "help": option.description,
+        }
+        if option.value_type == "boolean":
+            kwargs["action"] = argparse.BooleanOptionalAction
+        else:
+            kwargs["type"] = type_map[option.value_type]
+            if option.choices:
+                kwargs["choices"] = option.choices
+        parser.add_argument(option.cli_flag, **kwargs)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the framework entry point."""
     parser = argparse.ArgumentParser(description="Run graphragX.")
@@ -407,6 +778,20 @@ def build_parser() -> argparse.ArgumentParser:
         const="evaluation-only",
         help="Run setup and evaluate a saved model run.",
     )
+    run_mode_group.add_argument(
+        "--retriever-only",
+        dest="run_mode",
+        action="store_const",
+        const="retriever-only",
+        help="Train and evaluate the GNN retriever, then stop before LLM inference.",
+    )
+    run_mode_group.add_argument(
+        "--inference-only",
+        dest="run_mode",
+        action="store_const",
+        const="inference-only",
+        help="Run LLM inference and final results from a saved retriever run.",
+    )
     parser.add_argument(
         "--dataset",
         default=None,
@@ -428,68 +813,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional context construction strategy id for non-interactive configuration.",
     )
     parser.add_argument(
-        "--gnn-layers",
-        type=int,
+        "--gnn-architecture",
+        choices=tuple(GNN_ARCHITECTURES),
         default=None,
-        help="Optional number of GNN layers for non-interactive configuration.",
+        help="GNN architecture. Defaults to graphsage.",
     )
+    _add_gnn_architecture_option_arguments(parser)
     parser.add_argument(
-        "--gnn-hidden-dim",
-        type=int,
+        "--embedding-model",
         default=None,
-        help="Optional GNN hidden dimension for non-interactive configuration.",
+        help="OpenAI embedding model used for question, relation, and entity text.",
     )
-    parser.add_argument(
-        "--node-classifier",
-        default=None,
-        help="Optional node classifier id for non-interactive configuration.",
-    )
-    parser.add_argument(
-        "--use-edge-mlp",
-        action="store_true",
-        help="Use a trainable question-relation MLP to score edge weights.",
-    )
-    parser.add_argument(
-        "--question-aware-classifier",
-        action="store_true",
-        help="Make answer-node classification depend on node and question embeddings.",
-    )
-    parser.add_argument(
-        "--use-reverse-edges",
-        action="store_true",
-        help="Materialize reverse edges in prepared WebQSP graphs.",
-    )
-    parser.add_argument(
-        "--add-layer-normalization",
-        action="store_true",
-        help="Apply residual connection plus LayerNorm after each GNN layer.",
-    )
-    parser.add_argument(
-        "--edge-mlp-hidden-dim",
-        type=int,
-        default=None,
-        help="Hidden dimension for the trainable edge MLP. Defaults to GNN hidden dimension.",
-    )
-    parser.add_argument(
-        "--dropout",
-        type=float,
-        default=0.1,
-        help="Dropout used by upgraded GNN components.",
-    )
+    # Accept old flags without advertising separate choices. They are mapped to
+    # the unified selector in main() for scripts written before this refactor.
     parser.add_argument(
         "--question-embedding-model",
         default=None,
-        help="Optional OpenAI embedding model id for question text.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--relation-embedding-model",
         default=None,
-        help="Optional OpenAI embedding model id for relation text.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--entity-embedding-model",
         default=None,
-        help="Optional OpenAI embedding model id for entity text.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--training-epochs",
@@ -525,13 +875,52 @@ def build_parser() -> argparse.ArgumentParser:
         "--training-log-every",
         type=int,
         default=DEFAULT_TRAINING_LOG_EVERY,
-        help="Log training progress after this many instances.",
+        help="Write console training progress after this many instances. Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--training-batch-size",
+        type=int,
+        default=DEFAULT_TRAINING_BATCH_SIZE,
+        help=(
+            "Number of disconnected WebQSP graphs per R-GCN optimizer step. "
+            "GraphSAGE retains single-graph training."
+        ),
+    )
+    parser.add_argument(
+        "--wandb-training-log-every",
+        type=int,
+        default=DEFAULT_WANDB_TRAINING_LOG_EVERY,
+        help="Send live training loss to W&B after this many instances. Use 0 to disable.",
     )
     parser.add_argument(
         "--training-device",
         default=DEFAULT_TRAINING_DEVICE,
         choices=["auto", "cpu", "cuda", "mps"],
         help="PyTorch device used for GNN answer-retriever training.",
+    )
+    parser.add_argument(
+        "--training-profile",
+        action="store_true",
+        default=DEFAULT_TRAINING_PROFILE,
+        help="Synchronize and report detailed GNN training phase timings.",
+    )
+    parser.add_argument(
+        "--training-embedding-cache-device",
+        choices=["auto", "gpu", "cpu"],
+        default=DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE,
+        help="Place compact frozen training embeddings on GPU, CPU, or automatically.",
+    )
+    parser.add_argument(
+        "--training-embedding-cache-dtype",
+        choices=["auto", "float32", "bfloat16"],
+        default=DEFAULT_TRAINING_EMBEDDING_CACHE_DTYPE,
+        help="Storage precision for compact frozen training embeddings.",
+    )
+    parser.add_argument(
+        "--training-gpu-cache-reserve-gb",
+        type=float,
+        default=DEFAULT_TRAINING_GPU_CACHE_RESERVE_GB,
+        help="GPU memory reserved for the model, activations, and CUDA overhead.",
     )
     parser.add_argument(
         "--training-run-name",
@@ -585,6 +974,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional label for the versioned evaluation run folder.",
     )
+    retriever_run_group = parser.add_mutually_exclusive_group()
+    retriever_run_group.add_argument(
+        "--retriever-run-name",
+        default=None,
+        help="Saved retriever evaluation run folder name or suffix.",
+    )
+    retriever_run_group.add_argument(
+        "--retriever-run-number",
+        type=int,
+        default=None,
+        help="Saved retriever evaluation run numeric prefix.",
+    )
     parser.add_argument(
         "--evaluation-max-instances",
         type=int,
@@ -596,6 +997,30 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_EVALUATION_LOG_EVERY,
         help="Log GNN evaluation progress after this many evaluated instances.",
+    )
+    parser.add_argument(
+        "--evaluation-profile",
+        action="store_true",
+        default=DEFAULT_EVALUATION_PROFILE,
+        help="Synchronize and report detailed GNN evaluation phase timings.",
+    )
+    parser.add_argument(
+        "--evaluation-embedding-cache-device",
+        choices=["auto", "gpu", "cpu"],
+        default=DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE,
+        help="Place compact frozen evaluation embeddings on GPU, CPU, or automatically.",
+    )
+    parser.add_argument(
+        "--evaluation-embedding-cache-dtype",
+        choices=["auto", "float32", "bfloat16"],
+        default=DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE,
+        help="Storage precision for compact frozen evaluation embeddings.",
+    )
+    parser.add_argument(
+        "--evaluation-gpu-cache-reserve-gb",
+        type=float,
+        default=DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB,
+        help="GPU memory reserved outside the evaluation embedding cache.",
     )
     parser.add_argument(
         "--no-llm-inference",
@@ -618,7 +1043,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-wandb",
         dest="no_wandb",
         action="store_true",
-        help="Skip WandB upload after local final result files are saved.",
+        help="Disable W&B logging for every pipeline stage.",
     )
     parser.add_argument(
         "--wandb-project",
@@ -635,6 +1060,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         choices=["online", "offline", "disabled"],
         help="Optional WandB mode. Defaults to WANDB_MODE or online.",
+    )
+    parser.add_argument(
+        "--wandb-upload-retriever",
+        dest="wandb_upload_retriever",
+        action="store_true",
+        help=(
+            "Upload the trained GNN retriever weights to W&B. By default, "
+            "W&B receives retriever configs and metrics but not the large model file."
+        ),
     )
     parser.add_argument(
         "--default",
@@ -663,8 +1097,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         main_llm_model=args.main_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,
-        gnn_layer_count=args.gnn_layers,
-        gnn_hidden_dimension=args.gnn_hidden_dim,
+        gnn_architecture=args.gnn_architecture,
+        gnn_layer_count=args.gnn_layer_count,
+        gnn_hidden_dimension=args.gnn_hidden_dimension,
         node_classifier=args.node_classifier,
         use_edge_mlp=args.use_edge_mlp,
         question_aware_classifier=args.question_aware_classifier,
@@ -672,6 +1107,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         add_layer_normalization=args.add_layer_normalization,
         edge_mlp_hidden_dim=args.edge_mlp_hidden_dim,
         dropout=args.dropout,
+        gnn_options={
+            option_id: getattr(args, option_id)
+            for option_id in architecture_option_definitions()
+            if getattr(args, option_id) is not None
+        },
+        embedding_model=(
+            args.embedding_model
+            or args.entity_embedding_model
+            or args.question_embedding_model
+            or args.relation_embedding_model
+        ),
         question_embedding_model=args.question_embedding_model,
         relation_embedding_model=args.relation_embedding_model,
         entity_embedding_model=args.entity_embedding_model,
@@ -681,7 +1127,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_max_instances=args.training_max_instances,
         training_start_instance=args.training_start_instance,
         training_log_every=args.training_log_every,
+        training_batch_size=args.training_batch_size,
+        wandb_training_log_every=args.wandb_training_log_every,
         training_device=args.training_device,
+        training_profile=args.training_profile,
+        training_embedding_cache_device=args.training_embedding_cache_device,
+        training_embedding_cache_dtype=args.training_embedding_cache_dtype,
+        training_gpu_cache_reserve_gb=args.training_gpu_cache_reserve_gb,
         training_run_name=args.training_run_name,
         continue_training_model_run_name=args.continue_training_model_run_name,
         continue_training_model_run_number=args.continue_training_model_run_number,
@@ -691,8 +1143,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_top_k=args.candidate_top_k,
         candidate_limit=args.candidate_limit,
         evaluation_run_name=args.evaluation_run_name,
+        retriever_run_name=args.retriever_run_name,
+        retriever_run_number=args.retriever_run_number,
         evaluation_max_instances=args.evaluation_max_instances,
         evaluation_log_every=args.evaluation_log_every,
+        evaluation_profile=args.evaluation_profile,
+        evaluation_embedding_cache_device=args.evaluation_embedding_cache_device,
+        evaluation_embedding_cache_dtype=args.evaluation_embedding_cache_dtype,
+        evaluation_gpu_cache_reserve_gb=args.evaluation_gpu_cache_reserve_gb,
         no_llm_inference=args.no_llm_inference,
         inference_run_name=args.inference_run_name,
         llm_inference_batch_size=args.llm_inference_batch_size,
@@ -700,6 +1158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         wandb_project=args.wandb_project,
         wandb_entity=args.wandb_entity,
         wandb_mode=args.wandb_mode,
+        wandb_upload_retriever=args.wandb_upload_retriever,
         use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )

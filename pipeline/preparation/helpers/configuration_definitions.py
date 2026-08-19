@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -71,6 +71,54 @@ class NodeClassifierDefinition(BaseModel):
     classifier_id: str = Field(..., description="Stable node classifier identifier.")
     display_name: str = Field(..., description="Human-readable classifier name.")
     description: str = Field(..., description="Short description of the classifier.")
+
+
+class GnnArchitectureOptionDefinition(BaseModel):
+    """One declarative CLI/interactive option owned by a GNN architecture."""
+
+    model_config = ConfigDict(frozen=True)
+
+    option_id: str
+    display_name: str
+    description: str
+    value_type: Literal["boolean", "integer", "float", "string"]
+    choices: tuple[Any, ...] = ()
+    default: Any = None
+    cli_flag: str
+    prompt_when_missing: bool = True
+    enabled_when_option: str | None = None
+    enabled_when_value: Any = True
+
+
+class GnnArchitectureDefinition(BaseModel):
+    """Self-contained schema and lazy model hook for one GNN architecture."""
+
+    model_config = ConfigDict(frozen=True)
+
+    architecture_id: str
+    display_name: str
+    description: str
+    options: tuple[GnnArchitectureOptionDefinition, ...]
+    model_builder_path: str
+    validator_path: str | None = None
+    data_requirements: "GnnArchitectureDataRequirements" = Field(
+        default_factory=lambda: GnnArchitectureDataRequirements()
+    )
+
+    @property
+    def option_map(self) -> dict[str, GnnArchitectureOptionDefinition]:
+        return {option.option_id: option for option in self.options}
+
+
+class GnnArchitectureDataRequirements(BaseModel):
+    """Architecture-owned graph and embedding input requirements."""
+
+    model_config = ConfigDict(frozen=True)
+
+    requires_reverse_edges: bool = False
+    uses_question_embeddings: bool = True
+    uses_relation_embeddings: bool = True
+    uses_relation_types: bool = False
 
 
 class OpenAiEmbeddingModelDefinition(BaseModel):
@@ -210,6 +258,183 @@ NODE_CLASSIFIERS: Final[dict[str, NodeClassifierDefinition]] = {
     ),
 }
 
+GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "graphsage"
+AA_GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "aa-graphsage"
+RGCN_ARCHITECTURE_ID: Final[str] = "rgcn"
+HGT_ARCHITECTURE_ID: Final[str] = "hgt"
+
+GNN_LAYER_COUNT_OPTION: Final[GnnArchitectureOptionDefinition] = (
+    GnnArchitectureOptionDefinition(
+        option_id="gnn_layer_count",
+        display_name="GNN Layer Count",
+        description="Number of GNN message-passing layers.",
+        value_type="integer",
+        choices=(2, 3),
+        default=2,
+        cli_flag="--gnn-layers",
+    )
+)
+GNN_HIDDEN_DIMENSION_OPTION: Final[GnnArchitectureOptionDefinition] = (
+    GnnArchitectureOptionDefinition(
+        option_id="gnn_hidden_dimension",
+        display_name="GNN Hidden Dimension",
+        description="Width of projected node states inside the GNN.",
+        value_type="integer",
+        choices=(128, 256, 512),
+        default=256,
+        cli_flag="--gnn-hidden-dim",
+    )
+)
+NODE_CLASSIFIER_OPTION: Final[GnnArchitectureOptionDefinition] = (
+    GnnArchitectureOptionDefinition(
+        option_id="node_classifier",
+        display_name="Node Classifier",
+        description="Classifier used after the final GNN layer.",
+        value_type="string",
+        choices=("mlp", "linear"),
+        default="mlp",
+        cli_flag="--node-classifier",
+    )
+)
+GNN_DROPOUT_OPTION: Final[GnnArchitectureOptionDefinition] = (
+    GnnArchitectureOptionDefinition(
+        option_id="dropout",
+        display_name="GNN Dropout",
+        description="Dropout used by the architecture.",
+        value_type="float",
+        choices=(0.0, 0.1, 0.2, 0.3, 0.5),
+        default=0.1,
+        cli_flag="--dropout",
+    )
+)
+
+GNN_SHARED_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GNN_LAYER_COUNT_OPTION,
+    GNN_HIDDEN_DIMENSION_OPTION,
+    NODE_CLASSIFIER_OPTION,
+    GNN_DROPOUT_OPTION,
+)
+
+AA_GRAPH_SAGE_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GnnArchitectureOptionDefinition(
+        option_id="use_edge_mlp", display_name="Use Edge MLP",
+        description="Use a trainable question-relation edge scorer.",
+        value_type="boolean", default=True, cli_flag="--use-edge-mlp",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="use_reverse_edges", display_name="Use Reverse Edges",
+        description="Materialize reverse graph edges.",
+        value_type="boolean", default=True, cli_flag="--use-reverse-edges",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="question_aware_classifier", display_name="Question-Aware Classifier",
+        description="Condition node classification on the question embedding.",
+        value_type="boolean", default=True, cli_flag="--question-aware-classifier",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="add_layer_normalization", display_name="Add Layer Normalization",
+        description="Use residual LayerNorm message-passing blocks.",
+        value_type="boolean", default=True, cli_flag="--add-layer-normalization",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="edge_mlp_hidden_dim", display_name="Edge MLP Hidden Dimension",
+        description="Hidden width of the relation-aware edge MLP.",
+        value_type="integer", choices=(128, 256, 512), default=256,
+        cli_flag="--edge-mlp-hidden-dim", enabled_when_option="use_edge_mlp",
+    ),
+)
+
+RGCN_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GNN_LAYER_COUNT_OPTION,
+    GNN_HIDDEN_DIMENSION_OPTION,
+    GNN_DROPOUT_OPTION,
+    GnnArchitectureOptionDefinition(
+        option_id="num_bases",
+        display_name="R-GCN Basis Count",
+        description="Number of shared basis matrices used for relation transforms.",
+        value_type="integer",
+        choices=(8, 16, 30, 64),
+        default=30,
+        cli_flag="--num-bases",
+    ),
+)
+
+HGT_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GNN_LAYER_COUNT_OPTION,
+    GNN_HIDDEN_DIMENSION_OPTION,
+    GNN_DROPOUT_OPTION,
+    GnnArchitectureOptionDefinition(
+        option_id="attention_heads",
+        display_name="HGT Attention Heads",
+        description="Number of heterogeneous attention heads.",
+        value_type="integer",
+        choices=(1, 2, 4, 8),
+        default=8,
+        cli_flag="--attention-heads",
+    ),
+)
+
+GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
+    GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=GRAPH_SAGE_ARCHITECTURE_ID,
+        display_name="GraphSAGE",
+        description="Baseline GraphSAGE with configurable depth, width, classifier, and dropout.",
+        options=GNN_SHARED_OPTIONS,
+        model_builder_path=(
+            "pipeline.preparation.models.gnn_answer_retriever:build_graphsage_model"
+        ),
+    ),
+    AA_GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=AA_GRAPH_SAGE_ARCHITECTURE_ID,
+        display_name="Advance GraphSAGE",
+        description="Advanced answer-aware GraphSAGE with relational and question-aware components.",
+        options=(*GNN_SHARED_OPTIONS, *AA_GRAPH_SAGE_OPTIONS),
+        model_builder_path=(
+            "pipeline.preparation.models.gnn_answer_retriever:build_aa_graphsage_model"
+        ),
+        validator_path=(
+            "pipeline.preparation.helpers.gnn_architecture:validate_aa_graphsage_options"
+        ),
+    ),
+    RGCN_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=RGCN_ARCHITECTURE_ID,
+        display_name="R-GCN",
+        description=(
+            "Basis-decomposed relational graph convolution with mandatory inverse relations."
+        ),
+        options=RGCN_OPTIONS,
+        model_builder_path=(
+            "pipeline.preparation.models.rgcn_answer_retriever:build_rgcn_model"
+        ),
+        data_requirements=GnnArchitectureDataRequirements(
+            requires_reverse_edges=True,
+            uses_question_embeddings=False,
+            uses_relation_embeddings=False,
+            uses_relation_types=True,
+        ),
+    ),
+    HGT_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=HGT_ARCHITECTURE_ID,
+        display_name="HGT",
+        description=(
+            "Relation-aware heterogeneous multi-head attention with one entity node type."
+        ),
+        options=HGT_OPTIONS,
+        model_builder_path=(
+            "pipeline.preparation.models.hgt_answer_retriever:build_hgt_model"
+        ),
+        validator_path=(
+            "pipeline.preparation.helpers.gnn_architecture:validate_hgt_options"
+        ),
+        data_requirements=GnnArchitectureDataRequirements(
+            requires_reverse_edges=True,
+            uses_question_embeddings=False,
+            uses_relation_embeddings=False,
+            uses_relation_types=True,
+        ),
+    ),
+}
+
 OPENAI_EMBEDDING_MODELS: Final[dict[str, OpenAiEmbeddingModelDefinition]] = {
     "text-embedding-3-small": OpenAiEmbeddingModelDefinition(
         model_id="text-embedding-3-small",
@@ -231,6 +456,7 @@ RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID: Final[str] = "structured_triples"
 RECOMMENDED_GNN_LAYER_COUNT: Final[int] = 2
 RECOMMENDED_GNN_HIDDEN_DIMENSION: Final[int] = 256
 RECOMMENDED_NODE_CLASSIFIER_ID: Final[str] = "mlp"
+RECOMMENDED_GNN_ARCHITECTURE_ID: Final[str] = GRAPH_SAGE_ARCHITECTURE_ID
 RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"
 RECOMMENDED_RELATION_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"
 RECOMMENDED_ENTITY_EMBEDDING_MODEL_ID: Final[str] = "text-embedding-3-small"

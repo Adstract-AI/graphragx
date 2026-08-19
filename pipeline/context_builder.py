@@ -37,6 +37,10 @@ from pipeline.preparation.steps.gnn_answer_retriever_training import (
     TrainGnnAnswerRetrieverContext,
     TrainGnnAnswerRetrieverStep,
 )
+from pipeline.preparation.steps.gnn_training_data_preparation import (
+    PrepareGnnTrainingDataContext,
+    PrepareGnnTrainingDataStep,
+)
 
 
 class StepContextBuilder:
@@ -50,6 +54,7 @@ class StepContextBuilder:
         ] = {
             BuildWebQSPLocalGraphsStep: self._create_build_webqsp_local_graphs_context,
             BuildGnnAnswerRetrieverStep: self._create_gnn_answer_retriever_context,
+            PrepareGnnTrainingDataStep: self._create_prepare_gnn_training_data_context,
             TrainGnnAnswerRetrieverStep: self._create_train_gnn_answer_retriever_context,
             EvaluateGnnAnswerRetrieverStep: self._create_evaluate_gnn_answer_retriever_context,
             BuildReasoningSamplesFromGnnEvaluationStep: (
@@ -123,6 +128,23 @@ class StepContextBuilder:
     ) -> TrainGnnAnswerRetrieverContext:
         """Create the specialized context required by the GNN training step."""
         return TrainGnnAnswerRetrieverContext(
+            result=result,
+            outcome=outcome,
+            exception=exception,
+            prepared_dataset=self.get_required_result(PreparedWebQSPGraphDataset),
+            pipeline_configuration=self.get_required_result(
+                BuiltPipelineConfiguration
+            ),
+        )
+
+    def _create_prepare_gnn_training_data_context(
+        self,
+        result: StepResult | None,
+        outcome: bool,
+        exception: PipelineException,
+    ) -> PrepareGnnTrainingDataContext:
+        """Create the context required by GNN training-data preparation."""
+        return PrepareGnnTrainingDataContext(
             result=result,
             outcome=outcome,
             exception=exception,

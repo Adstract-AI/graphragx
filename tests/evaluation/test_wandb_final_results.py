@@ -117,7 +117,7 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
         {
             "dataset_id": "webqsp",
             "model_id": "test-model",
-            "gnn_id": "2-256-gnn",
+            "gnn_architecture": "graphsage",
             "run_name": "1_test",
             "run_number": 1,
             "configs": {
@@ -278,7 +278,6 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert set(wandb_config) == {
         "configs",
         "dataset_id",
-        "gnn_id",
         "model_id",
         "runs",
         "source_paths",
@@ -396,7 +395,7 @@ def test_wandb_logging_success_with_fake_module(
     assert "trained_instances:123" in captured["init"]["tags"]
     assert "evaluated_instances:1" in captured["init"]["tags"]
     assert "text-embedding-3-small" in captured["init"]["tags"]
-    assert "2-256-gnn" in captured["init"]["tags"]
+    assert "graphsage" in captured["init"]["tags"]
     assert "7_model" not in captured["init"]["tags"]
     assert "1_eval" not in captured["init"]["tags"]
     assert "1_inference" not in captured["init"]["tags"]
@@ -473,3 +472,60 @@ def test_wandb_step_records_success(tmp_path: Path) -> None:
     assert result.wandb_status == "logged"
     assert result.wandb_run_id == "run-1"
     assert result.wandb_run_url == "https://wandb.test/run-1"
+
+
+def test_shared_experiment_restores_legacy_run_summary_metrics(
+    tmp_path: Path,
+) -> None:
+    final_result = _fake_final_result(tmp_path)
+
+    class CapturingCoordinator:
+        def __init__(self) -> None:
+            self.logged: list[dict] = []
+            self.config_updates: list[dict] = []
+            self.metadata = SimpleNamespace(
+                status="logged",
+                run_id="run-1",
+                run_url="https://wandb.test/run-1",
+                error_message=None,
+            )
+
+        def log(self, payload, **kwargs) -> None:
+            self.logged.append(payload)
+
+        def update_config(self, payload, **kwargs) -> None:
+            self.config_updates.append(payload)
+
+        def persist_metadata(self, path) -> None:
+            return None
+
+        def log_artifact(self, **kwargs) -> None:
+            return None
+
+    coordinator = CapturingCoordinator()
+    result = LogFinalResultsToWandbStep(
+        coordinator=coordinator,
+    ).execute_default(StepContext(result=final_result))
+
+    payload = coordinator.logged[0]
+    assert not any(key.startswith("Run_Summary/retrieval_") for key in payload)
+    assert payload["Run_Summary/answer_hit_rate"] == 0.5
+    assert payload["Run_Summary/answer_f1"] == 2 / 3
+    assert payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
+    assert payload["Run_Summary/grounded_explanation_rate"] == 0.5
+    assert not any(key.startswith("Summary_Plots/retrieval_") for key in payload)
+    assert payload["Summary_Plots/answer_accuracy"] == 0.5
+    assert payload["Summary_Plots/answer_f1"] == 2 / 3
+    assert payload["Summary_Plots/grounding_fully_grounded_explanation_rate"] == 0.5
+    assert payload["Summary_Plots/ranking_ndcg_at_1"] == 0.5
+    assert payload["Summary_Plots/ranking_ndcg_at_candidate_limit"] == 0.75
+    assert not any(key.startswith("Inference/") for key in payload)
+    config_payload = coordinator.config_updates[0]
+    assert set(config_payload["configs"]) == {"model", "evaluation", "inference"}
+    assert set(config_payload["runs"]) == {
+        "model",
+        "evaluation",
+        "inference",
+        "results",
+    }
+    assert result.wandb_status == "logged"

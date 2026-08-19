@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import time
+from types import ModuleType
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from helpers.logging_config import get_logger
@@ -10,6 +14,10 @@ from pipeline.evaluation.models import (
     EvaluatedAnswerRetrievalInstance,
     GnnAnswerRetrieverEvaluationConfig,
     GoldAnswerScore,
+    PreparedGnnEvaluationData,
+)
+from pipeline.evaluation.services.gnn_retriever_results import (
+    GnnRetrieverResultsService,
 )
 from pipeline.preparation.exceptions import GnnAnswerRetrieverEvaluationException
 from pipeline.preparation.models.webqsp_local_graph import (
@@ -18,9 +26,9 @@ from pipeline.preparation.models.webqsp_local_graph import (
 )
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
 from pipeline.services import AbstractService
-from pipeline.preparation.services.embedding_cache import (
-    TextEmbeddingCache,
-    WebQSPEmbeddingCacheService,
+from pipeline.preparation.services.embedding_cache import WebQSPEmbeddingCacheService
+from pipeline.preparation.services.gnn_evaluation_data_preparation import (
+    GnnEvaluationDataPreparationService,
 )
 from pipeline.preparation.services.gnn_answer_retriever_evaluation_storage import (
     GnnAnswerRetrieverEvaluationStoragePayload,
@@ -33,6 +41,21 @@ from pipeline.preparation.services.gnn_answer_retriever_model_runs import (
 )
 
 logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from torch import Tensor
+
+
+class GnnEvaluationPhaseTimings(BaseModel):
+    """Accumulated synchronized timings for GNN evaluation phases."""
+
+    model_load_seconds: float = 0.0
+    embedding_preparation_seconds: float = 0.0
+    input_preparation_seconds: float = 0.0
+    forward_seconds: float = 0.0
+    prediction_seconds: float = 0.0
+    storage_seconds: float = 0.0
+    instance_count: int = 0
 
 
 class GnnAnswerRetrieverEvaluationOutcome(BaseModel):
@@ -80,15 +103,22 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         self,
         model_run_service: GnnAnswerRetrieverModelRunService | None = None,
         embedding_cache_service: WebQSPEmbeddingCacheService | None = None,
+        data_preparation_service: GnnEvaluationDataPreparationService | None = None,
         storage_service: GnnAnswerRetrieverEvaluationStorageService | None = None,
+        results_service: GnnRetrieverResultsService | None = None,
     ):
         self.model_run_service = model_run_service or GnnAnswerRetrieverModelRunService()
         self.embedding_cache_service = (
             embedding_cache_service or WebQSPEmbeddingCacheService()
         )
+        self.data_preparation_service = (
+            data_preparation_service
+            or GnnEvaluationDataPreparationService(self.embedding_cache_service)
+        )
         self.storage_service = (
             storage_service or GnnAnswerRetrieverEvaluationStorageService()
         )
+        self.results_service = results_service or GnnRetrieverResultsService()
 
     def evaluate(
         self,
@@ -112,6 +142,12 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
 
         device = self._resolve_device(torch)
         cache_root = prepared_dataset.cache_directory.parent
+        phase_timings = GnnEvaluationPhaseTimings()
+        phase_started_at = self._start_profiled_phase(
+            torch=torch,
+            device=device,
+            enabled=evaluation_config.profile,
+        )
         loaded_model_run = self.model_run_service.load_run(
             model_root=cache_root / "models",
             run_name=evaluation_config.model_run_name,
@@ -119,6 +155,13 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             pipeline_configuration=pipeline_configuration,
             device=device,
         )
+        phase_started_at, elapsed_seconds = self._finish_profiled_phase(
+            torch=torch,
+            device=device,
+            enabled=evaluation_config.profile,
+            phase_started_at=phase_started_at,
+        )
+        phase_timings.model_load_seconds = elapsed_seconds
         if loaded_model_run.config.dataset_id != prepared_dataset.dataset_id:
             raise GnnAnswerRetrieverEvaluationException(
                 f"Model run dataset {loaded_model_run.config.dataset_id} does not "
@@ -126,56 +169,41 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             )
 
         logger.info(
-            f"Loading embedding caches for GNN answer-retriever evaluation: "
-            f"model_run={loaded_model_run.run_name} "
-            f"cache_root={cache_root / 'embeddings'} "
-            f"entity_model={loaded_model_run.config.entity_embedding_model} "
-            f"relation_model={loaded_model_run.relation_embedding_model} "
-            f"question_model={loaded_model_run.question_embedding_model}"
-        )
-        node_cache = self.embedding_cache_service.load_node_cache(
-            cache_root=cache_root,
-            model_id=loaded_model_run.config.entity_embedding_model,
-            vocabulary=prepared_dataset.vocabulary_store.nodes,
-            dataset_id=prepared_dataset.dataset_id,
-        )
-        relation_cache = self.embedding_cache_service.load_relation_cache(
-            cache_root=cache_root,
-            model_id=loaded_model_run.relation_embedding_model,
-            vocabulary=prepared_dataset.vocabulary_store.relations,
-            dataset_id=prepared_dataset.dataset_id,
-        )
-        question_cache = self.embedding_cache_service.load_question_cache(
-            cache_root=cache_root,
-            model_id=loaded_model_run.question_embedding_model,
-            vocabulary=prepared_dataset.vocabulary_store.questions,
-            dataset_id=prepared_dataset.dataset_id,
-        )
-        logger.info(
-            f"Loaded embedding caches for GNN answer-retriever evaluation: "
-            f"model_run={loaded_model_run.run_name} "
-            f"nodes_collection={node_cache.collection_name} "
-            f"relations_collection={relation_cache.collection_name} "
-            f"questions_collection={question_cache.collection_name}"
-        )
-
-        logger.info(
             f"Starting GNN answer-retriever evaluation: "
             f"model_run={loaded_model_run.run_name} "
             f"instances={len(test_instances)} device={device} "
             f"threshold={evaluation_config.answer_threshold} "
             f"candidate_top_k={evaluation_config.candidate_top_k} "
-            f"candidate_limit={evaluation_config.candidate_limit}"
+            f"candidate_limit={evaluation_config.candidate_limit} "
+            f"cache_device={evaluation_config.embedding_cache_device} "
+            f"cache_dtype={evaluation_config.embedding_cache_dtype}"
         )
-        self._populate_embedding_caches(
+        prepared_evaluation_data = self.data_preparation_service.prepare(
+            torch=torch,
             test_instances=test_instances,
-            node_cache=node_cache,
-            relation_cache=relation_cache,
-            question_cache=question_cache,
+            cache_root=cache_root,
+            dataset_id=prepared_dataset.dataset_id,
+            entity_embedding_model=loaded_model_run.config.resolved_embedding_model,
+            relation_embedding_model=loaded_model_run.relation_embedding_model,
+            question_embedding_model=loaded_model_run.question_embedding_model,
+            selected_device=device,
+            evaluation_config=evaluation_config,
+            gnn_architecture=loaded_model_run.config.resolved_gnn_architecture,
+            relation_vocabulary=loaded_model_run.relation_vocabulary,
         )
+        phase_started_at, elapsed_seconds = self._finish_profiled_phase(
+            torch=torch,
+            device=device,
+            enabled=evaluation_config.profile,
+            phase_started_at=phase_started_at,
+        )
+        phase_timings.embedding_preparation_seconds = elapsed_seconds
         logger.info(
             f"Beginning GNN answer-retriever instance evaluation: "
-            f"model_run={loaded_model_run.run_name} instances={len(test_instances)} "
+            f"model_run={loaded_model_run.run_name} "
+            f"instances={len(prepared_evaluation_data.instances)} "
+            f"embedding_device={prepared_evaluation_data.embedding_cache_device} "
+            f"embedding_dtype={prepared_evaluation_data.embedding_cache_dtype} "
             f"log_every={evaluation_config.log_every}"
         )
 
@@ -187,57 +215,150 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         missing_gold_in_graph_count = 0
         total_candidate_count = 0
 
-        model = loaded_model_run.model
-        with torch.no_grad():
-            for instance_index, instance in enumerate(test_instances):
-                entity_features = self._build_entity_feature_tensor(
-                    instance=instance,
-                    node_cache=node_cache,
+        # Keep the evaluation boundary robust for injected/custom model-run
+        # services as well as the standard loader. Inputs below are placed on
+        # the selected device, so the model must follow them explicitly.
+        model = loaded_model_run.model.to(device)
+        model.eval()
+        with torch.inference_mode():
+            for prepared_instance in prepared_evaluation_data.instances:
+                instance = prepared_instance.instance
+                phase_started_at = self._start_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=evaluation_config.profile,
+                )
+                entity_features = self._gather_embedding_features(
+                    embedding_matrix=prepared_evaluation_data.node_embeddings,
+                    indices=prepared_instance.node_embedding_indices,
                     torch=torch,
                     device=device,
                 )
-                question_features = self._build_question_feature_tensor(
-                    instance=instance,
-                    question_cache=question_cache,
-                    torch=torch,
-                    device=device,
-                )
-                relation_features = self._build_relation_feature_tensor(
-                    instance=instance,
-                    relation_cache=relation_cache,
-                    torch=torch,
-                    device=device,
-                )
-                edge_weight = (
-                    None
-                    if loaded_model_run.config.use_edge_mlp
-                    else self._build_edge_weight_tensor(
-                        relation_features=relation_features,
-                        question_features=question_features,
+                relation_features = None
+                if prepared_evaluation_data.relation_embeddings is not None:
+                    if prepared_instance.relation_embedding_indices is None:
+                        raise GnnAnswerRetrieverEvaluationException(
+                            "Prepared relation embeddings are missing instance indices."
+                        )
+                    relation_features = self._gather_embedding_features(
+                        embedding_matrix=prepared_evaluation_data.relation_embeddings,
+                        indices=prepared_instance.relation_embedding_indices,
                         torch=torch,
-                        torch_functional=torch_functional,
                         device=device,
                     )
+                question_features = None
+                if prepared_evaluation_data.question_embeddings is not None:
+                    if prepared_instance.question_embedding_index is None:
+                        raise GnnAnswerRetrieverEvaluationException(
+                            "Prepared question embeddings are missing an instance index."
+                        )
+                    question_features = prepared_evaluation_data.question_embeddings[
+                        prepared_instance.question_embedding_index
+                    ].to(device=device, non_blocking=True)
+                edge_weight = None
+                if relation_features is not None and question_features is not None:
+                    edge_weight = (
+                        None
+                        if loaded_model_run.config.use_edge_mlp
+                        else self._build_edge_weight_tensor(
+                            relation_features=relation_features,
+                            question_features=question_features,
+                            torch=torch,
+                            torch_functional=torch_functional,
+                            device=device,
+                        )
+                    )
+                edge_index = prepared_instance.edge_index.to(
+                    device=device, non_blocking=True
                 )
-                logits = model(
-                    entity_features=entity_features,
-                    edge_index=instance.edge_index.to(device),
-                    edge_weight=edge_weight,
-                    question_features=question_features,
-                    relation_features=relation_features,
+                edge_type = (
+                    prepared_instance.edge_type.to(device=device, non_blocking=True)
+                    if prepared_instance.edge_type is not None
+                    else None
                 )
+                edge_norm = (
+                    prepared_instance.edge_norm.to(device=device, non_blocking=True)
+                    if prepared_instance.edge_norm is not None
+                    else None
+                )
+                active_relation_ids = (
+                    prepared_instance.active_relation_ids.to(
+                        device=device, non_blocking=True
+                    )
+                    if prepared_instance.active_relation_ids is not None
+                    else None
+                )
+                edge_relation_index = (
+                    prepared_instance.edge_relation_index.to(
+                        device=device, non_blocking=True
+                    )
+                    if prepared_instance.edge_relation_index is not None
+                    else None
+                )
+                active_relation_offsets = (
+                    prepared_instance.active_relation_offsets.to(
+                        device=device, non_blocking=True
+                    )
+                    if prepared_instance.active_relation_offsets is not None
+                    else None
+                )
+                phase_started_at, elapsed_seconds = self._finish_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=evaluation_config.profile,
+                    phase_started_at=phase_started_at,
+                )
+                phase_timings.input_preparation_seconds += elapsed_seconds
+
+                with torch.autocast(
+                    device_type="cuda",
+                    dtype=torch.bfloat16,
+                    enabled=(
+                        device.startswith("cuda")
+                        and prepared_evaluation_data.uses_bfloat16
+                    ),
+                ):
+                    logits = model(
+                        entity_features=entity_features,
+                        edge_index=edge_index,
+                        edge_weight=edge_weight,
+                        question_features=question_features,
+                        relation_features=relation_features,
+                        edge_type=edge_type,
+                        edge_norm=edge_norm,
+                        active_relation_ids=active_relation_ids,
+                        edge_relation_index=edge_relation_index,
+                        active_relation_offsets=active_relation_offsets,
+                    )
                 probabilities = torch.sigmoid(logits)
+                phase_started_at, elapsed_seconds = self._finish_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=evaluation_config.profile,
+                    phase_started_at=phase_started_at,
+                )
+                phase_timings.forward_seconds += elapsed_seconds
+
+                scores = torch.stack((logits, probabilities), dim=1).float().cpu()
                 prediction = self._build_prediction(
-                    instance_index=instance_index,
+                    instance_index=prepared_instance.source_instance_index,
                     instance=instance,
-                    logits=logits.detach().cpu(),
-                    probabilities=probabilities.detach().cpu(),
+                    logits=scores[:, 0],
+                    probabilities=scores[:, 1],
                     answer_threshold=evaluation_config.answer_threshold,
                     candidate_top_k=evaluation_config.candidate_top_k,
                     candidate_limit=evaluation_config.candidate_limit,
                     global_node_vocabulary=prepared_dataset.vocabulary_store.nodes,
                     torch=torch,
                 )
+                phase_started_at, elapsed_seconds = self._finish_profiled_phase(
+                    torch=torch,
+                    device=device,
+                    enabled=evaluation_config.profile,
+                    phase_started_at=phase_started_at,
+                )
+                phase_timings.prediction_seconds += elapsed_seconds
+                phase_timings.instance_count += 1
                 predictions.append(prediction)
                 hits_at_1_count += int(prediction.hit_at_1)
                 hits_at_5_count += int(prediction.hit_at_5)
@@ -247,7 +368,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 )
                 missing_gold_in_graph_count += int(prediction.missing_gold_in_graph)
                 total_candidate_count += len(prediction.answer_candidates)
-                processed_count = instance_index + 1
+                processed_count = phase_timings.instance_count
                 if (
                     evaluation_config.log_every > 0
                     and (
@@ -266,6 +387,11 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                         f"average_candidate_count="
                         f"{total_candidate_count / processed_count:.2f}"
                     )
+                    if evaluation_config.profile:
+                        self._log_phase_timings(
+                            processed_instances=processed_count,
+                            timings=phase_timings,
+                        )
 
         evaluated_instances = len(predictions)
         hits_at_1 = hits_at_1_count / evaluated_instances
@@ -273,6 +399,11 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         hits_at_10 = hits_at_10_count / evaluated_instances
         hits_at_candidate_limit = hits_at_candidate_limit_count / evaluated_instances
         average_candidate_count = total_candidate_count / evaluated_instances
+        phase_started_at = self._start_profiled_phase(
+            torch=torch,
+            device=device,
+            enabled=evaluation_config.profile,
+        )
         storage_result = self.storage_service.save_evaluation_run(
             evaluation_root=cache_root / "evaluations",
             run_name=evaluation_config.run_name,
@@ -282,10 +413,27 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     loaded_model_run=loaded_model_run,
                     pipeline_configuration=pipeline_configuration,
                     device=device,
+                    prepared_evaluation_data=prepared_evaluation_data,
                 ),
                 predictions=predictions,
+                metrics=self.results_service.build_metrics(
+                    dataset_id=prepared_dataset.dataset_id,
+                    model_run_name=loaded_model_run.run_name,
+                    model_run_number=loaded_model_run.run_number,
+                    predictions=predictions,
+                    candidate_limit=evaluation_config.candidate_limit,
+                ),
             ),
         )
+        _, elapsed_seconds = self._finish_profiled_phase(
+            torch=torch,
+            device=device,
+            enabled=evaluation_config.profile,
+            phase_started_at=phase_started_at,
+        )
+        phase_timings.storage_seconds = elapsed_seconds
+        if evaluation_config.profile:
+            self._log_total_timings(phase_timings)
         logger.info(
             f"Finished GNN answer-retriever evaluation: "
             f"run={storage_result.evaluation_run_name} "
@@ -349,44 +497,18 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
 
         return "cpu"
 
-    def _populate_embedding_caches(
-        self,
-        test_instances: list[WebQSPProcessedInstance],
-        node_cache: TextEmbeddingCache,
-        relation_cache: TextEmbeddingCache,
-        question_cache: TextEmbeddingCache,
-    ) -> None:
-        node_texts: list[str] = []
-        relation_texts: list[str] = []
-        question_texts: list[str] = []
-        for instance in test_instances:
-            node_texts.extend(instance.nodes)
-            relation_texts.extend(instance.edge_relations)
-            question_texts.append(instance.question)
-
-        self.embedding_cache_service.ensure_embeddings(node_cache, node_texts)
-        self.embedding_cache_service.ensure_embeddings(
-            relation_cache,
-            relation_texts,
-            preprocess=True,
-        )
-        self.embedding_cache_service.ensure_embeddings(question_cache, question_texts)
-
-    def _build_entity_feature_tensor(
-        self,
-        instance: WebQSPProcessedInstance,
-        node_cache: TextEmbeddingCache,
-        torch,
+    @staticmethod
+    def _gather_embedding_features(
+        embedding_matrix: Tensor,
+        indices: Tensor,
+        torch: ModuleType,
         device: str,
-    ):
-        return torch.tensor(
-            self.embedding_cache_service.embeddings_for_texts(
-                cache=node_cache,
-                texts=instance.nodes,
-            ),
-            dtype=torch.float,
-            device=device,
-        )
+    ) -> Tensor:
+        """Gather frozen embeddings without contacting Qdrant."""
+        matrix_device = embedding_matrix.device
+        resolved_indices = indices.to(device=matrix_device, non_blocking=True)
+        features = torch.index_select(embedding_matrix, 0, resolved_indices)
+        return features.to(device=device, non_blocking=True)
 
     def _build_edge_weight_tensor(
         self,
@@ -397,49 +519,73 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         device: str,
     ):
         if relation_features.shape[0] == 0:
-            return torch.empty(0, dtype=torch.float, device=device)
+            return torch.empty(0, dtype=relation_features.dtype, device=device)
         return torch_functional.cosine_similarity(
             question_features.reshape(1, -1),
             relation_features,
             dim=1,
         )
 
-    def _build_question_feature_tensor(
-        self,
-        instance: WebQSPProcessedInstance,
-        question_cache: TextEmbeddingCache,
-        torch,
+    @staticmethod
+    def _start_profiled_phase(
+        torch: ModuleType,
         device: str,
-    ):
-        return torch.tensor(
-            self.embedding_cache_service.embeddings_for_texts(
-                cache=question_cache,
-                texts=[instance.question],
-            )[0],
-            dtype=torch.float,
-            device=device,
+        enabled: bool,
+    ) -> float:
+        """Synchronize the selected device and begin one measured phase."""
+        if not enabled:
+            return 0.0
+        GnnAnswerRetrieverEvaluationService._synchronize_device(torch, device)
+        return time.perf_counter()
+
+    @staticmethod
+    def _finish_profiled_phase(
+        torch: ModuleType,
+        device: str,
+        enabled: bool,
+        phase_started_at: float,
+    ) -> tuple[float, float]:
+        """Finish one synchronized phase and return the next start time."""
+        if not enabled:
+            return 0.0, 0.0
+        GnnAnswerRetrieverEvaluationService._synchronize_device(torch, device)
+        elapsed_seconds = time.perf_counter() - phase_started_at
+        return time.perf_counter(), elapsed_seconds
+
+    @staticmethod
+    def _synchronize_device(torch: ModuleType, device: str) -> None:
+        """Wait for asynchronous accelerator work before recording timings."""
+        if device.startswith("cuda"):
+            torch.cuda.synchronize()
+        elif device == "mps":
+            torch.mps.synchronize()
+
+    @staticmethod
+    def _log_phase_timings(
+        processed_instances: int,
+        timings: GnnEvaluationPhaseTimings,
+    ) -> None:
+        """Log per-instance evaluation timings accumulated so far."""
+        if timings.instance_count == 0:
+            return
+        milliseconds_per_instance = 1000.0 / timings.instance_count
+        logger.info(
+            f"Evaluation profile instances={processed_instances}: "
+            f"input_ms="
+            f"{timings.input_preparation_seconds * milliseconds_per_instance:.2f} "
+            f"forward_ms={timings.forward_seconds * milliseconds_per_instance:.2f} "
+            f"prediction_ms={timings.prediction_seconds * milliseconds_per_instance:.2f}"
         )
 
-    def _build_relation_feature_tensor(
-        self,
-        instance: WebQSPProcessedInstance,
-        relation_cache: TextEmbeddingCache,
-        torch,
-        device: str,
-    ):
-        if not instance.edge_relations:
-            return torch.empty(
-                (0, relation_cache.vector_size),
-                dtype=torch.float,
-                device=device,
-            )
-        return torch.tensor(
-            self.embedding_cache_service.embeddings_for_texts(
-                cache=relation_cache,
-                texts=instance.edge_relations,
-            ),
-            dtype=torch.float,
-            device=device,
+    @staticmethod
+    def _log_total_timings(timings: GnnEvaluationPhaseTimings) -> None:
+        """Log startup, per-instance, and persistence evaluation timings."""
+        logger.info(
+            f"Evaluation profile totals: "
+            f"model_load_ms={timings.model_load_seconds * 1000.0:.2f} "
+            f"embedding_preparation_ms="
+            f"{timings.embedding_preparation_seconds * 1000.0:.2f} "
+            f"storage_ms={timings.storage_seconds * 1000.0:.2f}"
         )
 
     def _build_prediction(
@@ -554,18 +700,33 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         loaded_model_run: LoadedGnnAnswerRetrieverRun,
         pipeline_configuration: BuiltPipelineConfiguration,
         device: str,
+        prepared_evaluation_data: PreparedGnnEvaluationData,
     ) -> dict:
         evaluation_payload = evaluation_config.model_dump(mode="json")
         requested_run_name = evaluation_payload.pop("run_name", None)
         return {
             "dataset_id": pipeline_configuration.dataset_id,
+            "gnn_architecture": loaded_model_run.config.resolved_gnn_architecture,
             "run_name": requested_run_name,
             "selected_device": device,
+            "embedding_cache_device": (
+                prepared_evaluation_data.embedding_cache_device
+            ),
+            "embedding_cache_dtype": prepared_evaluation_data.embedding_cache_dtype,
             "model_config": {
                 "model_run_name": loaded_model_run.run_name,
                 "model_run_number": loaded_model_run.run_number,
                 "full_config_path": str(loaded_model_run.config_path),
                 "weights_path": str(loaded_model_run.weights_path),
+                **(
+                    {
+                        "relation_vocabulary_path": str(
+                            loaded_model_run.relation_vocabulary_path
+                        )
+                    }
+                    if loaded_model_run.relation_vocabulary_path is not None
+                    else {}
+                ),
             },
             "evaluation": evaluation_payload,
         }

@@ -339,7 +339,8 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     results_config = json.loads(outcome.storage_result.results_config_path.read_text())
     assert results_config["dataset_id"] == "webqsp"
     assert results_config["model_id"] == "test-model"
-    assert results_config["gnn_id"] == "2-128-gnn"
+    assert results_config["gnn_architecture"] == "graphsage"
+    assert "gnn_id" not in results_config
     assert results_config["run_number"] == outcome.storage_result.results_run_number
     assert "model_run_directory" not in results_config
     assert "evaluation_run_directory" not in results_config
