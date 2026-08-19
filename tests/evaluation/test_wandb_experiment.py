@@ -468,6 +468,28 @@ def test_training_epoch_average_uses_legacy_metric_name(tmp_path) -> None:
         "end": 10,
         "count": 10,
     }
+    assert coordinator.artifact_calls[0]["paths"] == [config_path]
+
+
+def test_training_wandb_upload_retriever_includes_weights(tmp_path) -> None:
+    coordinator = CapturingCoordinator()
+    config_path = tmp_path / "model_config.json"
+    weights_path = tmp_path / "gnn_answer_retriever.pt"
+    config_path.write_text(json.dumps({"dataset_id": "WebQSP"}), encoding="utf-8")
+    weights_path.write_bytes(b"weights")
+    result = TrainedGnnAnswerRetriever.model_construct(
+        loss_history=[],
+        model_config_path=config_path,
+        model_artifact_path=weights_path,
+        model_run_name="1_model",
+    )
+
+    LogTrainingToWandbStep(
+        coordinator=coordinator,
+        upload_retriever=True,
+    ).execute_default(StepContext(result=result))
+
+    assert coordinator.artifact_calls[0]["paths"] == [config_path, weights_path]
 
 
 def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:

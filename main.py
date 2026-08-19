@@ -187,6 +187,7 @@ class PipelineRuntimeConfig(BaseModel):
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
     training_batch_size: int = DEFAULT_TRAINING_BATCH_SIZE
     wandb_training_log_every: int = DEFAULT_WANDB_TRAINING_LOG_EVERY
+    wandb_upload_retriever: bool = False
     training_device: str = DEFAULT_TRAINING_DEVICE
     training_profile: bool = DEFAULT_TRAINING_PROFILE
     training_embedding_cache_device: str = DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE
@@ -484,7 +485,10 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     ]
     if not resolved_config.no_wandb:
         training_steps.append(
-            LogTrainingToWandbStep(coordinator=wandb_coordinator)
+            LogTrainingToWandbStep(
+                coordinator=wandb_coordinator,
+                upload_retriever=resolved_config.wandb_upload_retriever,
+            )
         )
     retriever_steps = [
         EvaluateGnnAnswerRetrieverStep(
@@ -510,7 +514,10 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     ]
     if not resolved_config.no_wandb:
         retriever_steps.append(
-            LogRetrieverToWandbStep(coordinator=wandb_coordinator)
+            LogRetrieverToWandbStep(
+                coordinator=wandb_coordinator,
+                upload_retriever=resolved_config.wandb_upload_retriever,
+            )
         )
     inference_steps = [
         BuildReasoningSamplesFromGnnEvaluationStep(),
@@ -1055,6 +1062,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional WandB mode. Defaults to WANDB_MODE or online.",
     )
     parser.add_argument(
+        "--wandb-upload-retriever",
+        dest="wandb_upload_retriever",
+        action="store_true",
+        help=(
+            "Upload the trained GNN retriever weights to W&B. By default, "
+            "W&B receives retriever configs and metrics but not the large model file."
+        ),
+    )
+    parser.add_argument(
         "--default",
         dest="use_default_config_values",
         action="store_true",
@@ -1142,6 +1158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         wandb_project=args.wandb_project,
         wandb_entity=args.wandb_entity,
         wandb_mode=args.wandb_mode,
+        wandb_upload_retriever=args.wandb_upload_retriever,
         use_default_config_values=args.use_default_config_values,
         force_all_default=args.force_all_default,
     )

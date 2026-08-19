@@ -177,9 +177,11 @@ class LogTrainingToWandbStep(
         self,
         coordinator: WandbExperimentCoordinator,
         force_default: bool = False,
+        upload_retriever: bool = False,
     ) -> None:
         super().__init__(force_default=force_default)
         self.coordinator = coordinator
+        self.upload_retriever = upload_retriever
 
     def execute_default(
         self,
@@ -216,7 +218,9 @@ class LogTrainingToWandbStep(
                     }
                 )
         self.coordinator.persist_metadata(result.model_config_path)
-        model_artifact_paths = [result.model_config_path, result.model_artifact_path]
+        model_artifact_paths = [result.model_config_path]
+        if self.upload_retriever:
+            model_artifact_paths.append(result.model_artifact_path)
         if result.relation_vocabulary_path is not None:
             model_artifact_paths.append(result.relation_vocabulary_path)
         self.coordinator.log_artifact(
@@ -250,9 +254,11 @@ class LogRetrieverToWandbStep(
         coordinator: WandbExperimentCoordinator,
         copy_to_new_experiment: bool = False,
         force_default: bool = False,
+        upload_retriever: bool = False,
     ) -> None:
         super().__init__(force_default=force_default)
         self.coordinator = coordinator
+        self.upload_retriever = upload_retriever
         self.copy_to_new_experiment = copy_to_new_experiment
 
     def execute_default(
@@ -277,7 +283,10 @@ class LogRetrieverToWandbStep(
             source_config_path=source_config_path,
         )
         if not had_active_run and result.wandb_run_id is None:
-            self._backfill_training(model_config_path)
+            self._backfill_training(
+                model_config_path,
+                upload_retriever=self.upload_retriever,
+            )
         self.coordinator.update_config(
             _build_available_wandb_config(
                 model_config_path=model_config_path,
@@ -344,7 +353,12 @@ class LogRetrieverToWandbStep(
             }
         )
 
-    def _backfill_training(self, model_config_path: Path) -> None:
+    def _backfill_training(
+        self,
+        model_config_path: Path,
+        *,
+        upload_retriever: bool,
+    ) -> None:
         """Log saved training history when an upstream run has no W&B lineage."""
         try:
             payload: dict[str, Any] = json.loads(
@@ -382,10 +396,11 @@ class LogRetrieverToWandbStep(
                             "Training/gnn_training_loss": float(average_loss),
                         }
                     )
-        artifact_paths = [
-            model_config_path,
-            model_config_path.parent / GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME,
-        ]
+        artifact_paths = [model_config_path]
+        if upload_retriever:
+            artifact_paths.append(
+                model_config_path.parent / GNN_ANSWER_RETRIEVER_WEIGHTS_FILENAME
+            )
         relation_vocabulary_path = (
             model_config_path.parent / RGCN_RELATION_VOCABULARY_FILENAME
         )

@@ -519,6 +519,28 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(captured_configs[0].training_log_every, 20)
         self.assertEqual(captured_configs[0].wandb_training_log_every, 5)
 
+    def test_wandb_retriever_upload_flag_defaults_off_and_parses(self) -> None:
+        captured_configs: list[main.PipelineRuntimeConfig] = []
+
+        def fake_run_pipeline(config: main.PipelineRuntimeConfig):
+            captured_configs.append(config)
+            return main.PipelineExecutionResult.success_result(
+                final_result=main.InitialStepResult(),
+                execution_time_ms=0.0,
+                steps_executed=0,
+                total_steps=0,
+            )
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline), patch(
+            "sys.stdout",
+            new_callable=StringIO,
+        ):
+            self.assertEqual(main.main([]), 0)
+            self.assertFalse(captured_configs[-1].wandb_upload_retriever)
+            self.assertEqual(main.main(["--wandb-upload-retriever"]), 0)
+
+        self.assertTrue(captured_configs[-1].wandb_upload_retriever)
+
     def test_evaluation_embedding_and_profile_flags_are_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
 
