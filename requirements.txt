@@ -2,6 +2,7 @@
 pydantic
 datasets
 torch
+transformers>=4.57,<5
 langchain-openai
 python-dotenv
 wandb

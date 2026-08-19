@@ -93,14 +93,14 @@ class BuiltPipelineConfiguration(StepResult):
         description="OpenAI embedding model used for all graph and question text.",
     )
     # Compatibility aliases. They are resolved to embedding_model by the builder.
-    question_embedding_model: str = Field(
-        ..., description="OpenAI embedding model for question text."
+    question_embedding_model: str | None = Field(
+        default=None, description="OpenAI embedding model for question text."
     )
-    relation_embedding_model: str = Field(
-        ..., description="OpenAI embedding model for relation text."
+    relation_embedding_model: str | None = Field(
+        default=None, description="OpenAI embedding model for relation text."
     )
-    entity_embedding_model: str = Field(
-        ..., description="OpenAI embedding model for entity text."
+    entity_embedding_model: str | None = Field(
+        default=None, description="OpenAI embedding model for entity text."
     )
     use_edge_mlp: bool = Field(default=False)
     question_aware_classifier: bool = Field(default=False)
@@ -267,18 +267,26 @@ class BuildPipelineConfigurationStep(
             value_getter=lambda item: item.strategy_id,
             label_getter=lambda item: item.display_name,
         )
-        embedding_model = self.selection_service.resolve_choice(
-            provided_value=self._provided_embedding_model(),
-            options=OPENAI_EMBEDDING_MODELS,
-            prompt_title="Embedding Model",
-            prompt_help="Select the OpenAI embedding model used everywhere embeddings are needed.",
-            recommended_id=RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
-            # Keep the historical exception type for callers that catch it;
-            # there is now only one embedding selection.
-            invalid_exception_type=InvalidEntityEmbeddingModelSelectionException,
-            value_getter=lambda item: item.model_id,
-            label_getter=lambda item: item.display_name,
-        )
+        embedding_model = None
+        if any(
+            (
+                architecture.data_requirements.uses_entity_embeddings,
+                architecture.data_requirements.uses_question_embeddings,
+                architecture.data_requirements.uses_relation_embeddings,
+            )
+        ):
+            embedding_model = self.selection_service.resolve_choice(
+                provided_value=self._provided_embedding_model(),
+                options=OPENAI_EMBEDDING_MODELS,
+                prompt_title="Embedding Model",
+                prompt_help="Select the OpenAI embedding model used everywhere embeddings are needed.",
+                recommended_id=RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
+                # Keep the historical exception type for callers that catch it;
+                # there is now only one embedding selection.
+                invalid_exception_type=InvalidEntityEmbeddingModelSelectionException,
+                value_getter=lambda item: item.model_id,
+                label_getter=lambda item: item.display_name,
+            )
         question_embedding_model = embedding_model
         relation_embedding_model = embedding_model
         entity_embedding_model = embedding_model

@@ -56,7 +56,7 @@ class PreparedGnnEvaluationInstance(BaseModel):
 
     source_instance_index: int = Field(...)
     instance: WebQSPProcessedInstance = Field(...)
-    node_embedding_indices: TorchTensor = Field(...)
+    node_embedding_indices: TorchTensor | None = Field(default=None)
     relation_embedding_indices: TorchTensor | None = Field(default=None)
     question_embedding_index: int | None = Field(default=None)
     edge_index: TorchTensor = Field(...)
@@ -65,6 +65,11 @@ class PreparedGnnEvaluationInstance(BaseModel):
     active_relation_ids: TorchTensor | None = Field(default=None)
     edge_relation_index: TorchTensor | None = Field(default=None)
     active_relation_offsets: TorchTensor | None = Field(default=None)
+    question_input_ids: TorchTensor | None = Field(default=None)
+    question_attention_mask: TorchTensor | None = Field(default=None)
+    seed_distribution: TorchTensor | None = Field(default=None)
+    initialization_edge_index: TorchTensor | None = Field(default=None)
+    initialization_edge_type: TorchTensor | None = Field(default=None)
 
 
 class PreparedGnnEvaluationData(BaseModel):
@@ -73,17 +78,21 @@ class PreparedGnnEvaluationData(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     instances: list[PreparedGnnEvaluationInstance] = Field(default_factory=list)
-    node_embeddings: TorchTensor = Field(...)
+    node_embeddings: TorchTensor | None = Field(default=None)
     relation_embeddings: TorchTensor | None = Field(default=None)
     question_embeddings: TorchTensor | None = Field(default=None)
     selected_device: str = Field(...)
     embedding_cache_device: str = Field(...)
     embedding_cache_dtype: str = Field(...)
+    relation_input_ids: TorchTensor | None = Field(default=None)
+    relation_attention_mask: TorchTensor | None = Field(default=None)
+    runtime_strategy: str = Field(default="default")
+    autocast_dtype: str = Field(default="float32")
 
     @property
     def uses_bfloat16(self) -> bool:
         """Return whether compact evaluation embeddings use BF16 storage."""
-        return self.embedding_cache_dtype == "bfloat16"
+        return self.autocast_dtype == "bfloat16" or self.embedding_cache_dtype == "bfloat16"
 
 
 class AnswerCandidateScore(BaseModel):
@@ -93,7 +102,7 @@ class AnswerCandidateScore(BaseModel):
     local_node_id: int = Field(..., description="Candidate local graph node id.")
     global_node_id: int = Field(..., description="Global nodes.json vocabulary id.")
     logit: float = Field(..., description="Raw classifier logit.")
-    probability: float = Field(..., description="Sigmoid classifier probability.")
+    probability: float = Field(..., description="Architecture-normalized node probability.")
     is_gold_answer: bool = Field(..., description="Whether the candidate is gold.")
     selection_reason: str = Field(
         ...,
@@ -114,7 +123,7 @@ class GoldAnswerScore(BaseModel):
         description="Global nodes.json vocabulary id when the node is known.",
     )
     logit: float | None = Field(default=None, description="Raw classifier logit.")
-    probability: float | None = Field(default=None, description="Sigmoid probability.")
+    probability: float | None = Field(default=None, description="Normalized node probability.")
     present_in_graph: bool = Field(
         ...,
         description="Whether the gold answer appears in the local graph.",

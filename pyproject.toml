@@ -16,6 +16,7 @@ dependencies = [
     "python-dotenv",
     "qdrant-client",
     "torch",
+    "transformers>=4.57,<5",
     "wandb",
 ]
 

@@ -19,6 +19,9 @@ from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
     RGCN_ARCHITECTURE_ID,
 )
+from pipeline.preparation.helpers.gnn_architecture import (
+    build_architecture_runtime_strategy,
+)
 from pipeline.preparation.models.gnn_training_data import (
     PreparedGnnTrainingData,
     PreparedGnnTrainingInstance,
@@ -113,6 +116,34 @@ class GnnTrainingDataPreparationService(AbstractService):
             torch=torch,
             requested_device=preparation_config.training_device,
         )
+        architecture = GNN_ARCHITECTURES[built_retriever.gnn_architecture]
+        requirements = architecture.data_requirements
+        relation_vocabulary = self._resolve_relation_vocabulary(
+            cache_root=prepared_dataset.cache_directory.parent,
+            built_retriever=built_retriever,
+            preparation_config=preparation_config,
+        )
+        runtime_strategy = build_architecture_runtime_strategy(
+            built_retriever.gnn_architecture
+        )
+        if runtime_strategy.handles_data_preparation:
+            autocast_dtype = self._resolve_embedding_dtype(
+                torch=torch,
+                requested_dtype=preparation_config.embedding_cache_dtype,
+                selected_device=selected_device,
+            )
+            return runtime_strategy.prepare_training_data(
+                built_retriever=built_retriever,
+                instances=selected_instances,
+                relation_vocabulary=relation_vocabulary,
+                start_index=start_index,
+                end_index=end_index,
+                selected_device=selected_device,
+                cache_root=prepared_dataset.cache_directory.parent,
+                torch=torch,
+                autocast_dtype=autocast_dtype,
+            )
+
         (
             entity_embedding_model,
             question_embedding_model,
@@ -121,13 +152,6 @@ class GnnTrainingDataPreparationService(AbstractService):
             cache_root=prepared_dataset.cache_directory.parent,
             built_retriever=built_retriever,
             configuration=configuration,
-            preparation_config=preparation_config,
-        )
-        architecture = GNN_ARCHITECTURES[built_retriever.gnn_architecture]
-        requirements = architecture.data_requirements
-        relation_vocabulary = self._resolve_relation_vocabulary(
-            cache_root=prepared_dataset.cache_directory.parent,
-            built_retriever=built_retriever,
             preparation_config=preparation_config,
         )
 

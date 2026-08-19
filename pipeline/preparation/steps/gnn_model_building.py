@@ -13,6 +13,7 @@ from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
     HGT_ARCHITECTURE_ID,
     OPENAI_EMBEDDING_MODELS,
+    REAREV_ARCHITECTURE_ID,
 )
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
@@ -31,12 +32,12 @@ class BuiltGnnAnswerRetriever(StepResult):
     gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
     gnn_architecture_context: dict[str, Any] = Field(default_factory=dict)
     relation_vocabulary: dict[str, int] | None = Field(default=None)
-    entity_embedding_model: str = Field(
-        ...,
+    entity_embedding_model: str | None = Field(
+        default=None,
         description="OpenAI embedding model used for entity text.",
     )
-    entity_embedding_dimension: int = Field(
-        ...,
+    entity_embedding_dimension: int | None = Field(
+        default=None,
         description="Entity text embedding dimension before projection.",
     )
     hidden_dimension: int | None = Field(
@@ -45,12 +46,12 @@ class BuiltGnnAnswerRetriever(StepResult):
     )
     gnn_layer_count: int | None = Field(default=None, description="Number of weighted GNN layers.")
     node_classifier: str | None = Field(default=None, description="Node classifier architecture id.")
-    question_embedding_dimension: int = Field(
-        ...,
+    question_embedding_dimension: int | None = Field(
+        default=None,
         description="Question text embedding dimension before projection.",
     )
-    relation_embedding_dimension: int = Field(
-        ...,
+    relation_embedding_dimension: int | None = Field(
+        default=None,
         description="Relation text embedding dimension before projection.",
     )
     use_edge_mlp: bool = Field(default=False)
@@ -98,13 +99,15 @@ class BuildGnnAnswerRetrieverStep(
         configuration = context.pipeline_configuration
         from pipeline.preparation.models.gnn_answer_retriever import build_gnn_answer_retriever
 
-        embedding_model = (
-            configuration.embedding_model
-            or configuration.entity_embedding_model
-        )
-        embedding_definition = OPENAI_EMBEDDING_MODELS[embedding_model]
+        embedding_model = configuration.embedding_model or configuration.entity_embedding_model
         architecture_options = dict(configuration.gnn_architecture_options)
         architecture = GNN_ARCHITECTURES[configuration.gnn_architecture]
+        embedding_definition = (
+            OPENAI_EMBEDDING_MODELS[embedding_model]
+            if architecture.data_requirements.uses_entity_embeddings
+            and embedding_model is not None
+            else None
+        )
         supported_option_ids = set(
             architecture.option_map
         )
@@ -139,12 +142,34 @@ class BuildGnnAnswerRetrieverStep(
             architecture_context = build_relation_architecture_context(
                 relation_vocabulary
             )
+        if configuration.gnn_architecture == REAREV_ARCHITECTURE_ID:
+            from pipeline.preparation.helpers.rearev_constants import (
+                REAREV_ENCODER_MODEL_ID,
+                REAREV_ENCODER_REVISION,
+                REAREV_ENCODER_WIDTH,
+                REAREV_QUESTION_MAX_LENGTH,
+                REAREV_RELATION_MAX_LENGTH,
+                REAREV_RELATION_TEXT_SCHEMA_VERSION,
+            )
+
+            architecture_context.update(
+                {
+                    "rearev_preprocessing_version": 1,
+                    "encoder_model_id": REAREV_ENCODER_MODEL_ID,
+                    "encoder_revision": REAREV_ENCODER_REVISION,
+                    "encoder_width": REAREV_ENCODER_WIDTH,
+                    "question_max_length": REAREV_QUESTION_MAX_LENGTH,
+                    "relation_max_length": REAREV_RELATION_MAX_LENGTH,
+                    "relation_text_schema_version": REAREV_RELATION_TEXT_SCHEMA_VERSION,
+                    "encoder_frozen": True,
+                }
+            )
 
         logger.info(
             f"Building GNN answer retriever: dataset={prepared_dataset.dataset_id} "
             f"gnn_architecture={configuration.gnn_architecture} "
             f"embedding_model={embedding_model} "
-            f"embedding_dimension={embedding_definition.dimensions} "
+            f"embedding_dimension={getattr(embedding_definition, 'dimensions', 'n/a')} "
             f"hidden_dimension={configuration.gnn_hidden_dimension} "
             f"gnn_layers={configuration.gnn_layer_count} "
             f"node_classifier={configuration.node_classifier} "
@@ -157,9 +182,9 @@ class BuildGnnAnswerRetrieverStep(
             gnn_architecture=configuration.gnn_architecture,
             architecture_options=architecture_options,
             architecture_context=architecture_context,
-            entity_embedding_dimension=embedding_definition.dimensions,
-            question_embedding_dimension=embedding_definition.dimensions,
-            relation_embedding_dimension=embedding_definition.dimensions,
+            entity_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
+            question_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
+            relation_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
         )
 
         if configuration.gnn_architecture == HGT_ARCHITECTURE_ID:
@@ -182,9 +207,9 @@ class BuildGnnAnswerRetrieverStep(
             gnn_architecture_context=architecture_context,
             relation_vocabulary=relation_vocabulary,
             entity_embedding_model=embedding_model,
-            entity_embedding_dimension=embedding_definition.dimensions,
-            question_embedding_dimension=embedding_definition.dimensions,
-            relation_embedding_dimension=embedding_definition.dimensions,
+            entity_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
+            question_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
+            relation_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
             hidden_dimension=getattr(model, "hidden_dimension", None),
             gnn_layer_count=getattr(model, "gnn_layer_count", None),
             node_classifier=getattr(model, "node_classifier", None),

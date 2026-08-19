@@ -82,6 +82,15 @@ def normalize_model_config(config: dict[str, Any]) -> dict[str, Any]:
         "attention_heads": raw.get(
             "attention_heads", training.get("attention_heads")
         ),
+        "num_instructions": raw.get(
+            "num_instructions", training.get("num_instructions")
+        ),
+        "reasoning_steps": raw.get(
+            "reasoning_steps", training.get("reasoning_steps")
+        ),
+        "adaptive_iterations": raw.get(
+            "adaptive_iterations", training.get("adaptive_iterations")
+        ),
     }
     try:
         defaults = architecture_defaults(architecture)
@@ -90,14 +99,17 @@ def normalize_model_config(config: dict[str, Any]) -> dict[str, Any]:
     defaults.pop("gnn_architecture", None)
     supported = GNN_ARCHITECTURES.get(architecture)
     supported_ids = set(supported.option_map) if supported is not None else set(defaults)
-    architecture_options = {
-        option_id: persisted_options.get(
-            option_id,
-            legacy_values.get(option_id, default),
+    architecture_options: dict[str, Any] = {}
+    for option_id, default in defaults.items():
+        if option_id not in supported_ids:
+            continue
+        if option_id in persisted_options:
+            architecture_options[option_id] = persisted_options[option_id]
+            continue
+        legacy_value = legacy_values.get(option_id)
+        architecture_options[option_id] = (
+            default if legacy_value is None else legacy_value
         )
-        for option_id, default in defaults.items()
-        if option_id in supported_ids
-    }
     if architecture_options.get("use_edge_mlp") is False:
         architecture_options["edge_mlp_hidden_dim"] = None
     architecture_options = {

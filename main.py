@@ -236,6 +236,20 @@ class PipelineRuntimeConfig(BaseModel):
                     requested_options[option_id] = value
         resolved_options = {**defaults, **requested_options}
         architecture = GNN_ARCHITECTURES[architecture_id]
+        needs_openai_embeddings = any(
+            (
+                architecture.data_requirements.uses_entity_embeddings,
+                architecture.data_requirements.uses_question_embeddings,
+                architecture.data_requirements.uses_relation_embeddings,
+            )
+        )
+        resolved_embedding_model = (
+            self.embedding_model
+            or self.entity_embedding_model
+            or self.question_embedding_model
+            or self.relation_embedding_model
+            or (RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID if needs_openai_embeddings else None)
+        )
         for option in architecture.options:
             if (
                 option.enabled_when_option is not None
@@ -262,34 +276,10 @@ class PipelineRuntimeConfig(BaseModel):
                 "context_strategy": self.context_strategy
                 or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
                 **architecture_updates,
-                "embedding_model": (
-                    self.embedding_model
-                    or self.entity_embedding_model
-                    or self.question_embedding_model
-                    or self.relation_embedding_model
-                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
-                ),
-                "question_embedding_model": (
-                    self.embedding_model
-                    or self.entity_embedding_model
-                    or self.question_embedding_model
-                    or self.relation_embedding_model
-                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
-                ),
-                "relation_embedding_model": (
-                    self.embedding_model
-                    or self.entity_embedding_model
-                    or self.question_embedding_model
-                    or self.relation_embedding_model
-                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
-                ),
-                "entity_embedding_model": (
-                    self.embedding_model
-                    or self.entity_embedding_model
-                    or self.question_embedding_model
-                    or self.relation_embedding_model
-                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
-                ),
+                "embedding_model": resolved_embedding_model,
+                "question_embedding_model": resolved_embedding_model,
+                "relation_embedding_model": resolved_embedding_model,
+                "entity_embedding_model": resolved_embedding_model,
             }
         )
 
@@ -882,8 +872,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_TRAINING_BATCH_SIZE,
         help=(
-            "Number of disconnected WebQSP graphs per R-GCN optimizer step. "
-            "GraphSAGE retains single-graph training."
+            "Number of disconnected WebQSP graphs per R-GCN, HGT, or ReaRev "
+            "optimizer step. GraphSAGE retains single-graph training."
         ),
     )
     parser.add_argument(

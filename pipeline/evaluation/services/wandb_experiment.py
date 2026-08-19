@@ -396,6 +396,11 @@ class WandbExperimentCoordinator:
                     value = model_config.get(key)
                     if value:
                         tags.append(str(value))
+            architecture_context = model_config.get("gnn_architecture_context", {})
+            if isinstance(architecture_context, dict):
+                encoder_model_id = architecture_context.get("encoder_model_id")
+                if encoder_model_id:
+                    tags.append(str(encoder_model_id).rsplit("/", 1)[-1])
             training = model_config.get("training", {})
             if not isinstance(training, dict):
                 training = {}
