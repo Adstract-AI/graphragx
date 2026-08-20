@@ -212,6 +212,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             f"embedding_dtype={prepared_evaluation_data.embedding_cache_dtype} "
             f"log_every={evaluation_config.log_every}"
         )
+        prepared_instance_count = len(prepared_evaluation_data.instances)
 
         predictions: list[EvaluatedAnswerRetrievalInstance] = []
         hits_at_1_count = 0
@@ -406,12 +407,12 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     evaluation_config.log_every > 0
                     and (
                         processed_count % evaluation_config.log_every == 0
-                        or processed_count == len(test_instances)
+                        or processed_count == prepared_instance_count
                     )
                 ):
                     logger.info(
                         f"GNN answer-retriever evaluation progress: "
-                        f"{processed_count}/{len(test_instances)} instances "
+                            f"{processed_count}/{prepared_instance_count} instances "
                         f"hits_at_1={hits_at_1_count / processed_count:.4f} "
                         f"hits_at_5={hits_at_5_count / processed_count:.4f} "
                         f"hits_at_10={hits_at_10_count / processed_count:.4f} "

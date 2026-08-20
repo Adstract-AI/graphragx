@@ -34,6 +34,15 @@ class FakeEncoder(nn.Module):
         return SimpleNamespace(last_hidden_state=self.embedding(input_ids))
 
 
+class FakeTokenizer:
+    def __call__(self, texts, **kwargs):
+        width = kwargs["max_length"]
+        return {
+            "input_ids": torch.ones((len(texts), width), dtype=torch.long),
+            "attention_mask": torch.ones((len(texts), width), dtype=torch.long),
+        }
+
+
 def _model(**overrides):
     settings = {
         "hidden_dimension": 50,
@@ -230,6 +239,40 @@ def test_rearev_empty_edges_and_isolated_nodes_remain_valid():
     scores = model(**inputs)
     assert scores.shape == (3,)
     assert torch.isfinite(scores).all()
+
+
+def test_rearev_preparation_skips_zero_node_graphs_and_preserves_source_index(caplog):
+    strategy = ReaRevRuntimeStrategy(tokenizer=FakeTokenizer())
+    empty = SimpleNamespace(
+        nodes=[],
+        node2id={},
+        q_entity=[],
+        question="empty",
+        edge_index=torch.empty((2, 0), dtype=torch.long),
+        edge_relations=[],
+        node_labels=torch.empty(0),
+    )
+    valid = SimpleNamespace(
+        nodes=["m.entity"],
+        node2id={"m.entity": 0},
+        q_entity=["m.entity"],
+        question="valid",
+        edge_index=torch.empty((2, 0), dtype=torch.long),
+        edge_relations=[],
+        node_labels=torch.tensor([1.0]),
+    )
+
+    prepared, _, _ = strategy._prepare_instances(
+        instances=[empty, valid],
+        relation_vocabulary={},
+        source_start=112,
+        torch=torch,
+        evaluation=False,
+    )
+
+    assert len(prepared) == 1
+    assert prepared[0].source_instance_index == 113
+    assert "Skipping ReaRev graph with no nodes: instance_index=112" in caplog.text
 
 
 def test_relation_normalization_distinguishes_inverse_direction():

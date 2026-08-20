@@ -213,6 +213,14 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
         )
         prepared: list[Any] = []
         for offset, instance in enumerate(instances):
+            source_instance_index = source_start + offset
+            if not instance.nodes:
+                logger.warning(
+                    "Skipping ReaRev graph with no nodes: "
+                    f"instance_index={source_instance_index} "
+                    f"phase={'evaluation' if evaluation else 'training'}"
+                )
+                continue
             try:
                 edge_index, edge_type = build_sorted_typed_edges(
                     edge_index=instance.edge_index,
@@ -224,7 +232,7 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
                     self._initialization_edges(instance, relation_vocabulary, torch)
                 )
                 common = dict(
-                    source_instance_index=source_start + offset,
+                    source_instance_index=source_instance_index,
                     edge_index=edge_index,
                     edge_type=edge_type,
                     question_input_ids=question_input_ids[offset],
@@ -246,8 +254,18 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
                     else GnnAnswerRetrieverTrainingException
                 )
                 raise exception_type(
-                    f"Could not prepare ReaRev graph {source_start + offset}: {error}"
+                    f"Could not prepare ReaRev graph {source_instance_index}: {error}"
                 ) from error
+        if not prepared:
+            exception_type = (
+                GnnAnswerRetrieverEvaluationException
+                if evaluation
+                else GnnAnswerRetrieverTrainingException
+            )
+            raise exception_type(
+                "ReaRev requires at least one non-empty graph in the selected "
+                f"{'evaluation' if evaluation else 'training'} slice."
+            )
         return prepared, relation_input_ids, relation_attention_mask
 
     def prepare_training_data(
