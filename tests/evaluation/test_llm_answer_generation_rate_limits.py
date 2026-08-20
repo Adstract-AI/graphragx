@@ -136,6 +136,22 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
             {"response_format": {"type": "json_object"}},
         )
 
+    def test_reasoning_effort_is_passed_to_openai_chat_model(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+
+        service._create_chat_model(
+            chat_openai_type=CapturingChatOpenAI,
+            model_id="gpt-5-mini",
+            prompt="question",
+            api_key="openai-key",
+            reasoning_effort="low",
+        )
+
+        self.assertEqual(
+            CapturingChatOpenAI.captured_kwargs["reasoning_effort"],
+            "low",
+        )
+
     def test_deepseek_missing_api_key_mentions_deepseek_env_name(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
 

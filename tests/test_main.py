@@ -478,14 +478,14 @@ class MainEntrypointTests(unittest.TestCase):
                 "vezilka",
                 "--main-llm-model",
                 "qwen3-4b-new",
-                "--vezilka-reasoning-effort",
+                "--reasoning-effort",
                 "none",
             ]
         )
 
         self.assertEqual(args.llm_provider, "vezilka")
         self.assertEqual(args.main_llm_model, "qwen3-4b-new")
-        self.assertEqual(args.vezilka_reasoning_effort, "none")
+        self.assertEqual(args.reasoning_effort, "none")
 
     def test_evaluation_log_every_flag_is_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []

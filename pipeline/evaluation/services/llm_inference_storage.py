@@ -314,7 +314,7 @@ class LlmInferenceStorageService(AbstractService):
             "inference": {
                 "model_id": answers.model_id,
                 "llm_provider": answers.llm_provider,
-                "vezilka_reasoning_effort": answers.vezilka_reasoning_effort,
+                "reasoning_effort": answers.reasoning_effort,
                 "total_requests": len(answers.items),
                 "total_prompt_tokens": total_prompt_tokens,
                 "total_completion_tokens": total_completion_tokens,

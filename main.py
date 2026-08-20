@@ -162,7 +162,7 @@ class PipelineRuntimeConfig(BaseModel):
     ] = "full"
     dataset: str | None = None
     llm_provider: str | None = None
-    vezilka_reasoning_effort: str | None = None
+    reasoning_effort: str | None = None
     main_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
@@ -323,10 +323,6 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             "Inference-only mode requires --retriever-run-name or "
             "--retriever-run-number."
         )
-    if config.vezilka_reasoning_effort is not None and config.llm_provider != "vezilka":
-        raise PipelineException(
-            "--vezilka-reasoning-effort can only be used with --llm-provider vezilka."
-        )
     if config.retriever_run_name is not None and config.retriever_run_number is not None:
         raise PipelineException(
             "Select a retriever run by --retriever-run-name or "
@@ -438,7 +434,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         ),
         BuildPipelineConfigurationStep(
             llm_provider=resolved_config.llm_provider,
-            vezilka_reasoning_effort=resolved_config.vezilka_reasoning_effort,
+            reasoning_effort=resolved_config.reasoning_effort,
             main_llm_model=resolved_config.main_llm_model,
             subgraph_algorithm=resolved_config.subgraph_algorithm,
             context_strategy=resolved_config.context_strategy,
@@ -552,7 +548,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         ExtractShortestPathsBatchStep(),
         GenerateAndSaveFinalAnswersBatchesStep(
             llm_provider=resolved_config.llm_provider,
-            vezilka_reasoning_effort=resolved_config.vezilka_reasoning_effort,
+            reasoning_effort=resolved_config.reasoning_effort,
             model_id=resolved_config.main_llm_model,
             inference_run_name=resolved_config.inference_run_name,
             inference_batch_size=resolved_config.llm_inference_batch_size,
@@ -842,11 +838,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional main LLM model id for non-interactive configuration.",
     )
     parser.add_argument(
-        "--vezilka-reasoning-effort",
+        "--reasoning-effort",
         default=None,
         help=(
-            "Optional reasoning_effort value for Vezilka, for example 'none'. "
-            "When omitted, the field is not sent."
+            "Optional reasoning_effort value passed to the selected LLM provider, "
+            "for example 'none', 'low', 'medium', or 'high'. When omitted, the "
+            "field is not sent."
         ),
     )
     parser.add_argument(
@@ -1142,7 +1139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_mode=args.run_mode,
         dataset=args.dataset,
         llm_provider=args.llm_provider,
-        vezilka_reasoning_effort=args.vezilka_reasoning_effort,
+        reasoning_effort=args.reasoning_effort,
         main_llm_model=args.main_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,

@@ -128,6 +128,7 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                     prompt=prompt,
                     api_key=api_key,
                     base_url=base_url,
+                    reasoning_effort=reasoning_effort,
                 )
                 response = self._invoke_with_visible_rate_limit_retries(
                     chat_model=chat_model,
@@ -271,6 +272,7 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         prompt: str,
         api_key: str,
         base_url: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> Any:
         http_client = create_rate_limit_logging_http_client(
             logger=logger,
@@ -290,6 +292,8 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
             model_kwargs["model_kwargs"] = {
                 "response_format": {"type": "json_object"}
             }
+        if reasoning_effort is not None:
+            model_kwargs["reasoning_effort"] = reasoning_effort
         if base_url is not None:
             model_kwargs["base_url"] = base_url
 
@@ -327,6 +331,8 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                 fallback_kwargs["model_kwargs"] = {
                     "response_format": {"type": "json_object"}
                 }
+            if reasoning_effort is not None:
+                fallback_kwargs["reasoning_effort"] = reasoning_effort
             try:
                 return chat_openai_type(**fallback_kwargs)
             except TypeError:

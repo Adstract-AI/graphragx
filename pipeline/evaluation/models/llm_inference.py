@@ -103,7 +103,7 @@ class GeneratedFinalAnswersBatch(StepResult):
     evaluation_run_name: str = Field(..., description="Source GNN evaluation run name.")
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
-    vezilka_reasoning_effort: str | None = Field(default=None)
+    reasoning_effort: str | None = Field(default=None)
     items: list[GeneratedAnswerForPrediction] = Field(default_factory=list)
 
     @property
@@ -127,7 +127,7 @@ class SavedLlmInferenceRun(StepResult):
     inference_run_number: int = Field(..., description="Created inference run number.")
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
-    vezilka_reasoning_effort: str | None = Field(default=None)
+    reasoning_effort: str | None = Field(default=None)
     total_instances: int = Field(..., description="Number of instances processed.")
     successful_answers: int = Field(..., description="Number of successful generations.")
     failed_answers: int = Field(..., description="Number of failed generations.")

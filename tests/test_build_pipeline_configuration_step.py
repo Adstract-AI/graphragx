@@ -111,6 +111,23 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.llm_provider, "vezilka")
         self.assertEqual(result.main_llm_model, "qwen3-4b-custom")
 
+    def test_reasoning_effort_is_provider_independent_configuration(self) -> None:
+        step = BuildPipelineConfigurationStep(
+            llm_provider="openai",
+            main_llm_model="gpt-5-mini",
+            reasoning_effort="low",
+            subgraph_algorithm="shortest_path",
+            context_strategy="structured_triples",
+            gnn_layer_count=2,
+            gnn_hidden_dimension=256,
+            node_classifier="mlp",
+            embedding_model="text-embedding-3-small",
+        )
+
+        result = step.execute(self.make_dataset_context())
+
+        self.assertEqual(result.reasoning_effort, "low")
+
     def test_vezilka_prompts_for_a_free_form_model_name(self) -> None:
         step = BuildPipelineConfigurationStep(
             llm_provider="vezilka",
