@@ -124,7 +124,6 @@ def _apply_saved_model_config(
     saved: SavedGnnAnswerRetrieverConfig,
 ) -> "PipelineRuntimeConfig":
     options = saved.resolved_gnn_architecture_options
-    architecture = GNN_ARCHITECTURES[saved.resolved_gnn_architecture]
     return resolved.model_copy(
         update={
             "dataset": saved.dataset_id,
@@ -135,10 +134,10 @@ def _apply_saved_model_config(
             "node_classifier": options.get("node_classifier"),
             "use_edge_mlp": options.get("use_edge_mlp"),
             "question_aware_classifier": options.get("question_aware_classifier"),
-            "use_reverse_edges": (
-                architecture.data_requirements.requires_reverse_edges
-                or options.get("use_reverse_edges")
-            ),
+            # Mandatory reverse edges belong to architecture data requirements,
+            # not to the user-configurable option set. The configuration builder
+            # resolves the effective value after validating saved options.
+            "use_reverse_edges": options.get("use_reverse_edges"),
             "add_layer_normalization": options.get("add_layer_normalization"),
             "edge_mlp_hidden_dim": options.get("edge_mlp_hidden_dim"),
             "dropout": options.get("dropout"),
