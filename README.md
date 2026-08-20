@@ -223,13 +223,14 @@ Evaluation compacts the selected test instances into reusable inputs before mode
 
 ### LLM Inference And Results
 
-Vezilka uses the OpenAI-compatible completions endpoint at `https://vllm.finki.ukim.mk/v1/completions`. Set `VEZILKA_API_KEY`, then pass any currently hosted model name:
+Vezilka uses the OpenAI-compatible chat-completions endpoint at `https://vllm.finki.ukim.mk/v1/chat/completions`. Streaming is always disabled. Set `VEZILKA_API_KEY`, then pass any currently hosted model name. `reasoning_effort` is omitted by default; add `--vezilka-reasoning-effort none` (or another server-supported value) when desired:
 
 ```bash
 uv run python main.py --inference-only \
   --retriever-run-number 12 \
   --llm-provider vezilka \
   --main-llm-model qwen3-4b \
+  --vezilka-reasoning-effort none \
   --default
 ```
 
@@ -238,6 +239,7 @@ uv run python main.py --inference-only \
 | `--no-llm-inference` | Stops full or evaluation-only mode after GNN candidate retrieval. Training and retriever W&B logging still run unless `--no-wandb` is supplied. |
 | `--inference-run-name INFERENCE_RUN_NAME` | Optional label for the saved LLM inference run folder. |
 | `--llm-inference-batch-size LLM_INFERENCE_BATCH_SIZE` | Number of samples to process per persistence batch during LLM inference. The LLM calls remain one-by-one. |
+| `--vezilka-reasoning-effort VALUE` | Optional Vezilka `reasoning_effort`. The field is omitted when this flag is absent. Streaming is always disabled. |
 
 ### W&B
 

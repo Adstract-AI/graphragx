@@ -51,6 +51,7 @@ class PipelineConfigurationInput(BaseModel):
     """Optional programmatic input for pipeline configuration building."""
 
     llm_provider: str | None = Field(default=None)
+    vezilka_reasoning_effort: str | None = Field(default=None)
     main_llm_model: str | None = Field(default=None)
     subgraph_construction_algorithm: str | None = Field(default=None)
     context_construction_strategy: str | None = Field(default=None)
@@ -80,6 +81,10 @@ class BuiltPipelineConfiguration(StepResult):
     gnn_architecture: str = Field(default="graphsage", description="Selected GNN architecture id.")
     gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
     llm_provider: str = Field(default="openai", description="Selected LLM provider id.")
+    vezilka_reasoning_effort: str | None = Field(
+        default=None,
+        description="Optional reasoning effort passed only to Vezilka.",
+    )
     main_llm_model: str = Field(..., description="Selected main LLM model id.")
     subgraph_construction_algorithm: str = Field(
         ..., description="Selected subgraph construction algorithm id."
@@ -123,6 +128,7 @@ class BuildPipelineConfigurationStep(
     def __init__(
         self,
         llm_provider: str | None = None,
+        vezilka_reasoning_effort: str | None = None,
         main_llm_model: str | None = None,
         subgraph_algorithm: str | None = None,
         context_strategy: str | None = None,
@@ -147,6 +153,7 @@ class BuildPipelineConfigurationStep(
         super().__init__(force_default=force_default)
         self.configuration_input = PipelineConfigurationInput(
             llm_provider=llm_provider,
+            vezilka_reasoning_effort=vezilka_reasoning_effort,
             main_llm_model=main_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
@@ -336,6 +343,7 @@ class BuildPipelineConfigurationStep(
         return BuiltPipelineConfiguration(
             dataset_id=selected_dataset.dataset_id,
             llm_provider=llm_provider,
+            vezilka_reasoning_effort=self.configuration_input.vezilka_reasoning_effort,
             gnn_architecture=gnn_architecture,
             gnn_architecture_options=resolved_gnn_options,
             main_llm_model=main_llm_model,

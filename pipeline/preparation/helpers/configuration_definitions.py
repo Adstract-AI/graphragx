@@ -220,7 +220,7 @@ LLM_PROVIDERS: Final[dict[str, LlmProviderDefinition]] = {
     "vezilka": LlmProviderDefinition(
         provider_id="vezilka",
         display_name="Vezilka",
-        description="Use any model exposed by the FINKI vLLM completions endpoint.",
+        description="Use any model exposed by the FINKI vLLM chat-completions endpoint.",
         accepts_arbitrary_models=True,
     ),
 }

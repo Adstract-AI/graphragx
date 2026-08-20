@@ -45,8 +45,18 @@ class FakeVezilkaCompletions:
             (),
             {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20},
         )()
-        choice = type("Choice", (), {"text": '{"answer":"A","explanation":"B"}'})()
+        message = type(
+            "Message",
+            (),
+            {"content": '{"answer":"A","explanation":"B"}'},
+        )()
+        choice = type("Choice", (), {"message": message})()
         return type("Completion", (), {"choices": [choice], "usage": usage})()
+
+
+class FakeVezilkaChat:
+    def __init__(self):
+        self.completions = FakeVezilkaCompletions()
 
 
 class FakeVezilkaClient:
@@ -54,7 +64,7 @@ class FakeVezilkaClient:
 
     def __init__(self, **kwargs):
         self.__class__.captured_kwargs = kwargs
-        self.completions = FakeVezilkaCompletions()
+        self.chat = FakeVezilkaChat()
 
 
 class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
@@ -148,7 +158,7 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
 
         self.assertEqual(cost, 1.305)
 
-    def test_vezilka_uses_free_form_model_and_completions_endpoint(self) -> None:
+    def test_vezilka_uses_free_form_model_and_chat_completions_endpoint(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
         with patch(
             "pipeline.evaluation.services.llm_answer_generation.VEZILKA_API_KEY",
@@ -159,6 +169,7 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
                 reasoning_paths_text="<A, relation, B>",
                 model_id="qwen3-4b-custom",
                 provider_id="vezilka",
+                reasoning_effort="none",
             )
 
         self.assertEqual(result["answer"], "A")
@@ -172,7 +183,28 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
             FakeVezilkaCompletions.captured_kwargs["model"],
             "qwen3-4b-custom",
         )
-        self.assertIn("System:", FakeVezilkaCompletions.captured_kwargs["prompt"])
+        self.assertEqual(
+            FakeVezilkaCompletions.captured_kwargs["extra_body"],
+            {"reasoning_effort": "none"},
+        )
+        self.assertFalse(FakeVezilkaCompletions.captured_kwargs["stream"])
+        self.assertEqual(
+            FakeVezilkaCompletions.captured_kwargs["messages"][0]["role"],
+            "system",
+        )
+
+    def test_vezilka_omits_optional_reasoning_and_always_disables_streaming(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+        with patch("openai.OpenAI", FakeVezilkaClient):
+            service._invoke_vezilka_chat_completion(
+                model_id="qwen3.8-27b",
+                prompt="question",
+                api_key="vezilka-key",
+                base_url="https://vllm.finki.ukim.mk/v1",
+            )
+
+        self.assertNotIn("extra_body", FakeVezilkaCompletions.captured_kwargs)
+        self.assertFalse(FakeVezilkaCompletions.captured_kwargs["stream"])
 
 
 if __name__ == "__main__":
