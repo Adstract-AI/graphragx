@@ -56,11 +56,13 @@ from pipeline import (
 )
 from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
+    LLM_PROVIDERS,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
     RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
+    SHARED_LLM_MODELS,
 )
 from pipeline.preparation.helpers.gnn_architecture import (
     architecture_defaults,
@@ -160,6 +162,7 @@ class PipelineRuntimeConfig(BaseModel):
         "inference-only",
     ] = "full"
     dataset: str | None = None
+    llm_provider: str | None = None
     main_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
@@ -267,10 +270,31 @@ class PipelineRuntimeConfig(BaseModel):
             gnn_architecture=architecture_id,
             gnn_options=resolved_options,
         )
+        llm_provider = self.llm_provider
+        if llm_provider is None and self.main_llm_model is not None:
+            llm_provider = (
+                "deepseek"
+                if self.main_llm_model.startswith("deepseek-")
+                else "openai"
+            )
+        llm_provider = llm_provider or "openai"
+        main_llm_model = self.main_llm_model
+        if main_llm_model is None and llm_provider != "vezilka":
+            provider_models = [
+                model_id
+                for model_id, definition in SHARED_LLM_MODELS.items()
+                if definition.provider_id == llm_provider
+            ]
+            main_llm_model = (
+                RECOMMENDED_MAIN_LLM_MODEL_ID
+                if llm_provider == "openai"
+                else provider_models[0]
+            )
         return self.model_copy(
             update={
                 "dataset": self.dataset or WEBQSP_DATASET_ID,
-                "main_llm_model": self.main_llm_model or RECOMMENDED_MAIN_LLM_MODEL_ID,
+                "llm_provider": llm_provider,
+                "main_llm_model": main_llm_model,
                 "subgraph_algorithm": self.subgraph_algorithm
                 or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
                 "context_strategy": self.context_strategy
@@ -315,6 +339,14 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     if config.wandb_training_log_every < 0:
         raise PipelineException(
             "--wandb-training-log-every must be greater than or equal to 0."
+        )
+    if (
+        config.use_default_config_values
+        and config.llm_provider == "vezilka"
+        and not config.main_llm_model
+    ):
+        raise PipelineException(
+            "--llm-provider vezilka requires --main-llm-model when --default is used."
         )
     if config.run_mode in {"evaluation-only", "inference-only"} and (
         config.continue_training_model_run_name is not None
@@ -401,6 +433,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             requested_dataset=resolved_config.dataset,
         ),
         BuildPipelineConfigurationStep(
+            llm_provider=resolved_config.llm_provider,
             main_llm_model=resolved_config.main_llm_model,
             subgraph_algorithm=resolved_config.subgraph_algorithm,
             context_strategy=resolved_config.context_strategy,
@@ -513,6 +546,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         BuildReasoningSamplesFromGnnEvaluationStep(),
         ExtractShortestPathsBatchStep(),
         GenerateAndSaveFinalAnswersBatchesStep(
+            llm_provider=resolved_config.llm_provider,
             model_id=resolved_config.main_llm_model,
             inference_run_name=resolved_config.inference_run_name,
             inference_batch_size=resolved_config.llm_inference_batch_size,
@@ -786,6 +820,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--dataset",
         default=None,
         help="Dataset choice for the current run.",
+    )
+    parser.add_argument(
+        "--llm-provider",
+        choices=tuple(LLM_PROVIDERS),
+        default=None,
+        help=(
+            "LLM provider used for inference. Vezilka accepts any value passed "
+            "through --main-llm-model."
+        ),
     )
     parser.add_argument(
         "--main-llm-model",
@@ -1084,6 +1127,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     runtime_config = PipelineRuntimeConfig(
         run_mode=args.run_mode,
         dataset=args.dataset,
+        llm_provider=args.llm_provider,
         main_llm_model=args.main_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,

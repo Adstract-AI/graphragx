@@ -15,6 +15,18 @@ class LlmModelDefinition(BaseModel):
     model_id: str = Field(..., description="Stable model identifier.")
     display_name: str = Field(..., description="Human-readable model name.")
     description: str = Field(..., description="Short description of the model.")
+    provider_id: str = Field(default="openai", description="Owning LLM provider id.")
+
+
+class LlmProviderDefinition(BaseModel):
+    """Typed definition of an LLM inference provider."""
+
+    model_config = ConfigDict(frozen=True)
+
+    provider_id: str
+    display_name: str
+    description: str
+    accepts_arbitrary_models: bool = False
 
 
 class SubgraphConstructionDefinition(BaseModel):
@@ -169,11 +181,13 @@ SHARED_LLM_MODELS: Final[dict[str, LlmModelDefinition]] = {
         model_id="deepseek-v4-flash",
         display_name="DeepSeek-V4-Flash",
         description="Fast DeepSeek V4 model served through the DeepSeek API.",
+        provider_id="deepseek",
     ),
     "deepseek-v4-pro": LlmModelDefinition(
         model_id="deepseek-v4-pro",
         display_name="DeepSeek-V4-Pro",
         description="Higher-capability DeepSeek V4 model served through the DeepSeek API.",
+        provider_id="deepseek",
     ),
     "gpt-4.1": LlmModelDefinition(
         model_id="gpt-4.1",
@@ -191,6 +205,27 @@ SHARED_LLM_MODELS: Final[dict[str, LlmModelDefinition]] = {
         description="Smallest shared model option for lightweight tasks.",
     ),
 }
+
+LLM_PROVIDERS: Final[dict[str, LlmProviderDefinition]] = {
+    "openai": LlmProviderDefinition(
+        provider_id="openai",
+        display_name="OpenAI",
+        description="Use an OpenAI-hosted chat model.",
+    ),
+    "deepseek": LlmProviderDefinition(
+        provider_id="deepseek",
+        display_name="DeepSeek",
+        description="Use a DeepSeek-hosted chat model.",
+    ),
+    "vezilka": LlmProviderDefinition(
+        provider_id="vezilka",
+        display_name="Vezilka",
+        description="Use any model exposed by the FINKI vLLM completions endpoint.",
+        accepts_arbitrary_models=True,
+    ),
+}
+
+RECOMMENDED_LLM_PROVIDER_ID: Final[str] = "openai"
 
 SUBGRAPH_CONSTRUCTION_ALGORITHMS: Final[dict[str, SubgraphConstructionDefinition]] = {
     "shortest_path": SubgraphConstructionDefinition(

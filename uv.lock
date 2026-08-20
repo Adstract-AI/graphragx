@@ -471,6 +471,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "datasets" },
     { name = "langchain-openai" },
+    { name = "openai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "qdrant-client" },
@@ -489,6 +490,7 @@ dev = [
 requires-dist = [
     { name = "datasets" },
     { name = "langchain-openai" },
+    { name = "openai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "qdrant-client" },

@@ -12,6 +12,7 @@ authors = [
 dependencies = [
     "datasets",
     "langchain-openai",
+    "openai",
     "pydantic",
     "python-dotenv",
     "qdrant-client",

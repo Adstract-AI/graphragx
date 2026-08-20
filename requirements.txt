@@ -4,6 +4,7 @@ datasets
 torch
 transformers>=4.57,<5
 langchain-openai
+openai
 python-dotenv
 wandb
 qdrant-client

@@ -468,6 +468,19 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertFalse(args.question_aware_classifier)
         self.assertFalse(args.add_layer_normalization)
 
+    def test_vezilka_provider_and_free_form_model_are_parsed(self) -> None:
+        args = main.build_parser().parse_args(
+            [
+                "--llm-provider",
+                "vezilka",
+                "--main-llm-model",
+                "qwen3-4b-new",
+            ]
+        )
+
+        self.assertEqual(args.llm_provider, "vezilka")
+        self.assertEqual(args.main_llm_model, "qwen3-4b-new")
+
     def test_evaluation_log_every_flag_is_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
 

@@ -10,6 +10,10 @@ class InvalidMainLlmSelectionException(PipelineException):
     """Raised when an invalid main LLM option is provided."""
 
 
+class InvalidLlmProviderSelectionException(PipelineException):
+    """Raised when an invalid LLM provider is provided."""
+
+
 class InvalidSubgraphConstructionSelectionException(PipelineException):
     """Raised when an invalid subgraph construction option is provided."""
 

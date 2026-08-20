@@ -372,7 +372,7 @@ class WandbExperimentCoordinator:
     @staticmethod
     def _build_tags_from_config(config: dict[str, Any]) -> list[str]:
         tags: list[str] = []
-        for key in ["dataset_id", "gnn_architecture", "model_id"]:
+        for key in ["dataset_id", "gnn_architecture", "llm_provider", "model_id"]:
             value = config.get(key)
             if value:
                 tags.append(str(value))

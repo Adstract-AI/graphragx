@@ -252,6 +252,7 @@ class LlmInferenceStorageService(AbstractService):
                 "gold_answers": item.a_entity,
                 "answer_candidates": item.answer_candidates,
                 "model_id": item.model_id,
+                "llm_provider": item.llm_provider,
                 "answer": item.answer,
                 "explanation": item.explanation,
                 "raw_response": item.raw_response,
@@ -312,6 +313,7 @@ class LlmInferenceStorageService(AbstractService):
             },
             "inference": {
                 "model_id": answers.model_id,
+                "llm_provider": answers.llm_provider,
                 "total_requests": len(answers.items),
                 "total_prompt_tokens": total_prompt_tokens,
                 "total_completion_tokens": total_completion_tokens,

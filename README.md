@@ -37,6 +37,7 @@ Fill in at least:
 
 ```bash
 OPENAI_API_KEY=your_openai_key
+VEZILKA_API_KEY=your_vezilka_key
 ```
 
 Start Qdrant before running any training or evaluation step that uses embeddings:
@@ -136,7 +137,8 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | Flag | Description |
 | --- | --- |
 | `--dataset DATASET` | Dataset id to use. The current supported dataset is `WebQSP`. |
-| `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. |
+| `--llm-provider {openai,deepseek,vezilka}` | LLM provider used for final answer generation. Default: `openai`. |
+| `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. For Vezilka this is free-form and is passed unchanged to the endpoint. |
 | `--subgraph-algorithm SUBGRAPH_ALGORITHM` | Subgraph construction algorithm. The current supported option is `shortest_path`. |
 | `--context-strategy CONTEXT_STRATEGY` | How the reasoning subgraph is represented for the LLM. The current supported option is `structured_triples`. |
 | `--gnn-architecture {graphsage,aa-graphsage,rgcn,hgt,rearev}` | Select GraphSAGE, Advance GraphSAGE, R-GCN, HGT, or ReaRev. GraphSAGE is the default; the lowercase values are stable CLI/configuration ids. |
@@ -220,6 +222,16 @@ The compact matrices are still copied into VRAM at the start of every process be
 Evaluation compacts the selected test instances into reusable inputs before model inference. GraphSAGE loads node, relation, and question embeddings; R-GCN and HGT load only node embeddings and use the saved categorical relation vocabulary. ReaRev prepares token IDs and makes no Qdrant/OpenAI embedding requests. Embedding-based architectures reuse incremental tensor shards, fetching and appending only missing vectors. Evaluation uses `torch.inference_mode()` and BF16 autocast when BF16 is selected on CUDA.
 
 ### LLM Inference And Results
+
+Vezilka uses the OpenAI-compatible completions endpoint at `https://vllm.finki.ukim.mk/v1/completions`. Set `VEZILKA_API_KEY`, then pass any currently hosted model name:
+
+```bash
+uv run python main.py --inference-only \
+  --retriever-run-number 12 \
+  --llm-provider vezilka \
+  --main-llm-model qwen3-4b \
+  --default
+```
 
 | Flag | Description |
 | --- | --- |

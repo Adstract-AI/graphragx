@@ -151,6 +151,8 @@ def _build_available_wandb_config(
             configs["inference"] = inference_payload
             if inference_payload.get("model_id") is not None:
                 payload["model_id"] = inference_payload["model_id"]
+            if inference_payload.get("llm_provider") is not None:
+                payload["llm_provider"] = inference_payload["llm_provider"]
     if inference_config_path is not None:
         source_paths["inference_config_path"] = inference_config_path
         source_paths["inference_inference_config_path"] = inference_config_path
