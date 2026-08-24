@@ -402,6 +402,14 @@ def test_nbfnet_preparation_loads_only_questions_and_skips_seedless_training(tmp
     )
     assert evaluation.instances[0].skip_reason is None
     assert evaluation.instances[1].skip_reason == "missing_question_entity"
+    evaluation_batch = NBFNetRuntimeStrategy().build_evaluation_batch(
+        prepared_data=evaluation,
+        prepared_instance=evaluation.instances[0],
+        torch=torch,
+        device="cpu",
+    )
+    assert evaluation_batch.node_labels.tolist() == valid.node_labels.tolist()
+    assert evaluation_batch.seed_node_index.tolist() == [0]
 
 
 def test_nbfnet_skipped_evaluation_graph_remains_in_metric_denominator():

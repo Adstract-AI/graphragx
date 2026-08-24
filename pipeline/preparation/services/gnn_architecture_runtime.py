@@ -603,7 +603,14 @@ class NBFNetRuntimeStrategy(DefaultGnnRuntimeStrategy):
                 raise ValueError("NBFNet instances require edge types and seed nodes.")
             if instance.question_embedding_index is None:
                 raise ValueError("NBFNet instances require a question embedding index.")
-            node_count = int(instance.node_labels.shape[0])
+            labels = getattr(instance, "node_labels", None)
+            if labels is None:
+                source_instance = getattr(instance, "instance", None)
+                labels = getattr(source_instance, "node_labels", None)
+            if labels is None:
+                raise ValueError("NBFNet instances require node labels.")
+            labels = labels.float()
+            node_count = int(labels.shape[0])
             if node_count <= 0:
                 raise ValueError("NBFNet batches cannot contain empty graphs.")
             edge_parts.append(instance.edge_index + node_offset)
@@ -611,7 +618,6 @@ class NBFNetRuntimeStrategy(DefaultGnnRuntimeStrategy):
             graph_parts.append(torch.full((node_count,), graph_id, dtype=torch.long))
             seed_parts.append(instance.seed_node_indices + node_offset)
             question_index_parts.append(instance.question_embedding_index)
-            labels = instance.node_labels.float()
             label_parts.append(labels)
             positive_count = float(labels.sum().item())
             negative_count = node_count - positive_count
