@@ -230,14 +230,29 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         with torch.inference_mode():
             for prepared_instance in prepared_evaluation_data.instances:
                 instance = prepared_instance.instance
+                if prepared_instance.skip_reason is not None:
+                    prediction = self._build_skipped_prediction(
+                        instance_index=prepared_instance.source_instance_index,
+                        instance=instance,
+                        global_node_vocabulary=prepared_dataset.vocabulary_store.nodes,
+                    )
+                    predictions.append(prediction)
+                    missing_gold_in_graph_count += int(prediction.missing_gold_in_graph)
+                    phase_timings.instance_count += 1
+                    logger.warning(
+                        "Recorded GNN retrieval miss without model execution: "
+                        f"instance_index={prepared_instance.source_instance_index} "
+                        f"reason={prepared_instance.skip_reason}"
+                    )
+                    continue
                 phase_started_at = self._start_profiled_phase(
                     torch=torch,
                     device=device,
                     enabled=evaluation_config.profile,
                 )
-                rearev_batch = None
+                runtime_batch = None
                 if runtime_strategy.handles_training_batches:
-                    rearev_batch = runtime_strategy.build_evaluation_batch(
+                    runtime_batch = runtime_strategy.build_evaluation_batch(
                         prepared_data=prepared_evaluation_data,
                         prepared_instance=prepared_instance,
                         torch=torch,
@@ -343,8 +358,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     ),
                 ):
                     logits = (
-                        model(**runtime_strategy.model_inputs(rearev_batch))
-                        if rearev_batch is not None
+                        model(**runtime_strategy.model_inputs(runtime_batch))
+                        if runtime_batch is not None
                         else model(
                             entity_features=entity_features,
                             edge_index=edge_index,
@@ -361,9 +376,9 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                 probabilities = runtime_strategy.probabilities(
                     logits,
                     graph_index=(
-                        rearev_batch.node_graph_index if rearev_batch is not None else None
+                        runtime_batch.node_graph_index if runtime_batch is not None else None
                     ),
-                    graph_count=(rearev_batch.graph_count if rearev_batch is not None else None),
+                    graph_count=(runtime_batch.graph_count if runtime_batch is not None else None),
                 )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
@@ -698,6 +713,41 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             hit_at_10=hit_at_10,
             hit_at_candidate_limit=hit_at_candidate_limit,
             missing_gold_in_graph=missing_gold_in_graph,
+        )
+
+    @staticmethod
+    def _build_skipped_prediction(
+        *,
+        instance_index: int,
+        instance: WebQSPProcessedInstance,
+        global_node_vocabulary: dict[str, int],
+    ) -> EvaluatedAnswerRetrievalInstance:
+        """Persist an explicit miss when an architecture cannot score the graph."""
+        gold_answer_scores = [
+            GoldAnswerScore(
+                node=gold_answer,
+                local_node_id=instance.node2id.get(gold_answer),
+                global_node_id=global_node_vocabulary.get(gold_answer),
+                logit=None,
+                probability=None,
+                present_in_graph=gold_answer in instance.node2id,
+            )
+            for gold_answer in instance.a_entity
+        ]
+        return EvaluatedAnswerRetrievalInstance(
+            instance_index=instance_index,
+            question=instance.question,
+            q_entity=instance.q_entity,
+            a_entity=instance.a_entity,
+            answer_candidates=[],
+            gold_answer_scores=gold_answer_scores,
+            hit_at_1=False,
+            hit_at_5=False,
+            hit_at_10=False,
+            hit_at_candidate_limit=False,
+            missing_gold_in_graph=not any(
+                score.present_in_graph for score in gold_answer_scores
+            ),
         )
 
     @staticmethod

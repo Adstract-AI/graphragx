@@ -155,10 +155,13 @@ class GnnTrainingDataPreparationService(AbstractService):
             preparation_config=preparation_config,
         )
 
-        node_texts, node_index_tensors = self._compact_text_index_tensors(
-            instance_texts=[instance.nodes for instance in selected_instances],
-            torch=torch,
-        )
+        node_texts: list[str] = []
+        node_index_tensors: list[Tensor | None] = [None] * len(selected_instances)
+        if requirements.uses_entity_embeddings:
+            node_texts, node_index_tensors = self._compact_text_index_tensors(
+                instance_texts=[instance.nodes for instance in selected_instances],
+                torch=torch,
+            )
         relation_texts: list[str] = []
         relation_index_tensors: list[Tensor | None] = [None] * len(selected_instances)
         if requirements.uses_relation_embeddings:
@@ -176,12 +179,16 @@ class GnnTrainingDataPreparationService(AbstractService):
             )
 
         cache_root = prepared_dataset.cache_directory.parent
-        node_cache = self.embedding_cache_service.load_node_cache(
-            cache_root=cache_root,
-            model_id=entity_embedding_model,
-            vocabulary={text: index for index, text in enumerate(node_texts)},
-            dataset_id=prepared_dataset.dataset_id,
-            ensure_collection=False,
+        node_cache = (
+            self.embedding_cache_service.load_node_cache(
+                cache_root=cache_root,
+                model_id=entity_embedding_model,
+                vocabulary={text: index for index, text in enumerate(node_texts)},
+                dataset_id=prepared_dataset.dataset_id,
+                ensure_collection=False,
+            )
+            if requirements.uses_entity_embeddings
+            else None
         )
         relation_cache = (
             self.embedding_cache_service.load_relation_cache(
@@ -211,14 +218,16 @@ class GnnTrainingDataPreparationService(AbstractService):
             requested_dtype=preparation_config.embedding_cache_dtype,
             selected_device=selected_device,
         )
-        cache_specs = [(node_cache, node_texts)]
+        cache_specs: list[tuple[str, TextEmbeddingCache, list[str]]] = []
+        if node_cache is not None:
+            cache_specs.append(("entity", node_cache, node_texts))
         if relation_cache is not None:
-            cache_specs.append((relation_cache, relation_texts))
+            cache_specs.append(("relation", relation_cache, relation_texts))
         if question_cache is not None:
-            cache_specs.append((question_cache, question_texts))
+            cache_specs.append(("question", question_cache, question_texts))
         total_embedding_bytes = sum(
             len(texts) * cache.vector_size * (2 if embedding_dtype == "bfloat16" else 4)
-            for cache, texts in cache_specs
+            for _, cache, texts in cache_specs
         )
         embedding_device = self._resolve_embedding_device(
             torch=torch,
@@ -249,7 +258,7 @@ class GnnTrainingDataPreparationService(AbstractService):
                     device=embedding_device,
                     preprocess=cache.cache_kind == "relations",
                 )
-                for cache, texts in cache_specs
+                for _, cache, texts in cache_specs
             )
         except torch.OutOfMemoryError as error:
             if not embedding_device.startswith("cuda"):
@@ -276,22 +285,39 @@ class GnnTrainingDataPreparationService(AbstractService):
                     device=embedding_device,
                     preprocess=cache.cache_kind == "relations",
                 )
-                for cache, texts in cache_specs
+                for _, cache, texts in cache_specs
             )
             cuda_allocation_failed = True
         if cuda_allocation_failed:
             torch.cuda.empty_cache()
-        node_embeddings = matrices[0]
-        matrix_offset = 1
-        relation_embeddings = None
-        if relation_cache is not None:
-            relation_embeddings = matrices[matrix_offset]
-            matrix_offset += 1
-        question_embeddings = (
-            matrices[matrix_offset] if question_cache is not None else None
-        )
+        matrix_by_kind = {
+            kind: matrix for (kind, _, _), matrix in zip(cache_specs, matrices, strict=True)
+        }
+        node_embeddings = matrix_by_kind.get("entity")
+        relation_embeddings = matrix_by_kind.get("relation")
+        question_embeddings = matrix_by_kind.get("question")
         prepared_instances: list[PreparedGnnTrainingInstance] = []
+        skipped_instances = 0
         for offset, instance in enumerate(selected_instances):
+            seed_node_indices = None
+            if requirements.uses_seed_distributions:
+                seed_ids = sorted(
+                    {
+                        instance.node2id[entity]
+                        for entity in instance.q_entity
+                        if entity in instance.node2id
+                    }
+                )
+                if not instance.nodes or not seed_ids:
+                    skipped_instances += 1
+                    logger.warning(
+                        f"Skipping {architecture.display_name} training graph without "
+                        "a usable question "
+                        f"entity: instance_index={start_index + offset} "
+                        f"nodes={len(instance.nodes)}"
+                    )
+                    continue
+                seed_node_indices = torch.tensor(seed_ids, dtype=torch.long)
             edge_index = instance.edge_index
             edge_type = None
             edge_norm = None
@@ -350,12 +376,18 @@ class GnnTrainingDataPreparationService(AbstractService):
                     edge_relation_index=edge_relation_index,
                     active_relation_offsets=active_relation_offsets,
                     node_labels=instance.node_labels,
+                    seed_node_indices=seed_node_indices,
                 )
+            )
+        if not prepared_instances:
+            raise GnnAnswerRetrieverTrainingException(
+                f"{architecture.display_name} training requires at least one non-empty "
+                "graph containing a linked question entity."
             )
         logger.info(
             f"Prepared GNN training data once for epochs: "
             f"instances={len(prepared_instances)} device={embedding_device} "
-            f"dtype={embedding_dtype}"
+            f"dtype={embedding_dtype} skipped={skipped_instances}"
         )
         return PreparedGnnTrainingData(
             built_retriever=built_retriever,

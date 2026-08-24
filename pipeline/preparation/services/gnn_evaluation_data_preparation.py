@@ -92,11 +92,14 @@ class GnnEvaluationDataPreparationService(AbstractService):
                 autocast_dtype=autocast_dtype,
             )
 
-        node_texts, node_index_tensors = self._compact_text_index_tensors(
-            instance_texts=[instance.nodes for instance in test_instances],
-            torch=torch,
-        )
         requirements = GNN_ARCHITECTURES[gnn_architecture].data_requirements
+        node_texts: list[str] = []
+        node_index_tensors: list[Tensor | None] = [None] * len(test_instances)
+        if requirements.uses_entity_embeddings:
+            node_texts, node_index_tensors = self._compact_text_index_tensors(
+                instance_texts=[instance.nodes for instance in test_instances],
+                torch=torch,
+            )
         relation_texts: list[str] = []
         relation_index_tensors: list[Tensor | None] = [None] * len(test_instances)
         if requirements.uses_relation_embeddings:
@@ -110,12 +113,16 @@ class GnnEvaluationDataPreparationService(AbstractService):
             question_texts, question_indices = self._compact_text_indices(
                 [[instance.question] for instance in test_instances]
             )
-        node_cache = self.embedding_cache_service.load_node_cache(
-            cache_root=cache_root,
-            model_id=entity_embedding_model,
-            vocabulary={text: index for index, text in enumerate(node_texts)},
-            dataset_id=dataset_id,
-            ensure_collection=False,
+        node_cache = (
+            self.embedding_cache_service.load_node_cache(
+                cache_root=cache_root,
+                model_id=entity_embedding_model,
+                vocabulary={text: index for index, text in enumerate(node_texts)},
+                dataset_id=dataset_id,
+                ensure_collection=False,
+            )
+            if requirements.uses_entity_embeddings
+            else None
         )
         relation_cache = (
             self.embedding_cache_service.load_relation_cache(
@@ -144,14 +151,16 @@ class GnnEvaluationDataPreparationService(AbstractService):
             requested_dtype=evaluation_config.embedding_cache_dtype,
             selected_device=selected_device,
         )
-        cache_specs = [(node_cache, node_texts)]
+        cache_specs: list[tuple[str, TextEmbeddingCache, list[str]]] = []
+        if node_cache is not None:
+            cache_specs.append(("entity", node_cache, node_texts))
         if relation_cache is not None:
-            cache_specs.append((relation_cache, relation_texts))
+            cache_specs.append(("relation", relation_cache, relation_texts))
         if question_cache is not None:
-            cache_specs.append((question_cache, question_texts))
+            cache_specs.append(("question", question_cache, question_texts))
         total_embedding_bytes = sum(
             len(texts) * cache.vector_size * (2 if embedding_dtype == "bfloat16" else 4)
-            for cache, texts in cache_specs
+            for _, cache, texts in cache_specs
         )
         embedding_device = self._resolve_embedding_device(
             torch=torch,
@@ -174,8 +183,8 @@ class GnnEvaluationDataPreparationService(AbstractService):
             matrices = self._load_embedding_matrices(
                 torch=torch,
                 cache_root=cache_root,
-                caches=tuple(cache for cache, _ in cache_specs),
-                text_groups=tuple(texts for _, texts in cache_specs),
+                caches=tuple(cache for _, cache, _ in cache_specs),
+                text_groups=tuple(texts for _, _, texts in cache_specs),
                 dtype=torch_dtype,
                 dtype_name=embedding_dtype,
                 device=embedding_device,
@@ -198,8 +207,8 @@ class GnnEvaluationDataPreparationService(AbstractService):
             matrices = self._load_embedding_matrices(
                 torch=torch,
                 cache_root=cache_root,
-                caches=tuple(cache for cache, _ in cache_specs),
-                text_groups=tuple(texts for _, texts in cache_specs),
+                caches=tuple(cache for _, cache, _ in cache_specs),
+                text_groups=tuple(texts for _, _, texts in cache_specs),
                 dtype=torch_dtype,
                 dtype_name=embedding_dtype,
                 device=embedding_device,
@@ -208,17 +217,36 @@ class GnnEvaluationDataPreparationService(AbstractService):
         if cuda_allocation_failed:
             torch.cuda.empty_cache()
 
-        node_embeddings = matrices[0]
-        matrix_offset = 1
-        relation_embeddings = None
-        if relation_cache is not None:
-            relation_embeddings = matrices[matrix_offset]
-            matrix_offset += 1
-        question_embeddings = (
-            matrices[matrix_offset] if question_cache is not None else None
-        )
+        matrix_by_kind = {
+            kind: matrix for (kind, _, _), matrix in zip(cache_specs, matrices, strict=True)
+        }
+        node_embeddings = matrix_by_kind.get("entity")
+        relation_embeddings = matrix_by_kind.get("relation")
+        question_embeddings = matrix_by_kind.get("question")
         prepared_instances: list[PreparedGnnEvaluationInstance] = []
         for instance_index, instance in enumerate(test_instances):
+            seed_node_indices = None
+            skip_reason = None
+            if requirements.uses_seed_distributions:
+                seed_ids = sorted(
+                    {
+                        instance.node2id[entity]
+                        for entity in instance.q_entity
+                        if entity in instance.node2id
+                    }
+                )
+                if not instance.nodes:
+                    skip_reason = "empty_graph"
+                elif not seed_ids:
+                    skip_reason = "missing_question_entity"
+                else:
+                    seed_node_indices = torch.tensor(seed_ids, dtype=torch.long)
+                if skip_reason is not None:
+                    logger.warning(
+                        f"{GNN_ARCHITECTURES[gnn_architecture].display_name} evaluation "
+                        "graph will be counted as a retrieval miss: "
+                        f"instance_index={instance_index} reason={skip_reason}"
+                    )
             edge_index = instance.edge_index
             edge_type = None
             edge_norm = None
@@ -277,6 +305,8 @@ class GnnEvaluationDataPreparationService(AbstractService):
                     active_relation_ids=active_relation_ids,
                     edge_relation_index=edge_relation_index,
                     active_relation_offsets=active_relation_offsets,
+                    seed_node_indices=seed_node_indices,
+                    skip_reason=skip_reason,
                 )
             )
         return PreparedGnnEvaluationData(
