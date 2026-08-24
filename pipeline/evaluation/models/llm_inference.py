@@ -15,6 +15,7 @@ from pipeline.evaluation.models.path_extraction import (
     ExtractedReasoningPaths,
     GraphTriple,
 )
+from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
 
 
 class ReasoningSampleForPrediction(BaseModel):
@@ -28,6 +29,11 @@ class ReasoningSampleForPrediction(BaseModel):
     candidate_scores: CandidateNodeScores = Field(
         ...,
         description="Candidate scores and local graph sample for path extraction.",
+    )
+    graph_instance: WebQSPProcessedInstance | None = Field(
+        default=None,
+        exclude=True,
+        description="In-memory processed graph used by optimized path extraction.",
     )
 
 

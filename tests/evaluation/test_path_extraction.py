@@ -171,6 +171,24 @@ class GnnPredictionCandidateScoringStepTests(unittest.TestCase):
 
 
 class ShortestPathExtractionServiceTests(unittest.TestCase):
+    @staticmethod
+    def _make_processed_instance_with_reverse_edges():
+        import torch
+
+        return WebQSPProcessedInstance(
+            question="who is connected",
+            q_entity=["Topic"],
+            a_entity=["Answer"],
+            nodes=["Topic", "Middle", "Answer"],
+            node2id={"Topic": 0, "Middle": 1, "Answer": 2},
+            edge_index=torch.tensor(
+                [[0, 1, 1, 2], [1, 2, 0, 1]],
+                dtype=torch.long,
+            ),
+            edge_relations=["r1", "r2", "reverse__r1", "reverse__r2"],
+            node_labels=torch.tensor([0.0, 0.0, 1.0]),
+        )
+
     def test_multi_hop_path_preserves_relation_labels(self) -> None:
         print("\n[test_multi_hop_path_preserves_relation_labels] Starting.")
         service = ShortestPathExtractionService()
@@ -350,6 +368,99 @@ class ShortestPathExtractionServiceTests(unittest.TestCase):
         self.assertFalse(result.paths[0].path_found)
         self.assertIn("No reasoning subgraph found.", result.reasoning_paths_text)
         print("[test_unreachable_candidate_is_recorded_without_abort] Passed.")
+
+    def test_processed_graph_path_uses_entity_names_and_ignores_reverse_duplicates(
+        self,
+    ) -> None:
+        service = ShortestPathExtractionService()
+        result = service.extract_paths_from_processed_graph(
+            instance=self._make_processed_instance_with_reverse_edges(),
+            sample=EvaluationSample(
+                sample_id="0",
+                question="who is connected",
+                q_entities=["Topic"],
+                a_entities=["Answer"],
+                graph_triples=[],
+            ),
+            candidates=[
+                CandidateNodeScore(
+                    node_id="Answer",
+                    score=0.9,
+                    local_node_id=2,
+                )
+            ],
+        )
+
+        self.assertEqual(len(result.paths[0].shortest_paths), 1)
+        self.assertEqual(
+            [
+                (triple.source, triple.relation, triple.target)
+                for triple in result.paths[0].triples
+            ],
+            [("Topic", "r1", "Middle"), ("Middle", "r2", "Answer")],
+        )
+        self.assertNotIn("reverse__", result.reasoning_paths_text)
+
+    def test_processed_graph_extracts_multiple_candidates_with_one_bfs(self) -> None:
+        import torch
+        from unittest.mock import patch
+
+        instance = WebQSPProcessedInstance(
+            question="who is connected",
+            q_entity=["Topic"],
+            a_entity=["Answer A", "Answer B"],
+            nodes=["Topic", "Shared", "Answer A", "Answer B"],
+            node2id={"Topic": 0, "Shared": 1, "Answer A": 2, "Answer B": 3},
+            edge_index=torch.tensor([[0, 1, 1], [1, 2, 3]], dtype=torch.long),
+            edge_relations=["r1", "r2", "r3"],
+            node_labels=torch.tensor([0.0, 0.0, 1.0, 1.0]),
+        )
+        sample = EvaluationSample(
+            sample_id="0",
+            question=instance.question,
+            q_entities=instance.q_entity,
+            a_entities=instance.a_entity,
+            graph_triples=[],
+        )
+        service = ShortestPathExtractionService()
+
+        with patch.object(
+            service,
+            "_multi_target_bfs",
+            wraps=service._multi_target_bfs,
+        ) as bfs:
+            result = service.extract_paths_from_processed_graph(
+                instance=instance,
+                sample=sample,
+                candidates=[
+                    CandidateNodeScore(node_id="Answer A", score=0.9),
+                    CandidateNodeScore(node_id="Answer B", score=0.8),
+                ],
+            )
+
+        self.assertEqual(bfs.call_count, 1)
+        self.assertEqual(result.found_paths, 2)
+        self.assertEqual(
+            [triple.relation for triple in result.reasoning_subgraph_triples],
+            ["r1", "r2", "r3"],
+        )
+
+    def test_processed_graph_candidate_seed_has_empty_shortest_path(self) -> None:
+        instance = self._make_processed_instance_with_reverse_edges()
+        result = ShortestPathExtractionService().extract_paths_from_processed_graph(
+            instance=instance,
+            sample=EvaluationSample(
+                sample_id="0",
+                question=instance.question,
+                q_entities=instance.q_entity,
+                a_entities=instance.a_entity,
+                graph_triples=[],
+            ),
+            candidates=[CandidateNodeScore(node_id="Topic", score=1.0)],
+        )
+
+        self.assertTrue(result.paths[0].path_found)
+        self.assertEqual(result.paths[0].shortest_paths, [[]])
 
 
 class PathExtractionPipelineTests(unittest.TestCase):
@@ -539,10 +650,13 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
         self.assertEqual(result.dataset_id, "WebQSP")
         self.assertEqual(len(result.samples), 1)
         self.assertEqual(result.samples[0].candidate_scores.candidates[0].node_id, "Jaxon Bieber")
+        self.assertEqual(result.samples[0].candidate_scores.sample.graph_triples, [])
+        self.assertIsNotNone(result.samples[0].graph_instance)
         self.assertEqual(
-            result.samples[0].candidate_scores.sample.graph_triples[0].relation,
+            result.samples[0].graph_instance.edge_relations[0],
             "people.person.sibling_s",
         )
+        self.assertNotIn("graph_instance", result.samples[0].model_dump())
         print("[test_gnn_predictions_become_batch_reasoning_samples] Passed.")
 
     def test_batch_inference_saves_expected_files(self) -> None:

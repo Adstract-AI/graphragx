@@ -76,15 +76,23 @@ class BuildReasoningSamplesFromGnnEvaluationStep(
             f"predictions_path={evaluation_result.predictions_path}"
         )
         predictions = self._load_predictions(evaluation_result.predictions_path)
-        samples = [
-            self._build_sample_for_prediction(
-                prediction=prediction,
-                instance=context.prepared_dataset.test_instances[
-                    prediction.instance_index
-                ],
+        samples = []
+        test_instances = context.prepared_dataset.test_instances
+        for prediction in predictions:
+            if (
+                prediction.instance_index < 0
+                or prediction.instance_index >= len(test_instances)
+            ):
+                raise ShortestPathExtractionException(
+                    f"Prediction instance index {prediction.instance_index} is outside "
+                    f"the prepared test split of size {len(test_instances)}."
+                )
+            samples.append(
+                self._build_sample_for_prediction(
+                    prediction=prediction,
+                    instance=test_instances[prediction.instance_index],
+                )
             )
-            for prediction in predictions
-        ]
         logger.info(
             f"Built reasoning samples: evaluation_run={evaluation_result.evaluation_run_name} "
             f"samples={len(samples)}"
@@ -101,28 +109,29 @@ class BuildReasoningSamplesFromGnnEvaluationStep(
         predictions_path: Path,
     ) -> list[EvaluatedAnswerRetrievalInstance]:
         try:
-            raw_lines = predictions_path.read_text(encoding="utf-8").splitlines()
+            predictions_file = predictions_path.open("r", encoding="utf-8")
         except OSError as error:
             raise ShortestPathExtractionException(
                 f"Could not read GNN predictions file {predictions_path}: {error}"
             ) from error
 
-        predictions: list[EvaluatedAnswerRetrievalInstance] = []
-        for line_number, raw_line in enumerate(raw_lines, start=1):
-            stripped_line = raw_line.strip()
-            if not stripped_line:
-                continue
-            try:
-                predictions.append(
-                    EvaluatedAnswerRetrievalInstance.model_validate_json(
-                        stripped_line
+        with predictions_file:
+            predictions: list[EvaluatedAnswerRetrievalInstance] = []
+            for line_number, raw_line in enumerate(predictions_file, start=1):
+                stripped_line = raw_line.strip()
+                if not stripped_line:
+                    continue
+                try:
+                    predictions.append(
+                        EvaluatedAnswerRetrievalInstance.model_validate_json(
+                            stripped_line
+                        )
                     )
-                )
-            except (ValueError, json.JSONDecodeError) as error:
-                raise ShortestPathExtractionException(
-                    f"Invalid prediction JSON on line {line_number} of "
-                    f"{predictions_path}: {error}"
-                ) from error
+                except (ValueError, json.JSONDecodeError) as error:
+                    raise ShortestPathExtractionException(
+                        f"Invalid prediction JSON on line {line_number} of "
+                        f"{predictions_path}: {error}"
+                    ) from error
 
         return predictions
 
@@ -132,9 +141,8 @@ class BuildReasoningSamplesFromGnnEvaluationStep(
         prediction: EvaluatedAnswerRetrievalInstance,
         instance: WebQSPProcessedInstance,
     ) -> ReasoningSampleForPrediction:
-        graph_triples = cls._build_graph_triples(instance)
         candidate_scores = CandidateNodeScores(
-            sample=cls._build_evaluation_sample(prediction, graph_triples),
+            sample=cls._build_evaluation_sample(prediction, []),
             candidates=[
                 CandidateNodeScore(
                     node_id=candidate.node,
@@ -154,6 +162,7 @@ class BuildReasoningSamplesFromGnnEvaluationStep(
             instance_index=prediction.instance_index,
             prediction=prediction,
             candidate_scores=candidate_scores,
+            graph_instance=instance,
         )
 
     @staticmethod
@@ -173,20 +182,20 @@ class BuildReasoningSamplesFromGnnEvaluationStep(
     def _build_graph_triples(
         instance: WebQSPProcessedInstance,
     ) -> list[GraphTriple]:
-        edge_index = instance.edge_index
-        edge_count = len(instance.edge_relations)
-        triples: list[GraphTriple] = []
-        for edge_offset in range(edge_count):
-            source_index = int(edge_index[0][edge_offset].item())
-            target_index = int(edge_index[1][edge_offset].item())
-            triples.append(
-                GraphTriple(
-                    source=instance.nodes[source_index],
-                    relation=instance.edge_relations[edge_offset],
-                    target=instance.nodes[target_index],
-                )
+        source_indices, target_indices = instance.edge_index.tolist()
+        return [
+            GraphTriple(
+                source=instance.nodes[source_index],
+                relation=relation,
+                target=instance.nodes[target_index],
             )
-        return triples
+            for source_index, target_index, relation in zip(
+                source_indices,
+                target_indices,
+                instance.edge_relations,
+                strict=True,
+            )
+        ]
 
 
 class ExtractShortestPathsBatchStep(
@@ -224,9 +233,17 @@ class ExtractShortestPathsBatchStep(
                 ReasoningPathsForPrediction(
                     instance_index=item.instance_index,
                     prediction=item.prediction,
-                    extracted_paths=self.shortest_path_service.extract_paths(
-                        sample=item.candidate_scores.sample,
-                        candidates=item.candidate_scores.candidates,
+                    extracted_paths=(
+                        self.shortest_path_service.extract_paths_from_processed_graph(
+                            instance=item.graph_instance,
+                            sample=item.candidate_scores.sample,
+                            candidates=item.candidate_scores.candidates,
+                        )
+                        if item.graph_instance is not None
+                        else self.shortest_path_service.extract_paths(
+                            sample=item.candidate_scores.sample,
+                            candidates=item.candidate_scores.candidates,
+                        )
                     ),
                 )
                 for item in built_samples.samples
