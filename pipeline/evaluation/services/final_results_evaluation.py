@@ -144,6 +144,7 @@ class FinalResultsEvaluationService(AbstractService):
             evaluation_run_name=gnn_evaluation_result.evaluation_run_name,
             inference_run_name=llm_inference_run.inference_run_name,
             model_id=llm_inference_run.model_id,
+            llm_provider=llm_inference_run.llm_provider,
             gnn_architecture=gnn_architecture,
             configs={
                 "model_config_path": model_config_path,
@@ -287,6 +288,7 @@ class FinalResultsEvaluationService(AbstractService):
             inference_run_name=llm_inference_run.inference_run_name,
             model_run_name=gnn_evaluation_result.model_run_name,
             model_id=llm_inference_run.model_id,
+            llm_provider=llm_inference_run.llm_provider,
             answer_metrics=FinalAnswerMetrics(
                 evaluated_instances=evaluated_instances,
                 successful_answers=sum(

@@ -25,6 +25,9 @@ from pipeline.preparation.models.webqsp_local_graph import (
     WebQSPProcessedInstance,
 )
 from pipeline.preparation.steps.configuration_building import BuiltPipelineConfiguration
+from pipeline.preparation.helpers.gnn_architecture import (
+    build_architecture_runtime_strategy,
+)
 from pipeline.services import AbstractService
 from pipeline.preparation.services.embedding_cache import WebQSPEmbeddingCacheService
 from pipeline.preparation.services.gnn_evaluation_data_preparation import (
@@ -162,6 +165,9 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             phase_started_at=phase_started_at,
         )
         phase_timings.model_load_seconds = elapsed_seconds
+        runtime_strategy = build_architecture_runtime_strategy(
+            loaded_model_run.config.resolved_gnn_architecture
+        )
         if loaded_model_run.config.dataset_id != prepared_dataset.dataset_id:
             raise GnnAnswerRetrieverEvaluationException(
                 f"Model run dataset {loaded_model_run.config.dataset_id} does not "
@@ -206,6 +212,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             f"embedding_dtype={prepared_evaluation_data.embedding_cache_dtype} "
             f"log_every={evaluation_config.log_every}"
         )
+        prepared_instance_count = len(prepared_evaluation_data.instances)
 
         predictions: list[EvaluatedAnswerRetrievalInstance] = []
         hits_at_1_count = 0
@@ -228,12 +235,29 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     device=device,
                     enabled=evaluation_config.profile,
                 )
-                entity_features = self._gather_embedding_features(
-                    embedding_matrix=prepared_evaluation_data.node_embeddings,
-                    indices=prepared_instance.node_embedding_indices,
-                    torch=torch,
-                    device=device,
-                )
+                rearev_batch = None
+                if runtime_strategy.handles_training_batches:
+                    rearev_batch = runtime_strategy.build_evaluation_batch(
+                        prepared_data=prepared_evaluation_data,
+                        prepared_instance=prepared_instance,
+                        torch=torch,
+                        device=device,
+                    )
+                    entity_features = None
+                else:
+                    if (
+                        prepared_evaluation_data.node_embeddings is None
+                        or prepared_instance.node_embedding_indices is None
+                    ):
+                        raise GnnAnswerRetrieverEvaluationException(
+                            "Prepared node embeddings are missing for this architecture."
+                        )
+                    entity_features = self._gather_embedding_features(
+                        embedding_matrix=prepared_evaluation_data.node_embeddings,
+                        indices=prepared_instance.node_embedding_indices,
+                        torch=torch,
+                        device=device,
+                    )
                 relation_features = None
                 if prepared_evaluation_data.relation_embeddings is not None:
                     if prepared_instance.relation_embedding_indices is None:
@@ -318,19 +342,29 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                         and prepared_evaluation_data.uses_bfloat16
                     ),
                 ):
-                    logits = model(
-                        entity_features=entity_features,
-                        edge_index=edge_index,
-                        edge_weight=edge_weight,
-                        question_features=question_features,
-                        relation_features=relation_features,
-                        edge_type=edge_type,
-                        edge_norm=edge_norm,
-                        active_relation_ids=active_relation_ids,
-                        edge_relation_index=edge_relation_index,
-                        active_relation_offsets=active_relation_offsets,
+                    logits = (
+                        model(**runtime_strategy.model_inputs(rearev_batch))
+                        if rearev_batch is not None
+                        else model(
+                            entity_features=entity_features,
+                            edge_index=edge_index,
+                            edge_weight=edge_weight,
+                            question_features=question_features,
+                            relation_features=relation_features,
+                            edge_type=edge_type,
+                            edge_norm=edge_norm,
+                            active_relation_ids=active_relation_ids,
+                            edge_relation_index=edge_relation_index,
+                            active_relation_offsets=active_relation_offsets,
+                        )
                     )
-                probabilities = torch.sigmoid(logits)
+                probabilities = runtime_strategy.probabilities(
+                    logits,
+                    graph_index=(
+                        rearev_batch.node_graph_index if rearev_batch is not None else None
+                    ),
+                    graph_count=(rearev_batch.graph_count if rearev_batch is not None else None),
+                )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
                     device=device,
@@ -373,12 +407,12 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     evaluation_config.log_every > 0
                     and (
                         processed_count % evaluation_config.log_every == 0
-                        or processed_count == len(test_instances)
+                        or processed_count == prepared_instance_count
                     )
                 ):
                     logger.info(
                         f"GNN answer-retriever evaluation progress: "
-                        f"{processed_count}/{len(test_instances)} instances "
+                            f"{processed_count}/{prepared_instance_count} instances "
                         f"hits_at_1={hits_at_1_count / processed_count:.4f} "
                         f"hits_at_5={hits_at_5_count / processed_count:.4f} "
                         f"hits_at_10={hits_at_10_count / processed_count:.4f} "

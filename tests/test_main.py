@@ -9,6 +9,7 @@ import main
 from pipeline import (
     BuildReasoningSamplesFromGnnEvaluationStep,
     BuildGnnAnswerRetrieverStep,
+    BuildPipelineConfigurationStep,
     BuildWebQSPLocalGraphsStep,
     BuiltGnnAnswerRetriever,
     ComputeFinalResultsStep,
@@ -25,6 +26,8 @@ from pipeline import (
     PrepareGnnTrainingDataStep,
     PreparedGnnTrainingData,
     PreparedWebQSPGraphDataset,
+    SelectedDataset,
+    StepContext,
     TrainGnnAnswerRetrieverStep,
     TrainedGnnAnswerRetriever,
     WebQSPVocabularyStore,
@@ -468,6 +471,22 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertFalse(args.question_aware_classifier)
         self.assertFalse(args.add_layer_normalization)
 
+    def test_vezilka_provider_and_free_form_model_are_parsed(self) -> None:
+        args = main.build_parser().parse_args(
+            [
+                "--llm-provider",
+                "vezilka",
+                "--main-llm-model",
+                "qwen3-4b-new",
+                "--reasoning-effort",
+                "none",
+            ]
+        )
+
+        self.assertEqual(args.llm_provider, "vezilka")
+        self.assertEqual(args.main_llm_model, "qwen3-4b-new")
+        self.assertEqual(args.reasoning_effort, "none")
+
     def test_evaluation_log_every_flag_is_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
 
@@ -782,6 +801,52 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(configuration_step.configuration_input.gnn_architecture, "aa-graphsage")
         self.assertEqual(configuration_step.configuration_input.edge_mlp_hidden_dim, 128)
         self.assertEqual(configuration_step.configuration_input.dropout, 0.2)
+
+    def test_saved_rearev_mandatory_reverse_edges_are_not_restored_as_an_option(self) -> None:
+        saved_config = SavedGnnAnswerRetrieverConfig(
+            dataset_id="WebQSP",
+            gnn_architecture="rearev",
+            gnn_architecture_options={
+                "gnn_hidden_dimension": 50,
+                "dropout": 0.1,
+                "num_instructions": 2,
+                "reasoning_steps": 2,
+                "adaptive_iterations": 3,
+            },
+        )
+
+        restored = main._apply_saved_model_config(
+            main.PipelineRuntimeConfig(
+                run_mode="inference-only",
+                llm_provider="vezilka",
+                main_llm_model="qwen3.8-27b",
+            ),
+            saved_config,
+        )
+
+        self.assertIsNone(restored.use_reverse_edges)
+        configuration_step = BuildPipelineConfigurationStep(
+            llm_provider=restored.llm_provider,
+            main_llm_model=restored.main_llm_model,
+            subgraph_algorithm="shortest_path",
+            context_strategy="structured_triples",
+            gnn_architecture=restored.gnn_architecture,
+            gnn_options=restored.gnn_options,
+            use_reverse_edges=restored.use_reverse_edges,
+        )
+        configuration = configuration_step.execute(
+            StepContext(
+                result=SelectedDataset(
+                    dataset_id="WebQSP",
+                    display_name="WebQSP",
+                    dataset_family="question_answering",
+                    task_domain="knowledge_graph_question_answering",
+                    description="dataset",
+                    supported=True,
+                )
+            )
+        )
+        self.assertTrue(configuration.use_reverse_edges)
 
     def test_negative_training_start_instance_fails_early(self) -> None:
         with self.assertRaisesRegex(

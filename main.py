@@ -56,11 +56,13 @@ from pipeline import (
 )
 from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
+    LLM_PROVIDERS,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
     RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
+    SHARED_LLM_MODELS,
 )
 from pipeline.preparation.helpers.gnn_architecture import (
     architecture_defaults,
@@ -122,7 +124,6 @@ def _apply_saved_model_config(
     saved: SavedGnnAnswerRetrieverConfig,
 ) -> "PipelineRuntimeConfig":
     options = saved.resolved_gnn_architecture_options
-    architecture = GNN_ARCHITECTURES[saved.resolved_gnn_architecture]
     return resolved.model_copy(
         update={
             "dataset": saved.dataset_id,
@@ -133,10 +134,10 @@ def _apply_saved_model_config(
             "node_classifier": options.get("node_classifier"),
             "use_edge_mlp": options.get("use_edge_mlp"),
             "question_aware_classifier": options.get("question_aware_classifier"),
-            "use_reverse_edges": (
-                architecture.data_requirements.requires_reverse_edges
-                or options.get("use_reverse_edges")
-            ),
+            # Mandatory reverse edges belong to architecture data requirements,
+            # not to the user-configurable option set. The configuration builder
+            # resolves the effective value after validating saved options.
+            "use_reverse_edges": options.get("use_reverse_edges"),
             "add_layer_normalization": options.get("add_layer_normalization"),
             "edge_mlp_hidden_dim": options.get("edge_mlp_hidden_dim"),
             "dropout": options.get("dropout"),
@@ -160,6 +161,8 @@ class PipelineRuntimeConfig(BaseModel):
         "inference-only",
     ] = "full"
     dataset: str | None = None
+    llm_provider: str | None = None
+    reasoning_effort: str | None = None
     main_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     context_strategy: str | None = None
@@ -236,6 +239,20 @@ class PipelineRuntimeConfig(BaseModel):
                     requested_options[option_id] = value
         resolved_options = {**defaults, **requested_options}
         architecture = GNN_ARCHITECTURES[architecture_id]
+        needs_openai_embeddings = any(
+            (
+                architecture.data_requirements.uses_entity_embeddings,
+                architecture.data_requirements.uses_question_embeddings,
+                architecture.data_requirements.uses_relation_embeddings,
+            )
+        )
+        resolved_embedding_model = (
+            self.embedding_model
+            or self.entity_embedding_model
+            or self.question_embedding_model
+            or self.relation_embedding_model
+            or (RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID if needs_openai_embeddings else None)
+        )
         for option in architecture.options:
             if (
                 option.enabled_when_option is not None
@@ -253,43 +270,40 @@ class PipelineRuntimeConfig(BaseModel):
             gnn_architecture=architecture_id,
             gnn_options=resolved_options,
         )
+        llm_provider = self.llm_provider
+        if llm_provider is None and self.main_llm_model is not None:
+            llm_provider = (
+                "deepseek"
+                if self.main_llm_model.startswith("deepseek-")
+                else "openai"
+            )
+        llm_provider = llm_provider or "openai"
+        main_llm_model = self.main_llm_model
+        if main_llm_model is None and llm_provider != "vezilka":
+            provider_models = [
+                model_id
+                for model_id, definition in SHARED_LLM_MODELS.items()
+                if definition.provider_id == llm_provider
+            ]
+            main_llm_model = (
+                RECOMMENDED_MAIN_LLM_MODEL_ID
+                if llm_provider == "openai"
+                else provider_models[0]
+            )
         return self.model_copy(
             update={
                 "dataset": self.dataset or WEBQSP_DATASET_ID,
-                "main_llm_model": self.main_llm_model or RECOMMENDED_MAIN_LLM_MODEL_ID,
+                "llm_provider": llm_provider,
+                "main_llm_model": main_llm_model,
                 "subgraph_algorithm": self.subgraph_algorithm
                 or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
                 "context_strategy": self.context_strategy
                 or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
                 **architecture_updates,
-                "embedding_model": (
-                    self.embedding_model
-                    or self.entity_embedding_model
-                    or self.question_embedding_model
-                    or self.relation_embedding_model
-                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
-                ),
-                "question_embedding_model": (
-                    self.embedding_model
-                    or self.entity_embedding_model
-                    or self.question_embedding_model
-                    or self.relation_embedding_model
-                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
-                ),
-                "relation_embedding_model": (
-                    self.embedding_model
-                    or self.entity_embedding_model
-                    or self.question_embedding_model
-                    or self.relation_embedding_model
-                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
-                ),
-                "entity_embedding_model": (
-                    self.embedding_model
-                    or self.entity_embedding_model
-                    or self.question_embedding_model
-                    or self.relation_embedding_model
-                    or RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID
-                ),
+                "embedding_model": resolved_embedding_model,
+                "question_embedding_model": resolved_embedding_model,
+                "relation_embedding_model": resolved_embedding_model,
+                "entity_embedding_model": resolved_embedding_model,
             }
         )
 
@@ -325,6 +339,14 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     if config.wandb_training_log_every < 0:
         raise PipelineException(
             "--wandb-training-log-every must be greater than or equal to 0."
+        )
+    if (
+        config.use_default_config_values
+        and config.llm_provider == "vezilka"
+        and not config.main_llm_model
+    ):
+        raise PipelineException(
+            "--llm-provider vezilka requires --main-llm-model when --default is used."
         )
     if config.run_mode in {"evaluation-only", "inference-only"} and (
         config.continue_training_model_run_name is not None
@@ -411,6 +433,8 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             requested_dataset=resolved_config.dataset,
         ),
         BuildPipelineConfigurationStep(
+            llm_provider=resolved_config.llm_provider,
+            reasoning_effort=resolved_config.reasoning_effort,
             main_llm_model=resolved_config.main_llm_model,
             subgraph_algorithm=resolved_config.subgraph_algorithm,
             context_strategy=resolved_config.context_strategy,
@@ -523,6 +547,8 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         BuildReasoningSamplesFromGnnEvaluationStep(),
         ExtractShortestPathsBatchStep(),
         GenerateAndSaveFinalAnswersBatchesStep(
+            llm_provider=resolved_config.llm_provider,
+            reasoning_effort=resolved_config.reasoning_effort,
             model_id=resolved_config.main_llm_model,
             inference_run_name=resolved_config.inference_run_name,
             inference_batch_size=resolved_config.llm_inference_batch_size,
@@ -798,9 +824,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Dataset choice for the current run.",
     )
     parser.add_argument(
+        "--llm-provider",
+        choices=tuple(LLM_PROVIDERS),
+        default=None,
+        help=(
+            "LLM provider used for inference. Vezilka accepts any value passed "
+            "through --main-llm-model."
+        ),
+    )
+    parser.add_argument(
         "--main-llm-model",
         default=None,
         help="Optional main LLM model id for non-interactive configuration.",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        default=None,
+        help=(
+            "Optional reasoning_effort value passed to the selected LLM provider, "
+            "for example 'none', 'low', 'medium', or 'high'. When omitted, the "
+            "field is not sent."
+        ),
     )
     parser.add_argument(
         "--subgraph-algorithm",
@@ -882,8 +926,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_TRAINING_BATCH_SIZE,
         help=(
-            "Number of disconnected WebQSP graphs per R-GCN optimizer step. "
-            "GraphSAGE retains single-graph training."
+            "Number of disconnected WebQSP graphs per R-GCN, HGT, or ReaRev "
+            "optimizer step. GraphSAGE retains single-graph training."
         ),
     )
     parser.add_argument(
@@ -1094,6 +1138,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     runtime_config = PipelineRuntimeConfig(
         run_mode=args.run_mode,
         dataset=args.dataset,
+        llm_provider=args.llm_provider,
+        reasoning_effort=args.reasoning_effort,
         main_llm_model=args.main_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         context_strategy=args.context_strategy,

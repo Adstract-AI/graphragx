@@ -37,6 +37,7 @@ Fill in at least:
 
 ```bash
 OPENAI_API_KEY=your_openai_key
+VEZILKA_API_KEY=your_vezilka_key
 ```
 
 Start Qdrant before running any training or evaluation step that uses embeddings:
@@ -107,6 +108,12 @@ To train and evaluate the manual HGT architecture with its defaults:
 uv run python main.py --retriever-only --gnn-architecture hgt --default
 ```
 
+To train and evaluate ReaRev with the pinned frozen MiniLM token encoder:
+
+```bash
+uv run python main.py --retriever-only --gnn-architecture rearev --default
+```
+
 To run LLM inference from an existing retriever evaluation:
 
 ```bash
@@ -130,15 +137,16 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | Flag | Description |
 | --- | --- |
 | `--dataset DATASET` | Dataset id to use. The current supported dataset is `WebQSP`. |
-| `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. |
+| `--llm-provider {openai,deepseek,vezilka}` | LLM provider used for final answer generation. Default: `openai`. |
+| `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. For Vezilka this is free-form and is passed unchanged to the endpoint. |
 | `--subgraph-algorithm SUBGRAPH_ALGORITHM` | Subgraph construction algorithm. The current supported option is `shortest_path`. |
 | `--context-strategy CONTEXT_STRATEGY` | How the reasoning subgraph is represented for the LLM. The current supported option is `structured_triples`. |
-| `--gnn-architecture {graphsage,aa-graphsage,rgcn,hgt}` | Select GraphSAGE, Advance GraphSAGE, R-GCN, or HGT. GraphSAGE is the default; the lowercase values are stable CLI/configuration ids. |
-| `--gnn-layers {2,3}` | Number of GNN message-passing layers. Default: `2`. |
-| `--gnn-hidden-dim {128,256,512}` | Hidden dimension used inside the GNN. Default: `256`. |
+| `--gnn-architecture {graphsage,aa-graphsage,rgcn,hgt,rearev}` | Select GraphSAGE, Advance GraphSAGE, R-GCN, HGT, or ReaRev. GraphSAGE is the default; the lowercase values are stable CLI/configuration ids. |
+| `--gnn-layers {2,3}` | Number of GNN message-passing layers for GraphSAGE, Advance GraphSAGE, R-GCN, and HGT. Default: `2`. ReaRev does not use this option. |
+| `--gnn-hidden-dim {50,128,256,512}` | Hidden dimension used inside the selected architecture. ReaRev supports and defaults to `50`; the other architectures support `128`, `256`, and `512` and default to `256`. |
 | `--node-classifier NODE_CLASSIFIER` | Node classifier head used after the GNN. Supported options include `mlp` and `linear`. |
 | `--dropout {0.0,0.1,0.2,0.3,0.5}` | Shared architecture dropout. Default: `0.1`. |
-| `--embedding-model EMBEDDING_MODEL` | OpenAI embedding model used consistently for question, relation, and entity text. |
+| `--embedding-model EMBEDDING_MODEL` | OpenAI embedding model used consistently wherever the selected architecture needs embeddings. ReaRev does not use this option. |
 
 ### Training
 
@@ -150,7 +158,7 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--training-max-instances TRAINING_MAX_INSTANCES` | Optional limit for how many WebQSP training instances to use. If omitted, the full train split is used. |
 | `--training-start-instance TRAINING_START_INSTANCE` | Zero-based train split index where training starts. With `--training-max-instances 100 --training-start-instance 101`, the slice is `[101:201]`. |
 | `--training-log-every TRAINING_LOG_EVERY` | How often training progress is written to the console, measured in processed instances. Use `0` to disable progress messages. |
-| `--training-batch-size TRAINING_BATCH_SIZE` | Number of WebQSP graphs combined into each disconnected categorical-relation batch and optimizer step. Default: `1`. R-GCN and HGT support opt-in batching; GraphSAGE retains single-graph optimizer steps. |
+| `--training-batch-size TRAINING_BATCH_SIZE` | Number of WebQSP graphs combined into each disconnected categorical-relation batch and optimizer step. Default: `1`. R-GCN, HGT, and ReaRev support opt-in batching; GraphSAGE retains single-graph optimizer steps. |
 | `--training-device {auto,cpu,cuda,mps}` | Device used for GNN training. `auto` selects the best available supported device. |
 | `--training-profile` | Reports synchronized input, forward, loss, backward, and optimizer timings. Use only for short diagnostics because synchronization reduces throughput. |
 | `--training-embedding-cache-device {auto,gpu,cpu}` | Placement for compact frozen embeddings prepared before training. `auto` uses CUDA when the matrices fit after the configured reserve. |
@@ -166,10 +174,15 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--edge-mlp-hidden-dim {128,256,512}` | Advance GraphSAGE edge-MLP width. Valid only when edge MLP is enabled. Default: `256`. |
 | `--num-bases {8,16,30,64}` | Number of shared relation-weight bases for R-GCN. Default: `30`. |
 | `--attention-heads {1,2,4,8}` | Number of attention heads for HGT. The hidden dimension must be divisible by this value. Default: `8`. |
+| `--num-instructions {1,2,3}` | Number of token-attended ReaRev reasoning instructions. Default: `2`. |
+| `--reasoning-steps {1,2,3}` | ReaRev graph-execution steps per adaptive stage. Default: `2`. |
+| `--adaptive-iterations {1,2,3}` | ReaRev reason-and-revise stages. Default: `3`. |
 
 R-GCN always prepares distinct inverse relation types and uses categorical relation-specific transformations with a trainable root transform. Its configurable options are layers, hidden dimension, dropout, and basis count; GraphSAGE classifier, edge-MLP, question-conditioning, normalization, edge-width, and reverse-edge flags are rejected. The existing GraphSAGE variants retain their semantic question–relation scalar weighting behavior.
 
 HGT also uses mandatory distinct inverse relation types, but applies relation-aware multi-head attention and relation-specific message transformations. Its configurable options are layers, hidden dimension, dropout, and attention heads. It uses one `entity` node type, a learned residual path with fixed LayerNorm, and no question or textual relation embeddings.
+
+ReaRev uses mandatory inverse relations and live token-level question/relation encoding with the frozen pinned `sentence-transformers/all-MiniLM-L6-v2` encoder. It initializes nodes from incident relation semantics, executes question-derived instructions, revises those instructions with graph state, and trains with graph-balanced KL divergence. It does not use OpenAI embeddings or Qdrant embedding caches.
 
 #### Adding another GNN architecture
 
@@ -183,7 +196,7 @@ After registering a new definition in `GNN_ARCHITECTURES`, the CLI union and int
 
 Before the epoch loop, training deduplicates embeddings used by the selected instance slice and builds compact integer-indexed matrices. Retrieved vectors are also persisted under `data/webqsp/training_embedding_tensors` as append-only local tensor shards. A full local hit bypasses Qdrant; a partial hit retrieves and appends only vectors that have not been persisted yet. For example, training first on 100 instances and then on 300 reuses the vectors from the first run and fills only embeddings introduced by the additional 200 instances. Separate local caches are maintained for each dataset, embedding model, text category, vector dimension, and storage dtype.
 
-R-GCN precomputes relation-mean normalization and compact active-relation indices. HGT precomputes contiguous active-relation group boundaries for memory-bounded attention and message transforms. Both can combine multiple question graphs as disconnected components, with static graph tensors kept on the training device across epochs. Batch size `1` is the safe default; raise `--training-batch-size` only when VRAM permits.
+R-GCN precomputes relation-mean normalization and compact active-relation indices. HGT precomputes contiguous active-relation group boundaries for memory-bounded attention and message transforms. ReaRev prepares token IDs once and encodes only the active relation union in each batch. All three can combine multiple question graphs as disconnected components. Batch size `1` is the safe default; raise `--training-batch-size` only when VRAM permits.
 
 The compact matrices are still copied into VRAM at the start of every process because GPU memory is not persistent across runs. GPU-resident matrices remain frozen, are excluded from the optimizer and model checkpoint, and are released when training finishes. If the safe CUDA memory budget is exceeded in `auto` mode, the matrices remain on CPU.
 
@@ -206,15 +219,27 @@ The compact matrices are still copied into VRAM at the start of every process be
 | `--evaluation-embedding-cache-dtype {auto,float32,bfloat16}` | Storage precision for compact evaluation embeddings. `auto` uses BF16 on supported CUDA devices and float32 otherwise. |
 | `--evaluation-gpu-cache-reserve-gb EVALUATION_GPU_CACHE_RESERVE_GB` | VRAM kept free outside the evaluation embedding matrices. Default: `6.0`. |
 
-Evaluation compacts the selected test instances into reusable embedding matrices before model inference. GraphSAGE loads node, relation, and question embeddings; R-GCN and HGT load only node embeddings and use the saved categorical relation vocabulary. It uses the same incremental tensor shards as training, so matching dataset/model/type/dtype vectors are reused immediately. Only missing vectors are fetched from Qdrant and appended; no Qdrant requests occur inside the per-instance inference loop. Evaluation uses `torch.inference_mode()` and BF16 autocast when BF16 cache storage is selected on CUDA.
+Evaluation compacts the selected test instances into reusable inputs before model inference. GraphSAGE loads node, relation, and question embeddings; R-GCN and HGT load only node embeddings and use the saved categorical relation vocabulary. ReaRev prepares token IDs and makes no Qdrant/OpenAI embedding requests. Embedding-based architectures reuse incremental tensor shards, fetching and appending only missing vectors. Evaluation uses `torch.inference_mode()` and BF16 autocast when BF16 is selected on CUDA.
 
 ### LLM Inference And Results
+
+Vezilka uses the OpenAI-compatible chat-completions endpoint at `https://vllm.finki.ukim.mk/v1/chat/completions`. Streaming is always disabled. Set `VEZILKA_API_KEY`, then pass any currently hosted model name. `reasoning_effort` is omitted by default; add `--reasoning-effort none` (or another provider-supported value) when desired. The same flag is passed to OpenAI and DeepSeek models:
+
+```bash
+uv run python main.py --inference-only \
+  --retriever-run-number 12 \
+  --llm-provider vezilka \
+  --main-llm-model qwen3-4b \
+  --reasoning-effort none \
+  --default
+```
 
 | Flag | Description |
 | --- | --- |
 | `--no-llm-inference` | Stops full or evaluation-only mode after GNN candidate retrieval. Training and retriever W&B logging still run unless `--no-wandb` is supplied. |
 | `--inference-run-name INFERENCE_RUN_NAME` | Optional label for the saved LLM inference run folder. |
 | `--llm-inference-batch-size LLM_INFERENCE_BATCH_SIZE` | Number of samples to process per persistence batch during LLM inference. The LLM calls remain one-by-one. |
+| `--reasoning-effort VALUE` | Optional `reasoning_effort` passed to the selected LLM provider. The field is omitted when this flag is absent. Vezilka streaming is always disabled. |
 
 ### W&B
 
@@ -248,7 +273,7 @@ Processed WebQSP graph cache and vocabulary artifacts.
 
 `data/webqsp/models/<run>`
 
-GNN training outputs, including `model_config.json`, model weights, and loss history. R-GCN and HGT runs also contain the authoritative `relation_vocabulary.json` used to construct categorical edge types.
+GNN training outputs, including `model_config.json`, model weights, and loss history. R-GCN, HGT, and ReaRev runs also contain the authoritative `relation_vocabulary.json` used to construct categorical edge types. ReaRev checkpoints contain trainable reasoning weights only; the external MiniLM snapshot is never copied into local or W&B retriever artifacts.
 
 `data/webqsp/training_embedding_tensors`
 

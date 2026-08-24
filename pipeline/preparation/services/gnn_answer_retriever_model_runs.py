@@ -20,6 +20,7 @@ from pipeline.preparation.helpers.configuration_definitions import (
 )
 from pipeline.preparation.helpers.gnn_architecture import (
     architecture_defaults,
+    build_architecture_runtime_strategy,
     infer_gnn_architecture,
 )
 from pipeline.preparation.exceptions import GnnAnswerRetrieverModelRunException
@@ -108,18 +109,29 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
     trained_instances: int = 0
 
     @property
-    def resolved_embedding_model(self) -> str:
+    def resolved_embedding_model(self) -> str | None:
         """Return the unified embedding model, with legacy fallback."""
-        return (
+        explicit = (
             self.embedding_model
             or self.entity_embedding_model
             or self.question_embedding_model
             or self.relation_embedding_model
-            or "text-embedding-3-small"
         )
+        if explicit is not None:
+            return explicit
+        architecture = GNN_ARCHITECTURES[self.resolved_gnn_architecture]
+        if not any(
+            (
+                architecture.data_requirements.uses_entity_embeddings,
+                architecture.data_requirements.uses_question_embeddings,
+                architecture.data_requirements.uses_relation_embeddings,
+            )
+        ):
+            return None
+        return "text-embedding-3-small"
 
     @property
-    def resolved_embedding_dimension(self) -> int:
+    def resolved_embedding_dimension(self) -> int | None:
         """Return the unified embedding dimension, with legacy fallback."""
         if self.embedding_dimension is not None:
             return self.embedding_dimension
@@ -130,7 +142,8 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
         ):
             if dimension is not None:
                 return dimension
-        return OPENAI_EMBEDDING_MODELS[self.resolved_embedding_model].dimensions
+        model_id = self.resolved_embedding_model
+        return OPENAI_EMBEDDING_MODELS[model_id].dimensions if model_id else None
 
     @property
     def resolved_loss_history(self) -> list[dict[str, float | int]]:
@@ -174,21 +187,19 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
         return self.trained_instances or 0
 
     @property
-    def resolved_hidden_dimension(self) -> int:
+    def resolved_hidden_dimension(self) -> int | None:
         return (
             self.gnn_architecture_options.get("gnn_hidden_dimension")
             or self.hidden_dimension
             or self.training.hidden_dimension
-            or 0
         )
 
     @property
-    def resolved_gnn_layer_count(self) -> int:
+    def resolved_gnn_layer_count(self) -> int | None:
         return (
             self.gnn_architecture_options.get("gnn_layer_count")
             or self.gnn_layer_count
             or self.training.gnn_layer_count
-            or 0
         )
 
     @property
@@ -214,13 +225,21 @@ class SavedGnnAnswerRetrieverConfig(BaseModel):
             "add_layer_normalization": self.add_layer_normalization,
             "edge_mlp_hidden_dim": self.resolved_edge_mlp_hidden_dim,
             "attention_heads": persisted.get("attention_heads"),
+            "num_bases": persisted.get("num_bases"),
+            "num_instructions": persisted.get("num_instructions"),
+            "reasoning_steps": persisted.get("reasoning_steps"),
+            "adaptive_iterations": persisted.get("adaptive_iterations"),
         }
         supported = GNN_ARCHITECTURES[self.resolved_gnn_architecture].option_map
-        resolved = {
-            option_id: persisted.get(option_id, legacy_values.get(option_id, default))
-            for option_id, default in defaults.items()
-            if option_id in supported
-        }
+        resolved: dict[str, Any] = {}
+        for option_id, default in defaults.items():
+            if option_id not in supported:
+                continue
+            if option_id in persisted:
+                resolved[option_id] = persisted[option_id]
+                continue
+            legacy_value = legacy_values.get(option_id)
+            resolved[option_id] = default if legacy_value is None else legacy_value
         if resolved.get("use_edge_mlp") is False:
             resolved["edge_mlp_hidden_dim"] = None
         return resolved
@@ -271,8 +290,8 @@ class LoadedGnnAnswerRetrieverRun(BaseModel):
     relation_vocabulary_path: Path | None = None
     relation_vocabulary: dict[str, int] | None = None
     model: AnswerRetrieverModel = Field(..., description="Loaded PyTorch model.")
-    question_embedding_model: str = Field(..., description="Question embedding model id.")
-    relation_embedding_model: str = Field(..., description="Relation embedding model id.")
+    question_embedding_model: str | None = Field(default=None, description="Question embedding model id.")
+    relation_embedding_model: str | None = Field(default=None, description="Relation embedding model id.")
 
 
 class GnnAnswerRetrieverModelRunService(AbstractService):
@@ -331,36 +350,40 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
         )
         from pipeline.preparation.models.gnn_answer_retriever import build_gnn_answer_retriever
 
-        model = build_gnn_answer_retriever(
-            gnn_architecture=saved_run.config.resolved_gnn_architecture,
-            architecture_options=saved_run.config.resolved_gnn_architecture_options,
-            architecture_context=saved_run.config.gnn_architecture_context,
-            entity_embedding_dimension=saved_run.config.resolved_embedding_dimension,
-            question_embedding_dimension=self._embedding_dimension(
-                saved_run.config.question_embedding_model,
-                saved_run.config.question_embedding_dimension,
-                pipeline_configuration.embedding_model,
-            ),
-            relation_embedding_dimension=self._embedding_dimension(
-                saved_run.config.relation_embedding_model,
-                saved_run.config.relation_embedding_dimension,
-                pipeline_configuration.embedding_model,
-            ),
-        )
         try:
+            model = build_gnn_answer_retriever(
+                gnn_architecture=saved_run.config.resolved_gnn_architecture,
+                architecture_options=saved_run.config.resolved_gnn_architecture_options,
+                architecture_context=saved_run.config.gnn_architecture_context,
+                entity_embedding_dimension=saved_run.config.resolved_embedding_dimension,
+                question_embedding_dimension=self._embedding_dimension(
+                    saved_run.config.question_embedding_model,
+                    saved_run.config.question_embedding_dimension,
+                    pipeline_configuration.embedding_model,
+                ),
+                relation_embedding_dimension=self._embedding_dimension(
+                    saved_run.config.relation_embedding_model,
+                    saved_run.config.relation_embedding_dimension,
+                    pipeline_configuration.embedding_model,
+                ),
+            )
+            runtime_strategy = build_architecture_runtime_strategy(
+                saved_run.config.resolved_gnn_architecture
+            )
             state_dict = torch.load(saved_run.weights_path, map_location=device)
-            model.load_state_dict(state_dict)
-        except RuntimeError as error:
+            runtime_strategy.load_checkpoint_state_dict(model, state_dict)
+        except (RuntimeError, ValueError) as error:
             raise GnnAnswerRetrieverModelRunException(
-                f"Could not load saved GNN answer-retriever weights from "
-                f"{saved_run.weights_path}: {error}"
+                f"Could not load saved GNN answer-retriever weights or reconstruct "
+                f"model from {saved_run.weights_path}: {error}"
             ) from error
         model.to(device)
         model.eval()
 
         question_embedding_model = saved_run.config.resolved_embedding_model
         relation_embedding_model = saved_run.config.resolved_embedding_model
-        if (
+        architecture = GNN_ARCHITECTURES[saved_run.config.resolved_gnn_architecture]
+        if architecture.data_requirements.uses_question_embeddings and (
             saved_run.config.question_embedding_model is None
             and saved_run.config.embedding_model is None
         ):
@@ -369,7 +392,7 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
                 f"model id. Falling back to current configuration value "
                 f"{question_embedding_model}."
             )
-        if (
+        if architecture.data_requirements.uses_relation_embeddings and (
             saved_run.config.relation_embedding_model is None
             and saved_run.config.embedding_model is None
         ):
@@ -402,9 +425,11 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
         saved_model_id: str | None,
         saved_dimension: int | None,
         fallback_model_id: str | None,
-    ) -> int:
+    ) -> int | None:
         if saved_dimension is not None:
             return saved_dimension
+        if saved_model_id is None and fallback_model_id is None:
+            return None
         model_id = saved_model_id or fallback_model_id or "text-embedding-3-small"
         return OPENAI_EMBEDDING_MODELS[model_id].dimensions
 

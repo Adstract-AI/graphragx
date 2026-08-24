@@ -251,11 +251,15 @@ class GenerateFinalAnswersBatchStep(
     def __init__(
         self,
         model_id: str = "gpt-4.1-mini",
+        llm_provider: str = "openai",
+        reasoning_effort: str | None = None,
         answer_generation_service: LangChainOpenAiAnswerGenerationService | None = None,
         force_default: bool = False,
     ):
         super().__init__(force_default=force_default)
         self.model_id = model_id
+        self.llm_provider = llm_provider
+        self.reasoning_effort = reasoning_effort
         self.answer_generation_service = (
             answer_generation_service or LangChainOpenAiAnswerGenerationService()
         )
@@ -282,6 +286,8 @@ class GenerateFinalAnswersBatchStep(
             dataset_id=paths_batch.dataset_id,
             evaluation_run_name=paths_batch.evaluation_run_name,
             model_id=self.model_id,
+            llm_provider=self.llm_provider,
+            reasoning_effort=self.reasoning_effort,
             items=items,
         )
         logger.info(
@@ -302,11 +308,28 @@ class GenerateFinalAnswersBatchStep(
         error_message = None
         started_at = time.monotonic()
         try:
-            result = self.answer_generation_service.generate_answer_with_explanation(
-                question=extracted_paths.sample.question,
-                reasoning_paths_text=extracted_paths.reasoning_paths_text,
-                model_id=self.model_id,
-            )
+            generation_kwargs = {
+                "question": extracted_paths.sample.question,
+                "reasoning_paths_text": extracted_paths.reasoning_paths_text,
+                "model_id": self.model_id,
+            }
+            try:
+                result = self.answer_generation_service.generate_answer_with_explanation(
+                    **generation_kwargs,
+                    provider_id=self.llm_provider,
+                    reasoning_effort=self.reasoning_effort,
+                )
+            except TypeError as error:
+                if not any(
+                    name in str(error)
+                    for name in ("provider_id", "reasoning_effort")
+                ):
+                    raise
+                # Keep existing injected/custom services compatible with the
+                # pre-provider method contract.
+                result = self.answer_generation_service.generate_answer_with_explanation(
+                    **generation_kwargs,
+                )
             answer = result["answer"]
             explanation = result["explanation"]
             raw_response = result["raw_response"]
@@ -357,6 +380,7 @@ class GenerateFinalAnswersBatchStep(
             missing_reasoning_paths=extracted_paths.missing_paths,
             reasoning_paths_text=extracted_paths.reasoning_paths_text,
             model_id=self.model_id,
+            llm_provider=self.llm_provider,
             answer=answer,
             explanation=explanation,
             raw_response=raw_response,
@@ -386,6 +410,8 @@ class GenerateAndSaveFinalAnswersBatchesStep(
 
     def __init__(
         self,
+        llm_provider: str | None = None,
+        reasoning_effort: str | None = None,
         model_id: str | None = None,
         inference_root: str | Path = "data/webqsp/inference",
         inference_run_name: str | None = None,
@@ -396,6 +422,8 @@ class GenerateAndSaveFinalAnswersBatchesStep(
     ):
         super().__init__(force_default=force_default)
         self.model_id = model_id
+        self.llm_provider = llm_provider
+        self.reasoning_effort = reasoning_effort
         self.inference_root = Path(inference_root)
         self.inference_run_name = inference_run_name
         self.inference_batch_size = max(1, inference_batch_size)
@@ -414,12 +442,13 @@ class GenerateAndSaveFinalAnswersBatchesStep(
                 "Batched inference requires extracted reasoning paths."
             )
         model_id = self._resolve_model_id(context)
+        llm_provider = self._resolve_llm_provider(context)
 
         total_items = len(paths_batch.items)
         logger.info(
             f"Starting batched LLM inference: "
             f"evaluation_run={paths_batch.evaluation_run_name} "
-            f"model={model_id} samples={total_items} "
+            f"provider={llm_provider} model={model_id} samples={total_items} "
             f"batch_size={self.inference_batch_size} root={self.inference_root}"
         )
         run = self.storage_service.create_inference_run(
@@ -441,13 +470,20 @@ class GenerateAndSaveFinalAnswersBatchesStep(
                 dataset_id=paths_batch.dataset_id,
                 evaluation_run_name=paths_batch.evaluation_run_name,
                 model_id=model_id,
-                items=[self._generate_answer(item, model_id) for item in batch_items],
+                llm_provider=llm_provider,
+                reasoning_effort=self.reasoning_effort,
+                items=[
+                    self._generate_answer(item, model_id, llm_provider)
+                    for item in batch_items
+                ],
             )
             all_items.extend(generated_batch.items)
             cumulative_batch = GeneratedFinalAnswersBatch(
                 dataset_id=paths_batch.dataset_id,
                 evaluation_run_name=paths_batch.evaluation_run_name,
                 model_id=model_id,
+                llm_provider=llm_provider,
+                reasoning_effort=self.reasoning_effort,
                 items=all_items,
             )
             self.storage_service.append_inference_batch(
@@ -470,6 +506,8 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             dataset_id=paths_batch.dataset_id,
             evaluation_run_name=paths_batch.evaluation_run_name,
             model_id=model_id,
+            llm_provider=llm_provider,
+            reasoning_effort=self.reasoning_effort,
             items=all_items,
         )
         self.storage_service.write_inference_config(run=run, answers=final_answers)
@@ -487,6 +525,8 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             inference_run_name=run.inference_run_name,
             inference_run_number=run.inference_run_number,
             model_id=final_answers.model_id,
+            llm_provider=final_answers.llm_provider,
+            reasoning_effort=final_answers.reasoning_effort,
             total_instances=len(final_answers.items),
             successful_answers=final_answers.successful_answers,
             failed_answers=final_answers.failed_answers,
@@ -509,11 +549,25 @@ class GenerateAndSaveFinalAnswersBatchesStep(
         self,
         item: ReasoningPathsForPrediction,
         model_id: str,
+        llm_provider: str,
     ) -> GeneratedAnswerForPrediction:
         return GenerateFinalAnswersBatchStep(
             model_id=model_id,
+            llm_provider=llm_provider,
+            reasoning_effort=self.reasoning_effort,
             answer_generation_service=self.answer_generation_service,
         )._generate_answer(item)
+
+    def _resolve_llm_provider(
+        self,
+        context: StepContext[ExtractedReasoningPathsBatch],
+    ) -> str:
+        if self.llm_provider is not None:
+            return self.llm_provider
+        pipeline_configuration = getattr(context, "pipeline_configuration", None)
+        if isinstance(pipeline_configuration, BuiltPipelineConfiguration):
+            return pipeline_configuration.llm_provider
+        return "openai"
 
     def _resolve_model_id(
         self,
@@ -576,6 +630,8 @@ class SaveInferenceRunStep(
             inference_run_name=storage_result.inference_run_name,
             inference_run_number=storage_result.inference_run_number,
             model_id=answers.model_id,
+            llm_provider=answers.llm_provider,
+            reasoning_effort=answers.reasoning_effort,
             total_instances=len(answers.items),
             successful_answers=answers.successful_answers,
             failed_answers=answers.failed_answers,

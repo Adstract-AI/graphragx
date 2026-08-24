@@ -17,6 +17,9 @@ from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
     RGCN_ARCHITECTURE_ID,
 )
+from pipeline.preparation.helpers.gnn_architecture import (
+    build_architecture_runtime_strategy,
+)
 from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
 from pipeline.preparation.services.embedding_cache import (
     TextEmbeddingCache,
@@ -72,6 +75,21 @@ class GnnEvaluationDataPreparationService(AbstractService):
         if evaluation_config.gpu_cache_reserve_gb < 0:
             raise GnnAnswerRetrieverEvaluationException(
                 "evaluation_gpu_cache_reserve_gb must be greater than or equal to zero."
+            )
+
+        runtime_strategy = build_architecture_runtime_strategy(gnn_architecture)
+        if runtime_strategy.handles_data_preparation:
+            autocast_dtype = self._resolve_embedding_dtype(
+                torch=torch,
+                requested_dtype=evaluation_config.embedding_cache_dtype,
+                selected_device=selected_device,
+            )
+            return runtime_strategy.prepare_evaluation_data(
+                instances=test_instances,
+                relation_vocabulary=relation_vocabulary,
+                selected_device=selected_device,
+                torch=torch,
+                autocast_dtype=autocast_dtype,
             )
 
         node_texts, node_index_tensors = self._compact_text_index_tensors(

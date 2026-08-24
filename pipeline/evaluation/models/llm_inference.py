@@ -79,6 +79,7 @@ class GeneratedAnswerForPrediction(BaseModel):
     missing_reasoning_paths: int = Field(default=0)
     reasoning_paths_text: str = Field(default="")
     model_id: str = Field(..., description="LLM model used for answer generation.")
+    llm_provider: str = Field(default="openai", description="LLM provider used.")
     answer: str = Field(default="", description="Generated final answer.")
     explanation: str = Field(
         default="",
@@ -101,6 +102,8 @@ class GeneratedFinalAnswersBatch(StepResult):
     dataset_id: str = Field(..., description="Dataset identifier.")
     evaluation_run_name: str = Field(..., description="Source GNN evaluation run name.")
     model_id: str = Field(..., description="LLM model used for answer generation.")
+    llm_provider: str = Field(default="openai", description="LLM provider used.")
+    reasoning_effort: str | None = Field(default=None)
     items: list[GeneratedAnswerForPrediction] = Field(default_factory=list)
 
     @property
@@ -123,6 +126,8 @@ class SavedLlmInferenceRun(StepResult):
     inference_run_name: str = Field(..., description="Created inference run folder name.")
     inference_run_number: int = Field(..., description="Created inference run number.")
     model_id: str = Field(..., description="LLM model used for answer generation.")
+    llm_provider: str = Field(default="openai", description="LLM provider used.")
+    reasoning_effort: str | None = Field(default=None)
     total_instances: int = Field(..., description="Number of instances processed.")
     successful_answers: int = Field(..., description="Number of successful generations.")
     failed_answers: int = Field(..., description="Number of failed generations.")

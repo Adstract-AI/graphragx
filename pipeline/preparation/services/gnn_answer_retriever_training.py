@@ -30,9 +30,14 @@ from helpers.constants import (
 from helpers.logging_config import get_logger
 from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
 from pipeline.preparation.helpers.configuration_definitions import (
+    GNN_ARCHITECTURES,
     HGT_ARCHITECTURE_ID,
     RGCN_ARCHITECTURE_ID,
 )
+from pipeline.preparation.helpers.gnn_architecture import (
+    build_architecture_runtime_strategy,
+)
+from pipeline.preparation.services.gnn_architecture_runtime import PreparedReaRevBatch
 from pipeline.preparation.models.gnn_training_data import PreparedGnnTrainingData
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
@@ -155,12 +160,12 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
     gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
     gnn_architecture_context: dict[str, Any] = Field(default_factory=dict)
     relation_vocabulary_path: Path | None = None
-    entity_embedding_model: str = Field(..., description="Entity embedding model id.")
-    question_embedding_model: str = Field(..., description="Question embedding model id.")
-    relation_embedding_model: str = Field(..., description="Relation embedding model id.")
-    entity_embedding_dimension: int = Field(..., description="Entity embedding dimension.")
-    question_embedding_dimension: int = Field(..., description="Question embedding dimension.")
-    relation_embedding_dimension: int = Field(..., description="Relation embedding dimension.")
+    entity_embedding_model: str | None = Field(default=None, description="Entity embedding model id.")
+    question_embedding_model: str | None = Field(default=None, description="Question embedding model id.")
+    relation_embedding_model: str | None = Field(default=None, description="Relation embedding model id.")
+    entity_embedding_dimension: int | None = Field(default=None, description="Entity embedding dimension.")
+    question_embedding_dimension: int | None = Field(default=None, description="Question embedding dimension.")
+    relation_embedding_dimension: int | None = Field(default=None, description="Relation embedding dimension.")
     hidden_dimension: int | None = Field(default=None, description="GNN hidden dimension.")
     gnn_layer_count: int | None = Field(default=None, description="GNN layer count.")
     node_classifier: str | None = Field(default=None, description="Node classifier id.")
@@ -237,7 +242,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         )
         question_embedding_model = embedding_model
         relation_embedding_model = embedding_model
-        if (
+        if prepared_training_data.node_embeddings is not None and (
             effective_retriever.entity_embedding_model
             != prepared_training_data.entity_embedding_model
             or question_embedding_model
@@ -270,10 +275,13 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             )
 
         model = effective_retriever.model
+        runtime_strategy = build_architecture_runtime_strategy(
+            effective_retriever.gnn_architecture
+        )
         model.to(device)
         model.train()
         optimizer = torch.optim.Adam(
-            model.parameters(),
+            (parameter for parameter in model.parameters() if parameter.requires_grad),
             lr=training_config.learning_rate,
             weight_decay=training_config.weight_decay,
         )
@@ -289,7 +297,23 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             in {RGCN_ARCHITECTURE_ID, HGT_ARCHITECTURE_ID}
             else None
         )
-        if typed_batches is not None:
+        runtime_batches = (
+            runtime_strategy.build_training_batches(
+                prepared_data=prepared_training_data,
+                batch_size=training_config.batch_size,
+                torch=torch,
+                device=device,
+            )
+            if runtime_strategy.handles_training_batches
+            else None
+        )
+        if runtime_batches is not None:
+            logger.info(
+                f"Prepared {effective_retriever.gnn_architecture} disconnected "
+                f"graph batches: batches={len(runtime_batches)} "
+                f"batch_size={training_config.batch_size} graph_tensors_device={device}"
+            )
+        elif typed_batches is not None:
             logger.info(
                 f"Prepared {effective_retriever.gnn_architecture} disconnected "
                 f"graph batches: batches={len(typed_batches)} "
@@ -311,14 +335,15 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 f"over {len(prepared_training_data.instances)} WebQSP instances"
             )
             epoch_loss = torch.zeros((), dtype=torch.float, device=device)
+            epoch_contributing_instances = 0
             phase_timings = GnnTrainingPhaseTimings()
-            training_units = typed_batches or prepared_training_data.instances
+            training_units = runtime_batches or typed_batches or prepared_training_data.instances
             processed_instances = 0
             for training_unit in training_units:
                 previous_processed_instances = processed_instances
                 unit_instance_count = (
                     training_unit.instance_count
-                    if isinstance(training_unit, PreparedRGCNTrainingBatch)
+                    if isinstance(training_unit, (PreparedRGCNTrainingBatch, PreparedReaRevBatch))
                     else 1
                 )
                 processed_instances += unit_instance_count
@@ -335,7 +360,17 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 active_relation_offsets = None
                 positive_weights = None
                 node_loss_weights = None
-                if isinstance(training_unit, PreparedRGCNTrainingBatch):
+                rearev_model_inputs = None
+                if isinstance(training_unit, PreparedReaRevBatch):
+                    rearev_model_inputs = runtime_strategy.model_inputs(training_unit)
+                    entity_features = None
+                    question_features = None
+                    relation_features = None
+                    edge_weight = None
+                    edge_index = training_unit.edge_index
+                    edge_type = None
+                    node_labels = training_unit.node_labels
+                elif isinstance(training_unit, PreparedRGCNTrainingBatch):
                     entity_features = self._gather_embedding_features(
                         embedding_matrix=prepared_training_data.node_embeddings,
                         indices=training_unit.node_embedding_indices,
@@ -449,17 +484,21 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         and prepared_training_data.uses_bfloat16
                     ),
                 ):
-                    logits = model(
-                        entity_features=entity_features,
-                        edge_index=edge_index,
-                        edge_weight=edge_weight,
-                        question_features=question_features,
-                        relation_features=relation_features,
-                        edge_type=edge_type,
-                        edge_norm=edge_norm,
-                        active_relation_ids=active_relation_ids,
-                        edge_relation_index=edge_relation_index,
-                        active_relation_offsets=active_relation_offsets,
+                    logits = (
+                        model(**rearev_model_inputs)
+                        if rearev_model_inputs is not None
+                        else model(
+                            entity_features=entity_features,
+                            edge_index=edge_index,
+                            edge_weight=edge_weight,
+                            question_features=question_features,
+                            relation_features=relation_features,
+                            edge_type=edge_type,
+                            edge_norm=edge_norm,
+                            active_relation_ids=active_relation_ids,
+                            edge_relation_index=edge_relation_index,
+                            active_relation_offsets=active_relation_offsets,
+                        )
                     )
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
@@ -468,7 +507,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     phase_started_at=phase_started_at,
                 )
                 phase_timings.forward_seconds += elapsed_seconds
-                if positive_weights is not None and node_loss_weights is not None:
+                if isinstance(training_unit, PreparedReaRevBatch):
+                    loss = runtime_strategy.compute_loss(logits.float(), training_unit)
+                    contributing_instances = int(
+                        training_unit.valid_target_graphs.sum().item()
+                    )
+                elif positive_weights is not None and node_loss_weights is not None:
                     loss = torch_functional.binary_cross_entropy_with_logits(
                         logits.float(),
                         node_labels,
@@ -476,6 +520,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         pos_weight=positive_weights,
                         reduction="sum",
                     )
+                    contributing_instances = unit_instance_count
                 else:
                     loss = self._compute_loss(
                         logits=logits.float(),
@@ -483,6 +528,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         torch=torch,
                         torch_functional=torch_functional,
                     )
+                    contributing_instances = unit_instance_count
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
                     device=device,
@@ -490,6 +536,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     phase_started_at=phase_started_at,
                 )
                 phase_timings.loss_seconds += elapsed_seconds
+                if loss is None:
+                    logger.warning(
+                        "Skipping ReaRev optimizer update because the batch contains no "
+                        "in-graph answer targets."
+                    )
+                    continue
                 loss.backward()
                 phase_started_at, elapsed_seconds = self._finish_profiled_phase(
                     torch=torch,
@@ -509,7 +561,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 phase_timings.instance_count += unit_instance_count
 
                 detached_loss = loss.detach()
-                epoch_loss += detached_loss * unit_instance_count
+                epoch_loss += detached_loss * contributing_instances
+                epoch_contributing_instances += contributing_instances
                 if (
                     self._is_progress_interval_crossed(
                         previous_instance_index=previous_processed_instances,
@@ -551,7 +604,11 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         }
                     )
 
-            final_loss = (epoch_loss / len(prepared_training_data.instances)).item()
+            if epoch_contributing_instances == 0:
+                raise GnnAnswerRetrieverTrainingException(
+                    "Training epoch contains no graphs with in-graph answer targets."
+                )
+            final_loss = (epoch_loss / epoch_contributing_instances).item()
             loss_history.append(
                 {
                     "epoch": epoch,
@@ -599,6 +656,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             torch=torch,
             embedding_cache_device=prepared_training_data.embedding_cache_device,
             embedding_cache_dtype=prepared_training_data.embedding_cache_dtype,
+            runtime_strategy=runtime_strategy,
         )
         logger.info(f"Saved trained GNN answer retriever to {model_artifact_path}")
         model_run_directory = model_artifact_path.parent
@@ -877,9 +935,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 f"{continued_run.config.resolved_gnn_architecture} to "
                 f"{built_retriever.gnn_architecture}."
             )
+        architecture = GNN_ARCHITECTURES[built_retriever.gnn_architecture]
         if (
-            built_retriever.gnn_architecture
-            in {RGCN_ARCHITECTURE_ID, HGT_ARCHITECTURE_ID}
+            architecture.data_requirements.uses_relation_types
             and built_retriever.gnn_architecture_options
             != continued_run.config.resolved_gnn_architecture_options
         ):
@@ -1039,8 +1097,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         self,
         model,
         built_retriever: BuiltGnnAnswerRetriever,
-        question_embedding_model: str,
-        relation_embedding_model: str,
+        question_embedding_model: str | None,
+        relation_embedding_model: str | None,
         training_config: GnnAnswerRetrieverTrainingConfig,
         selected_device: str,
         final_loss: float,
@@ -1053,6 +1111,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         torch,
         embedding_cache_device: str = "qdrant",
         embedding_cache_dtype: str = "float32",
+        runtime_strategy=None,
     ) -> Path:
         model_run_directory.mkdir(parents=True, exist_ok=False)
         model_artifact_path = model_run_directory / self.model_weights_filename
@@ -1069,8 +1128,11 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         )
         training_payload["batch_size"] = (
             training_config.batch_size
-            if built_retriever.gnn_architecture
-            in {RGCN_ARCHITECTURE_ID, HGT_ARCHITECTURE_ID}
+            if (
+                getattr(runtime_strategy, "handles_training_batches", False)
+                or built_retriever.gnn_architecture
+                in {RGCN_ARCHITECTURE_ID, HGT_ARCHITECTURE_ID}
+            )
             else 1
         )
         # Keep model architecture and embedding identity at the model root.
@@ -1079,7 +1141,11 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         training_payload.update(
             {
                 "device": selected_device,
-                "loss_function": "BCEWithLogitsLoss",
+                "loss_function": (
+                    "KLDivLoss"
+                    if getattr(runtime_strategy, "strategy_id", "default") == "rearev"
+                    else "BCEWithLogitsLoss"
+                ),
                 "embedding_cache_device": embedding_cache_device,
                 "embedding_cache_dtype": embedding_cache_dtype,
                 "trained_instances": {
@@ -1102,18 +1168,27 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             "gnn_architecture_context": built_retriever.gnn_architecture_context,
             "run_name": model_run_name,
             "run_number": model_run_number,
-            "embedding_model": built_retriever.entity_embedding_model,
-            "embedding_dimension": built_retriever.entity_embedding_dimension,
             "is_fine_tuned_model": is_fine_tuned_model,
             "final_loss": final_loss,
             "training": training_payload,
         }
-        if built_retriever.gnn_architecture == HGT_ARCHITECTURE_ID:
-            parameter_count = sum(parameter.numel() for parameter in model.parameters())
-            config_payload["parameter_count"] = parameter_count
-            config_payload["estimated_training_parameter_bytes"] = (
-                parameter_count * 16
+        if built_retriever.entity_embedding_model is not None:
+            config_payload["embedding_model"] = built_retriever.entity_embedding_model
+        if built_retriever.entity_embedding_dimension is not None:
+            config_payload["embedding_dimension"] = built_retriever.entity_embedding_dimension
+        if (
+            built_retriever.gnn_architecture == HGT_ARCHITECTURE_ID
+            or getattr(runtime_strategy, "strategy_id", "default") == "rearev"
+        ):
+            parameter_count = sum(
+                parameter.numel() for parameter in model.parameters()
+                if parameter.requires_grad
             )
+            config_payload["parameter_count"] = parameter_count
+            if built_retriever.gnn_architecture == HGT_ARCHITECTURE_ID:
+                config_payload["estimated_training_parameter_bytes"] = (
+                    parameter_count * 16
+                )
         if continued_run is not None:
             config_payload.update(
                 {
@@ -1142,7 +1217,12 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 ),
                 encoding="utf-8",
             )
-        torch.save(model.state_dict(), model_artifact_path)
+        checkpoint = (
+            runtime_strategy.checkpoint_state_dict(model)
+            if runtime_strategy is not None
+            else model.state_dict()
+        )
+        torch.save(checkpoint, model_artifact_path)
         model_config_path.write_text(
             json.dumps(
                 make_project_paths_relative(config_payload),

@@ -377,6 +377,11 @@ class WandbFinalResultsLoggingService(AbstractService):
         return self._stringify_paths(
             {
                 "dataset_id": results_config.get("dataset_id"),
+                **(
+                    {"llm_provider": results_config["llm_provider"]}
+                    if results_config.get("llm_provider")
+                    else {}
+                ),
                 "model_id": results_config.get("model_id"),
                 "runs": {
                     "model": {
@@ -527,7 +532,7 @@ class WandbFinalResultsLoggingService(AbstractService):
     @classmethod
     def _build_tags(cls, results_config: dict[str, Any]) -> list[str]:
         tags = ["graphragx"]
-        for key in ["dataset_id", "model_id"]:
+        for key in ["dataset_id", "llm_provider", "model_id"]:
             value = results_config.get(key)
             if value:
                 tags.append(str(value))

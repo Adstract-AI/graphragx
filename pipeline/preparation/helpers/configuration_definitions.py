@@ -15,6 +15,18 @@ class LlmModelDefinition(BaseModel):
     model_id: str = Field(..., description="Stable model identifier.")
     display_name: str = Field(..., description="Human-readable model name.")
     description: str = Field(..., description="Short description of the model.")
+    provider_id: str = Field(default="openai", description="Owning LLM provider id.")
+
+
+class LlmProviderDefinition(BaseModel):
+    """Typed definition of an LLM inference provider."""
+
+    model_config = ConfigDict(frozen=True)
+
+    provider_id: str
+    display_name: str
+    description: str
+    accepts_arbitrary_models: bool = False
 
 
 class SubgraphConstructionDefinition(BaseModel):
@@ -101,6 +113,9 @@ class GnnArchitectureDefinition(BaseModel):
     options: tuple[GnnArchitectureOptionDefinition, ...]
     model_builder_path: str
     validator_path: str | None = None
+    runtime_strategy_path: str = (
+        "pipeline.preparation.services.gnn_architecture_runtime:DefaultGnnRuntimeStrategy"
+    )
     data_requirements: "GnnArchitectureDataRequirements" = Field(
         default_factory=lambda: GnnArchitectureDataRequirements()
     )
@@ -116,9 +131,13 @@ class GnnArchitectureDataRequirements(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     requires_reverse_edges: bool = False
+    uses_entity_embeddings: bool = True
     uses_question_embeddings: bool = True
     uses_relation_embeddings: bool = True
     uses_relation_types: bool = False
+    uses_raw_question_tokens: bool = False
+    uses_relation_text_tokens: bool = False
+    uses_seed_distributions: bool = False
 
 
 class OpenAiEmbeddingModelDefinition(BaseModel):
@@ -162,11 +181,13 @@ SHARED_LLM_MODELS: Final[dict[str, LlmModelDefinition]] = {
         model_id="deepseek-v4-flash",
         display_name="DeepSeek-V4-Flash",
         description="Fast DeepSeek V4 model served through the DeepSeek API.",
+        provider_id="deepseek",
     ),
     "deepseek-v4-pro": LlmModelDefinition(
         model_id="deepseek-v4-pro",
         display_name="DeepSeek-V4-Pro",
         description="Higher-capability DeepSeek V4 model served through the DeepSeek API.",
+        provider_id="deepseek",
     ),
     "gpt-4.1": LlmModelDefinition(
         model_id="gpt-4.1",
@@ -184,6 +205,27 @@ SHARED_LLM_MODELS: Final[dict[str, LlmModelDefinition]] = {
         description="Smallest shared model option for lightweight tasks.",
     ),
 }
+
+LLM_PROVIDERS: Final[dict[str, LlmProviderDefinition]] = {
+    "openai": LlmProviderDefinition(
+        provider_id="openai",
+        display_name="OpenAI",
+        description="Use an OpenAI-hosted chat model.",
+    ),
+    "deepseek": LlmProviderDefinition(
+        provider_id="deepseek",
+        display_name="DeepSeek",
+        description="Use a DeepSeek-hosted chat model.",
+    ),
+    "vezilka": LlmProviderDefinition(
+        provider_id="vezilka",
+        display_name="Vezilka",
+        description="Use any model exposed by the FINKI vLLM chat-completions endpoint.",
+        accepts_arbitrary_models=True,
+    ),
+}
+
+RECOMMENDED_LLM_PROVIDER_ID: Final[str] = "openai"
 
 SUBGRAPH_CONSTRUCTION_ALGORITHMS: Final[dict[str, SubgraphConstructionDefinition]] = {
     "shortest_path": SubgraphConstructionDefinition(
@@ -262,6 +304,7 @@ GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "graphsage"
 AA_GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "aa-graphsage"
 RGCN_ARCHITECTURE_ID: Final[str] = "rgcn"
 HGT_ARCHITECTURE_ID: Final[str] = "hgt"
+REAREV_ARCHITECTURE_ID: Final[str] = "rearev"
 
 GNN_LAYER_COUNT_OPTION: Final[GnnArchitectureOptionDefinition] = (
     GnnArchitectureOptionDefinition(
@@ -374,6 +417,46 @@ HGT_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
     ),
 )
 
+REAREV_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GnnArchitectureOptionDefinition(
+        option_id="gnn_hidden_dimension",
+        display_name="ReaRev Hidden Dimension",
+        description="Width of instructions, relation states, and node reasoning states.",
+        value_type="integer",
+        choices=(50, 128, 256, 512),
+        default=50,
+        cli_flag="--gnn-hidden-dim",
+    ),
+    GNN_DROPOUT_OPTION,
+    GnnArchitectureOptionDefinition(
+        option_id="num_instructions",
+        display_name="ReaRev Instructions",
+        description="Number of token-attended reasoning instructions.",
+        value_type="integer",
+        choices=(1, 2, 3),
+        default=2,
+        cli_flag="--num-instructions",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="reasoning_steps",
+        display_name="ReaRev Reasoning Steps",
+        description="BFS-style reasoning steps executed in each adaptive stage.",
+        value_type="integer",
+        choices=(1, 2, 3),
+        default=2,
+        cli_flag="--reasoning-steps",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="adaptive_iterations",
+        display_name="ReaRev Adaptive Iterations",
+        description="Reason-and-revise stages used for adaptive reasoning.",
+        value_type="integer",
+        choices=(1, 2, 3),
+        default=3,
+        cli_flag="--adaptive-iterations",
+    ),
+)
+
 GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
     GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
         architecture_id=GRAPH_SAGE_ARCHITECTURE_ID,
@@ -431,6 +514,31 @@ GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
             uses_question_embeddings=False,
             uses_relation_embeddings=False,
             uses_relation_types=True,
+        ),
+    ),
+    REAREV_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=REAREV_ARCHITECTURE_ID,
+        display_name="ReaRev",
+        description=(
+            "Question-conditioned adaptive reason-and-revise execution over "
+            "relation-aware knowledge graphs."
+        ),
+        options=REAREV_OPTIONS,
+        model_builder_path=(
+            "pipeline.preparation.models.rearev_answer_retriever:build_rearev_model"
+        ),
+        runtime_strategy_path=(
+            "pipeline.preparation.services.gnn_architecture_runtime:ReaRevRuntimeStrategy"
+        ),
+        data_requirements=GnnArchitectureDataRequirements(
+            requires_reverse_edges=True,
+            uses_entity_embeddings=False,
+            uses_question_embeddings=False,
+            uses_relation_embeddings=False,
+            uses_relation_types=True,
+            uses_raw_question_tokens=True,
+            uses_relation_text_tokens=True,
+            uses_seed_distributions=True,
         ),
     ),
 }

@@ -7,8 +7,18 @@ import re
 import time
 from typing import Any
 
-from helpers.constants import DEEPSEEK_API_KEY_ENV_NAME, OPENAI_API_KEY_ENV_NAME
-from helpers.env_variables import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, OPENAI_API_KEY
+from helpers.constants import (
+    DEEPSEEK_API_KEY_ENV_NAME,
+    DEFAULT_VEZILKA_BASE_URL,
+    OPENAI_API_KEY_ENV_NAME,
+    VEZILKA_API_KEY_ENV_NAME,
+)
+from helpers.env_variables import (
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_BASE_URL,
+    OPENAI_API_KEY,
+    VEZILKA_API_KEY,
+)
 from helpers.logging_config import get_logger
 from helpers.openai_rate_limit_logging import (
     create_rate_limit_logging_http_client,
@@ -30,6 +40,7 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
     max_rate_limit_wait_seconds = 120.0
     request_timeout_seconds = 45.0
     slow_request_warning_seconds = 30.0
+    max_completion_tokens = 1024
     deepseek_model_ids = {"deepseek-v4-flash", "deepseek-v4-pro"}
 
     # USD per 1M tokens. Unknown models fall back to 0-cost accounting.
@@ -56,12 +67,16 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         question: str,
         reasoning_paths_text: str,
         model_id: str,
+        provider_id: str = "openai",
+        reasoning_effort: str | None = None,
     ) -> tuple[str, str]:
         """Call the LLM and return the generated answer with the prompt."""
         result = self.generate_answer_with_explanation(
             question=question,
             reasoning_paths_text=reasoning_paths_text,
             model_id=model_id,
+            provider_id=provider_id,
+            reasoning_effort=reasoning_effort,
         )
         return result["answer"], result["prompt"]
 
@@ -70,9 +85,14 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         question: str,
         reasoning_paths_text: str,
         model_id: str,
+        provider_id: str = "openai",
+        reasoning_effort: str | None = None,
     ) -> dict[str, str]:
         """Call the LLM and return parsed answer, explanation, and raw response."""
-        api_key, api_key_env_name, base_url = self._model_api_settings(model_id)
+        api_key, api_key_env_name, base_url = self._model_api_settings(
+            model_id,
+            provider_id,
+        )
         if not api_key:
             raise LlmAnswerGenerationException(
                 f"{api_key_env_name} must be set in .env before LLM inference."
@@ -84,27 +104,39 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         )
 
         try:
-            from langchain_core.messages import HumanMessage, SystemMessage
-            from langchain_openai import ChatOpenAI
-
-            messages = [
-                SystemMessage(content=self.system_prompt),
-                HumanMessage(content=prompt),
-            ]
-            chat_model = self._create_chat_model(
-                chat_openai_type=ChatOpenAI,
-                model_id=model_id,
-                prompt=prompt,
-                api_key=api_key,
-                base_url=base_url,
-            )
             started_at = time.monotonic()
-            response = self._invoke_with_visible_rate_limit_retries(
-                chat_model=chat_model,
-                messages=messages,
-                model_id=model_id,
-                prompt=prompt,
-            )
+            if provider_id == "vezilka":
+                response = self._invoke_vezilka_chat_completion(
+                    model_id=model_id,
+                    prompt=prompt,
+                    api_key=api_key,
+                    base_url=base_url or DEFAULT_VEZILKA_BASE_URL,
+                    reasoning_effort=reasoning_effort,
+                )
+                raw_response = self.extract_chat_completion_content(response).strip()
+            else:
+                from langchain_core.messages import HumanMessage, SystemMessage
+                from langchain_openai import ChatOpenAI
+
+                messages = [
+                    SystemMessage(content=self.system_prompt),
+                    HumanMessage(content=prompt),
+                ]
+                chat_model = self._create_chat_model(
+                    chat_openai_type=ChatOpenAI,
+                    model_id=model_id,
+                    prompt=prompt,
+                    api_key=api_key,
+                    base_url=base_url,
+                    reasoning_effort=reasoning_effort,
+                )
+                response = self._invoke_with_visible_rate_limit_retries(
+                    chat_model=chat_model,
+                    messages=messages,
+                    model_id=model_id,
+                    prompt=prompt,
+                )
+                raw_response = self.extract_response_content(response.content).strip()
             elapsed_seconds = time.monotonic() - started_at
             if elapsed_seconds >= self.slow_request_warning_seconds:
                 logger.warning(
@@ -117,7 +149,6 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                 f"LLM answer generation failed: {error}"
             ) from error
 
-        raw_response = self.extract_response_content(response.content).strip()
         parsed_response = self.parse_json_response(raw_response)
         usage = self.extract_token_usage(response)
         estimated_cost = self.estimate_cost_usd(
@@ -171,6 +202,69 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
 
         return chat_model.invoke(messages)
 
+    def _invoke_vezilka_chat_completion(
+        self,
+        *,
+        model_id: str,
+        prompt: str,
+        api_key: str,
+        base_url: str,
+        reasoning_effort: str | None = None,
+    ) -> Any:
+        """Invoke Vezilka's OpenAI-compatible ``/v1/chat/completions`` endpoint."""
+        from openai import OpenAI
+
+        http_client = create_rate_limit_logging_http_client(
+            logger=logger,
+            operation="llm_answer_generation",
+            model_id=model_id,
+            item_count=len(prompt),
+        )
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=self.request_timeout_seconds,
+            max_retries=0,
+            http_client=http_client,
+        )
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+        request_kwargs = {
+            "model": model_id,
+            "messages": messages,
+            "max_tokens": self.max_completion_tokens,
+            "stream": False,
+        }
+        if reasoning_effort is not None:
+            request_kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
+        for attempt_number in range(1, self.max_rate_limit_retries + 1):
+            try:
+                return client.chat.completions.create(**request_kwargs)
+            except Exception as error:
+                if not is_openai_rate_limit_error(error):
+                    raise
+                wait_seconds = rate_limit_wait_seconds(
+                    error=error,
+                    attempt_number=attempt_number,
+                    default_wait_seconds=self.default_rate_limit_wait_seconds,
+                    max_wait_seconds=self.max_rate_limit_wait_seconds,
+                )
+                logger.warning(
+                    format_rate_limit_retry_message(
+                        operation="llm_answer_generation",
+                        model_id=model_id,
+                        item_count=len(prompt),
+                        attempt_number=attempt_number,
+                        max_attempts=self.max_rate_limit_retries,
+                        wait_seconds=wait_seconds,
+                        error=error,
+                    )
+                )
+                time.sleep(wait_seconds)
+        return client.chat.completions.create(**request_kwargs)
+
     @staticmethod
     def _create_chat_model(
         chat_openai_type: Any,
@@ -178,6 +272,7 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         prompt: str,
         api_key: str,
         base_url: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> Any:
         http_client = create_rate_limit_logging_http_client(
             logger=logger,
@@ -197,6 +292,8 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
             model_kwargs["model_kwargs"] = {
                 "response_format": {"type": "json_object"}
             }
+        if reasoning_effort is not None:
+            model_kwargs["reasoning_effort"] = reasoning_effort
         if base_url is not None:
             model_kwargs["base_url"] = base_url
 
@@ -234,6 +331,8 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                 fallback_kwargs["model_kwargs"] = {
                     "response_format": {"type": "json_object"}
                 }
+            if reasoning_effort is not None:
+                fallback_kwargs["reasoning_effort"] = reasoning_effort
             try:
                 return chat_openai_type(**fallback_kwargs)
             except TypeError:
@@ -243,11 +342,27 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                 return chat_openai_type(**legacy_kwargs)
 
     @classmethod
-    def _model_api_settings(cls, model_id: str) -> tuple[str | None, str, str | None]:
-        if model_id in cls.deepseek_model_ids:
+    def _model_api_settings(
+        cls,
+        model_id: str,
+        provider_id: str = "openai",
+    ) -> tuple[str | None, str, str | None]:
+        if provider_id == "vezilka":
+            return VEZILKA_API_KEY, VEZILKA_API_KEY_ENV_NAME, DEFAULT_VEZILKA_BASE_URL
+        if provider_id == "deepseek" or model_id in cls.deepseek_model_ids:
             return DEEPSEEK_API_KEY, DEEPSEEK_API_KEY_ENV_NAME, DEEPSEEK_BASE_URL
 
         return OPENAI_API_KEY, OPENAI_API_KEY_ENV_NAME, None
+
+    @classmethod
+    def extract_chat_completion_content(cls, response: Any) -> str:
+        choices = getattr(response, "choices", None)
+        if not choices:
+            raise LlmAnswerGenerationException(
+                "Vezilka chat-completion response did not contain any choices."
+            )
+        message = getattr(choices[0], "message", None)
+        return cls.extract_response_content(getattr(message, "content", ""))
 
     @classmethod
     def extract_token_usage(cls, response: Any) -> dict[str, int]:
@@ -261,6 +376,19 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                 "prompt_tokens": input_tokens,
                 "completion_tokens": output_tokens,
                 "total_tokens": total_tokens or input_tokens + output_tokens,
+            }
+
+        direct_usage = getattr(response, "usage", None)
+        if direct_usage is not None:
+            prompt_tokens = cls._int_value(getattr(direct_usage, "prompt_tokens", 0))
+            completion_tokens = cls._int_value(
+                getattr(direct_usage, "completion_tokens", 0)
+            )
+            total_tokens = cls._int_value(getattr(direct_usage, "total_tokens", 0))
+            return {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens or prompt_tokens + completion_tokens,
             }
 
         response_metadata = getattr(response, "response_metadata", None)

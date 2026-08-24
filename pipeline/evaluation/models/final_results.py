@@ -18,6 +18,7 @@ class FinalResultsConfig(BaseModel):
     evaluation_run_name: str | None = Field(default=None)
     inference_run_name: str | None = Field(default=None)
     model_id: str = Field(..., description="LLM model used for answer generation.")
+    llm_provider: str = Field(default="openai", description="LLM provider used.")
     gnn_architecture: str = Field(..., description="Stable GNN architecture id.")
     run_name: str | None = Field(default=None, description="Created results run name.")
     run_number: int | None = Field(default=None, description="Created results run number.")
@@ -158,6 +159,7 @@ class FinalReasoningMetrics(BaseModel):
     inference_run_name: str = Field(..., description="Source LLM inference run name.")
     model_run_name: str = Field(..., description="Source GNN model run name.")
     model_id: str = Field(..., description="LLM model id.")
+    llm_provider: str = Field(default="openai", description="LLM provider id.")
     answer_metrics: FinalAnswerMetrics
     explanation_grounding_metrics: ExplanationGroundingMetrics
     ranking_metrics: RankingMetrics
@@ -170,6 +172,7 @@ class FinalReasoningMetrics(BaseModel):
             "inference_run_name": self.inference_run_name,
             "model_run_name": self.model_run_name,
             "model_id": self.model_id,
+            "llm_provider": self.llm_provider,
             **self.answer_metrics.model_dump(mode="json"),
             **self.explanation_grounding_metrics.model_dump(mode="json"),
             **self.ranking_metrics.model_dump(mode="json"),

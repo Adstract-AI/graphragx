@@ -16,6 +16,7 @@ from pipeline.preparation.exceptions import (
     InvalidGnnArchitectureSelectionException,
     InvalidGnnLayerCountSelectionException,
     InvalidInteractiveConfigurationInputException,
+    InvalidLlmProviderSelectionException,
     InvalidMainLlmSelectionException,
     InvalidNodeClassifierSelectionException,
     InvalidSubgraphConstructionSelectionException,
@@ -26,10 +27,12 @@ from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
     GnnArchitectureOptionDefinition,
     GRAPH_SAGE_ARCHITECTURE_ID,
+    LLM_PROVIDERS,
     OPENAI_EMBEDDING_MODELS,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
+    RECOMMENDED_LLM_PROVIDER_ID,
     RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
     SHARED_LLM_MODELS,
@@ -47,6 +50,8 @@ logger = get_logger(__name__)
 class PipelineConfigurationInput(BaseModel):
     """Optional programmatic input for pipeline configuration building."""
 
+    llm_provider: str | None = Field(default=None)
+    reasoning_effort: str | None = Field(default=None)
     main_llm_model: str | None = Field(default=None)
     subgraph_construction_algorithm: str | None = Field(default=None)
     context_construction_strategy: str | None = Field(default=None)
@@ -75,6 +80,11 @@ class BuiltPipelineConfiguration(StepResult):
     dataset_id: str = Field(..., description="Selected dataset identifier.")
     gnn_architecture: str = Field(default="graphsage", description="Selected GNN architecture id.")
     gnn_architecture_options: dict[str, Any] = Field(default_factory=dict)
+    llm_provider: str = Field(default="openai", description="Selected LLM provider id.")
+    reasoning_effort: str | None = Field(
+        default=None,
+        description="Optional reasoning effort passed to the selected LLM provider.",
+    )
     main_llm_model: str = Field(..., description="Selected main LLM model id.")
     subgraph_construction_algorithm: str = Field(
         ..., description="Selected subgraph construction algorithm id."
@@ -93,14 +103,14 @@ class BuiltPipelineConfiguration(StepResult):
         description="OpenAI embedding model used for all graph and question text.",
     )
     # Compatibility aliases. They are resolved to embedding_model by the builder.
-    question_embedding_model: str = Field(
-        ..., description="OpenAI embedding model for question text."
+    question_embedding_model: str | None = Field(
+        default=None, description="OpenAI embedding model for question text."
     )
-    relation_embedding_model: str = Field(
-        ..., description="OpenAI embedding model for relation text."
+    relation_embedding_model: str | None = Field(
+        default=None, description="OpenAI embedding model for relation text."
     )
-    entity_embedding_model: str = Field(
-        ..., description="OpenAI embedding model for entity text."
+    entity_embedding_model: str | None = Field(
+        default=None, description="OpenAI embedding model for entity text."
     )
     use_edge_mlp: bool = Field(default=False)
     question_aware_classifier: bool = Field(default=False)
@@ -117,6 +127,8 @@ class BuildPipelineConfigurationStep(
 
     def __init__(
         self,
+        llm_provider: str | None = None,
+        reasoning_effort: str | None = None,
         main_llm_model: str | None = None,
         subgraph_algorithm: str | None = None,
         context_strategy: str | None = None,
@@ -140,6 +152,8 @@ class BuildPipelineConfigurationStep(
     ):
         super().__init__(force_default=force_default)
         self.configuration_input = PipelineConfigurationInput(
+            llm_provider=llm_provider,
+            reasoning_effort=reasoning_effort,
             main_llm_model=main_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
             context_construction_strategy=context_strategy,
@@ -237,16 +251,46 @@ class BuildPipelineConfigurationStep(
                     provided_value=None,
                     architecture_name=architecture.display_name,
                 )
-        main_llm_model = self.selection_service.resolve_choice(
-            provided_value=self.configuration_input.main_llm_model,
-            options=SHARED_LLM_MODELS,
-            prompt_title="Main LLM Model",
-            prompt_help="Select the primary model used for final question answering.",
-            recommended_id=RECOMMENDED_MAIN_LLM_MODEL_ID,
-            invalid_exception_type=InvalidMainLlmSelectionException,
-            value_getter=lambda item: item.model_id,
+        inferred_provider = self._infer_llm_provider(
+            self.configuration_input.main_llm_model
+        )
+        llm_provider = self.selection_service.resolve_choice(
+            provided_value=self.configuration_input.llm_provider or inferred_provider,
+            options=LLM_PROVIDERS,
+            prompt_title="LLM Provider",
+            prompt_help="Select the provider used for final question answering.",
+            recommended_id=RECOMMENDED_LLM_PROVIDER_ID,
+            invalid_exception_type=InvalidLlmProviderSelectionException,
+            value_getter=lambda item: item.provider_id,
             label_getter=lambda item: item.display_name,
         )
+        if LLM_PROVIDERS[llm_provider].accepts_arbitrary_models:
+            main_llm_model = self.selection_service.resolve_text(
+                provided_value=self.configuration_input.main_llm_model,
+                prompt="Enter the Vezilka model name: ",
+                invalid_exception_type=InvalidMainLlmSelectionException,
+            )
+        else:
+            provider_models = {
+                model_id: definition
+                for model_id, definition in SHARED_LLM_MODELS.items()
+                if definition.provider_id == llm_provider
+            }
+            recommended_model = (
+                RECOMMENDED_MAIN_LLM_MODEL_ID
+                if llm_provider == RECOMMENDED_LLM_PROVIDER_ID
+                else next(iter(provider_models))
+            )
+            main_llm_model = self.selection_service.resolve_choice(
+                provided_value=self.configuration_input.main_llm_model,
+                options=provider_models,
+                prompt_title="Main LLM Model",
+                prompt_help="Select the primary model used for final question answering.",
+                recommended_id=recommended_model,
+                invalid_exception_type=InvalidMainLlmSelectionException,
+                value_getter=lambda item: item.model_id,
+                label_getter=lambda item: item.display_name,
+            )
         subgraph_algorithm = self.selection_service.resolve_choice(
             provided_value=self.configuration_input.subgraph_construction_algorithm,
             options=SUBGRAPH_CONSTRUCTION_ALGORITHMS,
@@ -267,18 +311,26 @@ class BuildPipelineConfigurationStep(
             value_getter=lambda item: item.strategy_id,
             label_getter=lambda item: item.display_name,
         )
-        embedding_model = self.selection_service.resolve_choice(
-            provided_value=self._provided_embedding_model(),
-            options=OPENAI_EMBEDDING_MODELS,
-            prompt_title="Embedding Model",
-            prompt_help="Select the OpenAI embedding model used everywhere embeddings are needed.",
-            recommended_id=RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
-            # Keep the historical exception type for callers that catch it;
-            # there is now only one embedding selection.
-            invalid_exception_type=InvalidEntityEmbeddingModelSelectionException,
-            value_getter=lambda item: item.model_id,
-            label_getter=lambda item: item.display_name,
-        )
+        embedding_model = None
+        if any(
+            (
+                architecture.data_requirements.uses_entity_embeddings,
+                architecture.data_requirements.uses_question_embeddings,
+                architecture.data_requirements.uses_relation_embeddings,
+            )
+        ):
+            embedding_model = self.selection_service.resolve_choice(
+                provided_value=self._provided_embedding_model(),
+                options=OPENAI_EMBEDDING_MODELS,
+                prompt_title="Embedding Model",
+                prompt_help="Select the OpenAI embedding model used everywhere embeddings are needed.",
+                recommended_id=RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
+                # Keep the historical exception type for callers that catch it;
+                # there is now only one embedding selection.
+                invalid_exception_type=InvalidEntityEmbeddingModelSelectionException,
+                value_getter=lambda item: item.model_id,
+                label_getter=lambda item: item.display_name,
+            )
         question_embedding_model = embedding_model
         relation_embedding_model = embedding_model
         entity_embedding_model = embedding_model
@@ -290,6 +342,8 @@ class BuildPipelineConfigurationStep(
         )
         return BuiltPipelineConfiguration(
             dataset_id=selected_dataset.dataset_id,
+            llm_provider=llm_provider,
+            reasoning_effort=self.configuration_input.reasoning_effort,
             gnn_architecture=gnn_architecture,
             gnn_architecture_options=resolved_gnn_options,
             main_llm_model=main_llm_model,
@@ -316,6 +370,15 @@ class BuildPipelineConfigurationStep(
             edge_mlp_hidden_dim=resolved_gnn_options.get("edge_mlp_hidden_dim"),
             dropout=float(resolved_gnn_options.get("dropout", 0.0)),
         )
+
+    @staticmethod
+    def _infer_llm_provider(model_id: str | None) -> str | None:
+        if model_id is None:
+            return None
+        definition = SHARED_LLM_MODELS.get(model_id)
+        # Preserve historical behavior: an unqualified model is interpreted as
+        # OpenAI and therefore still receives normal model validation.
+        return definition.provider_id if definition is not None else "openai"
 
     def _provided_embedding_model(self) -> str | None:
         """Resolve the unified model while accepting legacy constructor fields."""

@@ -35,6 +35,38 @@ class CapturingChatOpenAI:
         self.__class__.captured_kwargs = kwargs
 
 
+class FakeVezilkaCompletions:
+    captured_kwargs = None
+
+    def create(self, **kwargs):
+        self.__class__.captured_kwargs = kwargs
+        usage = type(
+            "Usage",
+            (),
+            {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20},
+        )()
+        message = type(
+            "Message",
+            (),
+            {"content": '{"answer":"A","explanation":"B"}'},
+        )()
+        choice = type("Choice", (), {"message": message})()
+        return type("Completion", (), {"choices": [choice], "usage": usage})()
+
+
+class FakeVezilkaChat:
+    def __init__(self):
+        self.completions = FakeVezilkaCompletions()
+
+
+class FakeVezilkaClient:
+    captured_kwargs = None
+
+    def __init__(self, **kwargs):
+        self.__class__.captured_kwargs = kwargs
+        self.chat = FakeVezilkaChat()
+
+
 class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
     def test_rate_limit_is_logged_and_retried(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
@@ -104,6 +136,22 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
             {"response_format": {"type": "json_object"}},
         )
 
+    def test_reasoning_effort_is_passed_to_openai_chat_model(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+
+        service._create_chat_model(
+            chat_openai_type=CapturingChatOpenAI,
+            model_id="gpt-5-mini",
+            prompt="question",
+            api_key="openai-key",
+            reasoning_effort="low",
+        )
+
+        self.assertEqual(
+            CapturingChatOpenAI.captured_kwargs["reasoning_effort"],
+            "low",
+        )
+
     def test_deepseek_missing_api_key_mentions_deepseek_env_name(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
 
@@ -125,6 +173,54 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
         )
 
         self.assertEqual(cost, 1.305)
+
+    def test_vezilka_uses_free_form_model_and_chat_completions_endpoint(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+        with patch(
+            "pipeline.evaluation.services.llm_answer_generation.VEZILKA_API_KEY",
+            "vezilka-key",
+        ), patch("openai.OpenAI", FakeVezilkaClient):
+            result = service.generate_answer_with_explanation(
+                question="Question?",
+                reasoning_paths_text="<A, relation, B>",
+                model_id="qwen3-4b-custom",
+                provider_id="vezilka",
+                reasoning_effort="none",
+            )
+
+        self.assertEqual(result["answer"], "A")
+        self.assertEqual(result["total_tokens"], 20)
+        self.assertEqual(result["estimated_cost_usd"], 0.0)
+        self.assertEqual(
+            FakeVezilkaClient.captured_kwargs["base_url"],
+            "https://vllm.finki.ukim.mk/v1",
+        )
+        self.assertEqual(
+            FakeVezilkaCompletions.captured_kwargs["model"],
+            "qwen3-4b-custom",
+        )
+        self.assertEqual(
+            FakeVezilkaCompletions.captured_kwargs["extra_body"],
+            {"reasoning_effort": "none"},
+        )
+        self.assertFalse(FakeVezilkaCompletions.captured_kwargs["stream"])
+        self.assertEqual(
+            FakeVezilkaCompletions.captured_kwargs["messages"][0]["role"],
+            "system",
+        )
+
+    def test_vezilka_omits_optional_reasoning_and_always_disables_streaming(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+        with patch("openai.OpenAI", FakeVezilkaClient):
+            service._invoke_vezilka_chat_completion(
+                model_id="qwen3.8-27b",
+                prompt="question",
+                api_key="vezilka-key",
+                base_url="https://vllm.finki.ukim.mk/v1",
+            )
+
+        self.assertNotIn("extra_body", FakeVezilkaCompletions.captured_kwargs)
+        self.assertFalse(FakeVezilkaCompletions.captured_kwargs["stream"])
 
 
 if __name__ == "__main__":

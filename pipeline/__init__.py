@@ -90,6 +90,7 @@ _EXPORT_MODULES: dict[str, str] = {
     "InvalidGnnArchitectureSelectionException": "pipeline.preparation.exceptions",
     "InvalidGnnLayerCountSelectionException": "pipeline.preparation.exceptions",
     "InvalidInteractiveConfigurationInputException": "pipeline.preparation.exceptions",
+    "InvalidLlmProviderSelectionException": "pipeline.preparation.exceptions",
     "InvalidMainLlmSelectionException": "pipeline.preparation.exceptions",
     "InvalidNodeClassifierSelectionException": "pipeline.preparation.exceptions",
     "InvalidQuestionEmbeddingModelSelectionException": "pipeline.preparation.exceptions",

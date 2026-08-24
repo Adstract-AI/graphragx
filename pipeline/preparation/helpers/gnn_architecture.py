@@ -104,6 +104,14 @@ def import_architecture_callable(path: str):
     return getattr(import_module(module_name), attribute_name)
 
 
+def build_architecture_runtime_strategy(architecture_id: str, **kwargs):
+    """Construct the architecture-owned runtime strategy lazily."""
+    strategy_type = import_architecture_callable(
+        GNN_ARCHITECTURES[architecture_id].runtime_strategy_path
+    )
+    return strategy_type(**kwargs)
+
+
 def validate_architecture_options(
     architecture_id: str,
     options: Mapping[str, Any],
