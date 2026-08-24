@@ -161,6 +161,7 @@ class PipelineRuntimeConfig(BaseModel):
         "inference-only",
     ] = "full"
     dataset: str | None = None
+    local_graph_profile: bool = False
     llm_provider: str | None = None
     reasoning_effort: str | None = None
     main_llm_model: str | None = None
@@ -455,7 +456,12 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             entity_embedding_model=resolved_config.entity_embedding_model,
         ),
         LoadDatasetStep(),
-        BuildWebQSPLocalGraphsStep(),
+        BuildWebQSPLocalGraphsStep(
+            load_train_instances=resolved_config.run_mode
+            in {"full", "train-only", "retriever-only"},
+            load_test_instances=resolved_config.run_mode != "train-only",
+            profile=resolved_config.local_graph_profile,
+        ),
     ]
     training_steps = [
         BuildGnnAnswerRetrieverStep(),
@@ -824,6 +830,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Dataset choice for the current run.",
     )
     parser.add_argument(
+        "--local-graph-profile",
+        action="store_true",
+        default=False,
+        help="Report detailed WebQSP graph processing and cache phase timings.",
+    )
+    parser.add_argument(
         "--llm-provider",
         choices=tuple(LLM_PROVIDERS),
         default=None,
@@ -1138,6 +1150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     runtime_config = PipelineRuntimeConfig(
         run_mode=args.run_mode,
         dataset=args.dataset,
+        local_graph_profile=args.local_graph_profile,
         llm_provider=args.llm_provider,
         reasoning_effort=args.reasoning_effort,
         main_llm_model=args.main_llm_model,

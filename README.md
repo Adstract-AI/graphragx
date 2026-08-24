@@ -270,6 +270,7 @@ W&B tags are populated incrementally from the stages available in each mode. Dep
 | --- | --- |
 | `--default` | Uses recommended default values for configurable selections instead of prompting interactively. |
 | `--force-default` | Forces every pipeline step to use its default execution path. This is mostly useful for tests and controlled runs. |
+| `--local-graph-profile` | Reports detailed WebQSP graph processing, cache loading, cache saving, file-size, and mapping-fingerprint timings. Off by default. |
 
 ## Outputs
 
@@ -278,6 +279,13 @@ Pipeline outputs are saved under `data/webqsp`:
 `data/webqsp/processed`
 
 Processed WebQSP graph cache and vocabulary artifacts.
+
+Processed graph cache version 6 stores edge indices and labels in packed contiguous
+tensors and memory-maps them on cache hits. Pipeline modes load only the instance
+splits they consume, while the shared vocabularies remain available in every mode.
+Cache metadata includes the Hugging Face split fingerprints and entity-name mapping
+hash, so changing either input triggers a one-time rebuild instead of reusing stale
+graphs. Cache load and save logs include per-phase timings and artifact sizes.
 
 `data/webqsp/models/<run>`
 

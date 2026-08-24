@@ -560,6 +560,28 @@ class MainEntrypointTests(unittest.TestCase):
 
         self.assertTrue(captured_configs[-1].wandb_upload_retriever)
 
+    def test_local_graph_profile_flag_defaults_off_and_is_wired(self) -> None:
+        parser = main.build_parser()
+        self.assertFalse(parser.parse_args([]).local_graph_profile)
+        self.assertTrue(
+            parser.parse_args(
+                ["--local-graph-profile"]
+            ).local_graph_profile
+        )
+
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                local_graph_profile=True,
+                no_wandb=True,
+            )
+        )
+        graph_step = next(
+            step
+            for step in pipeline.preparation_steps
+            if isinstance(step, BuildWebQSPLocalGraphsStep)
+        )
+        self.assertTrue(graph_step.profile)
+
     def test_evaluation_embedding_and_profile_flags_are_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
 
@@ -653,6 +675,51 @@ class MainEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(len(pipeline.evaluation_steps), 8)
         self.assertIsInstance(pipeline.preparation_steps[-1], LogTrainingToWandbStep)
+
+    def test_pipeline_modes_load_only_required_processed_graph_splits(self) -> None:
+        expectations = {
+            "full": (True, True),
+            "train-only": (True, False),
+            "retriever-only": (True, True),
+            "evaluation-only": (False, True),
+            "inference-only": (False, True),
+        }
+        saved_config = SavedGnnAnswerRetrieverConfig(dataset_id="WebQSP")
+        with patch.object(
+            main.GnnAnswerRetrieverModelRunService,
+            "resolve_run",
+            return_value=type("Run", (), {"config": saved_config})(),
+        ), patch.object(
+            main.GnnRetrieverResultsService,
+            "load_model_config",
+            return_value=saved_config,
+        ):
+            for run_mode, expected in expectations.items():
+                with self.subTest(run_mode=run_mode):
+                    pipeline = main.build_pipeline(
+                        config=main.PipelineRuntimeConfig(
+                            run_mode=run_mode,
+                            no_wandb=True,
+                            evaluation_model_run_number=(
+                                1 if run_mode == "evaluation-only" else None
+                            ),
+                            retriever_run_number=(
+                                1 if run_mode == "inference-only" else None
+                            ),
+                        ),
+                    )
+                    graph_step = next(
+                        step
+                        for step in pipeline.preparation_steps
+                        if isinstance(step, BuildWebQSPLocalGraphsStep)
+                    )
+                    self.assertEqual(
+                        (
+                            graph_step.load_train_instances,
+                            graph_step.load_test_instances,
+                        ),
+                        expected,
+                    )
 
     def test_evaluation_log_every_is_wired_into_evaluation_step(self) -> None:
         pipeline = main.build_pipeline(
