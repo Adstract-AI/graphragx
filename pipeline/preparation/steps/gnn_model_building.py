@@ -12,6 +12,7 @@ from pipeline.preparation.exceptions import InvalidInteractiveConfigurationInput
 from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
     HGT_ARCHITECTURE_ID,
+    NBFNET_ARCHITECTURE_ID,
     OPENAI_EMBEDDING_MODELS,
     REAREV_ARCHITECTURE_ID,
 )
@@ -104,7 +105,13 @@ class BuildGnnAnswerRetrieverStep(
         architecture = GNN_ARCHITECTURES[configuration.gnn_architecture]
         embedding_definition = (
             OPENAI_EMBEDDING_MODELS[embedding_model]
-            if architecture.data_requirements.uses_entity_embeddings
+            if any(
+                (
+                    architecture.data_requirements.uses_entity_embeddings,
+                    architecture.data_requirements.uses_question_embeddings,
+                    architecture.data_requirements.uses_relation_embeddings,
+                )
+            )
             and embedding_model is not None
             else None
         )
@@ -164,6 +171,12 @@ class BuildGnnAnswerRetrieverStep(
                     "encoder_frozen": True,
                 }
             )
+        elif configuration.gnn_architecture == NBFNET_ARCHITECTURE_ID:
+            from pipeline.preparation.helpers.nbfnet_constants import (
+                NBFNET_FIXED_CONTEXT,
+            )
+
+            architecture_context.update(NBFNET_FIXED_CONTEXT)
 
         logger.info(
             f"Building GNN answer retriever: dataset={prepared_dataset.dataset_id} "
@@ -187,13 +200,16 @@ class BuildGnnAnswerRetrieverStep(
             relation_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
         )
 
-        if configuration.gnn_architecture == HGT_ARCHITECTURE_ID:
+        if configuration.gnn_architecture in {
+            HGT_ARCHITECTURE_ID,
+            NBFNET_ARCHITECTURE_ID,
+        }:
             parameter_count = sum(parameter.numel() for parameter in model.parameters())
             estimated_training_bytes = parameter_count * 16
             logger.info(
-                "Built dense HGT parameterization: "
+                f"Built {configuration.gnn_architecture} parameterization: "
                 f"relations={architecture_context.get('relation_type_count')} "
-                f"attention_heads={architecture_options.get('attention_heads')} "
+                f"attention_heads={architecture_options.get('attention_heads', 'n/a')} "
                 f"parameters={parameter_count} "
                 f"estimated_parameters_gradients_adam_gib="
                 f"{estimated_training_bytes / 1024**3:.2f}"
@@ -206,18 +222,32 @@ class BuildGnnAnswerRetrieverStep(
             gnn_architecture_options=architecture_options,
             gnn_architecture_context=architecture_context,
             relation_vocabulary=relation_vocabulary,
-            entity_embedding_model=embedding_model,
-            entity_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
-            question_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
-            relation_embedding_dimension=(embedding_definition.dimensions if embedding_definition else None),
+            entity_embedding_model=(
+                embedding_model if architecture.data_requirements.uses_entity_embeddings else None
+            ),
+            entity_embedding_dimension=(
+                embedding_definition.dimensions
+                if embedding_definition and architecture.data_requirements.uses_entity_embeddings
+                else None
+            ),
+            question_embedding_dimension=(
+                embedding_definition.dimensions
+                if embedding_definition and architecture.data_requirements.uses_question_embeddings
+                else None
+            ),
+            relation_embedding_dimension=(
+                embedding_definition.dimensions
+                if embedding_definition and architecture.data_requirements.uses_relation_embeddings
+                else None
+            ),
             hidden_dimension=getattr(model, "hidden_dimension", None),
             gnn_layer_count=getattr(model, "gnn_layer_count", None),
             node_classifier=getattr(model, "node_classifier", None),
             use_edge_mlp=configuration.use_edge_mlp,
-            question_aware_classifier=configuration.question_aware_classifier,
+            question_aware_classifier=getattr(model, "question_aware_classifier", False),
             use_reverse_edges=prepared_dataset.use_reverse_edges,
-            add_layer_normalization=configuration.add_layer_normalization,
-            edge_mlp_hidden_dim=configuration.edge_mlp_hidden_dim,
-            dropout=configuration.dropout,
+            add_layer_normalization=getattr(model, "add_layer_normalization", False),
+            edge_mlp_hidden_dim=getattr(model, "edge_mlp_hidden_dim", None),
+            dropout=getattr(model, "dropout_value", 0.0),
             model=model,
         )

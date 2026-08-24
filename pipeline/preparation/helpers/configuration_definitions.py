@@ -305,6 +305,7 @@ AA_GRAPH_SAGE_ARCHITECTURE_ID: Final[str] = "aa-graphsage"
 RGCN_ARCHITECTURE_ID: Final[str] = "rgcn"
 HGT_ARCHITECTURE_ID: Final[str] = "hgt"
 REAREV_ARCHITECTURE_ID: Final[str] = "rearev"
+NBFNET_ARCHITECTURE_ID: Final[str] = "nbfnet"
 
 GNN_LAYER_COUNT_OPTION: Final[GnnArchitectureOptionDefinition] = (
     GnnArchitectureOptionDefinition(
@@ -457,6 +458,27 @@ REAREV_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
     ),
 )
 
+NBFNET_OPTIONS: Final[tuple[GnnArchitectureOptionDefinition, ...]] = (
+    GnnArchitectureOptionDefinition(
+        option_id="gnn_layer_count",
+        display_name="NBFNet Layer Count",
+        description="Number of Neural Bellman-Ford propagation layers.",
+        value_type="integer",
+        choices=(2, 3, 4, 6),
+        default=3,
+        cli_flag="--gnn-layers",
+    ),
+    GnnArchitectureOptionDefinition(
+        option_id="gnn_hidden_dimension",
+        display_name="NBFNet Hidden Dimension",
+        description="Width of query-conditioned path representations.",
+        value_type="integer",
+        choices=(32, 64, 128, 256),
+        default=32,
+        cli_flag="--gnn-hidden-dim",
+    ),
+)
+
 GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
     GRAPH_SAGE_ARCHITECTURE_ID: GnnArchitectureDefinition(
         architecture_id=GRAPH_SAGE_ARCHITECTURE_ID,
@@ -538,6 +560,29 @@ GNN_ARCHITECTURES: Final[dict[str, GnnArchitectureDefinition]] = {
             uses_relation_types=True,
             uses_raw_question_tokens=True,
             uses_relation_text_tokens=True,
+            uses_seed_distributions=True,
+        ),
+    ),
+    NBFNET_ARCHITECTURE_ID: GnnArchitectureDefinition(
+        architecture_id=NBFNET_ARCHITECTURE_ID,
+        display_name="NBFNet",
+        description=(
+            "Question-conditioned Neural Bellman-Ford path reasoning with "
+            "DistMult messages and PNA aggregation."
+        ),
+        options=NBFNET_OPTIONS,
+        model_builder_path=(
+            "pipeline.preparation.models.nbfnet_answer_retriever:build_nbfnet_model"
+        ),
+        runtime_strategy_path=(
+            "pipeline.preparation.services.gnn_architecture_runtime:NBFNetRuntimeStrategy"
+        ),
+        data_requirements=GnnArchitectureDataRequirements(
+            requires_reverse_edges=True,
+            uses_entity_embeddings=False,
+            uses_question_embeddings=True,
+            uses_relation_embeddings=False,
+            uses_relation_types=True,
             uses_seed_distributions=True,
         ),
     ),

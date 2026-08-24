@@ -32,12 +32,12 @@ from pipeline.preparation.exceptions import GnnAnswerRetrieverTrainingException
 from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
     HGT_ARCHITECTURE_ID,
+    NBFNET_ARCHITECTURE_ID,
     RGCN_ARCHITECTURE_ID,
 )
 from pipeline.preparation.helpers.gnn_architecture import (
     build_architecture_runtime_strategy,
 )
-from pipeline.preparation.services.gnn_architecture_runtime import PreparedReaRevBatch
 from pipeline.preparation.models.gnn_training_data import PreparedGnnTrainingData
 from pipeline.preparation.models.webqsp_local_graph import PreparedWebQSPGraphDataset
 from pipeline.preparation.steps.gnn_model_building import BuiltGnnAnswerRetriever
@@ -242,14 +242,20 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         )
         question_embedding_model = embedding_model
         relation_embedding_model = embedding_model
-        if prepared_training_data.node_embeddings is not None and (
-            effective_retriever.entity_embedding_model
+        embedding_mismatch = (
+            prepared_training_data.node_embeddings is not None
+            and effective_retriever.entity_embedding_model
             != prepared_training_data.entity_embedding_model
-            or question_embedding_model
+        ) or (
+            prepared_training_data.question_embeddings is not None
+            and question_embedding_model
             != prepared_training_data.question_embedding_model
-            or relation_embedding_model
+        ) or (
+            prepared_training_data.relation_embeddings is not None
+            and relation_embedding_model
             != prepared_training_data.relation_embedding_model
-        ):
+        )
+        if embedding_mismatch:
             raise GnnAnswerRetrieverTrainingException(
                 "Prepared training embeddings do not match the effective model run."
             )
@@ -342,8 +348,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             for training_unit in training_units:
                 previous_processed_instances = processed_instances
                 unit_instance_count = (
-                    training_unit.instance_count
-                    if isinstance(training_unit, (PreparedRGCNTrainingBatch, PreparedReaRevBatch))
+                    int(training_unit.instance_count)
+                    if hasattr(training_unit, "instance_count")
                     else 1
                 )
                 processed_instances += unit_instance_count
@@ -360,15 +366,15 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 active_relation_offsets = None
                 positive_weights = None
                 node_loss_weights = None
-                rearev_model_inputs = None
-                if isinstance(training_unit, PreparedReaRevBatch):
-                    rearev_model_inputs = runtime_strategy.model_inputs(training_unit)
+                runtime_model_inputs = None
+                if runtime_batches is not None:
+                    runtime_model_inputs = runtime_strategy.model_inputs(training_unit)
                     entity_features = None
                     question_features = None
                     relation_features = None
                     edge_weight = None
                     edge_index = training_unit.edge_index
-                    edge_type = None
+                    edge_type = getattr(training_unit, "edge_type", None)
                     node_labels = training_unit.node_labels
                 elif isinstance(training_unit, PreparedRGCNTrainingBatch):
                     entity_features = self._gather_embedding_features(
@@ -485,8 +491,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     ),
                 ):
                     logits = (
-                        model(**rearev_model_inputs)
-                        if rearev_model_inputs is not None
+                        model(**runtime_model_inputs)
+                        if runtime_model_inputs is not None
                         else model(
                             entity_features=entity_features,
                             edge_index=edge_index,
@@ -507,10 +513,10 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     phase_started_at=phase_started_at,
                 )
                 phase_timings.forward_seconds += elapsed_seconds
-                if isinstance(training_unit, PreparedReaRevBatch):
+                if runtime_batches is not None:
                     loss = runtime_strategy.compute_loss(logits.float(), training_unit)
-                    contributing_instances = int(
-                        training_unit.valid_target_graphs.sum().item()
+                    contributing_instances = runtime_strategy.contributing_instance_count(
+                        training_unit
                     )
                 elif positive_weights is not None and node_loss_weights is not None:
                     loss = torch_functional.binary_cross_entropy_with_logits(
@@ -538,8 +544,8 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 phase_timings.loss_seconds += elapsed_seconds
                 if loss is None:
                     logger.warning(
-                        "Skipping ReaRev optimizer update because the batch contains no "
-                        "in-graph answer targets."
+                        f"Skipping {effective_retriever.gnn_architecture} optimizer "
+                        "update because the batch contains no usable answer targets."
                     )
                     continue
                 loss.backward()
@@ -1172,12 +1178,23 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             "final_loss": final_loss,
             "training": training_payload,
         }
-        if built_retriever.entity_embedding_model is not None:
-            config_payload["embedding_model"] = built_retriever.entity_embedding_model
-        if built_retriever.entity_embedding_dimension is not None:
-            config_payload["embedding_dimension"] = built_retriever.entity_embedding_dimension
+        persisted_embedding_model = (
+            built_retriever.entity_embedding_model
+            or question_embedding_model
+            or relation_embedding_model
+        )
+        persisted_embedding_dimension = (
+            built_retriever.entity_embedding_dimension
+            or built_retriever.question_embedding_dimension
+            or built_retriever.relation_embedding_dimension
+        )
+        if persisted_embedding_model is not None:
+            config_payload["embedding_model"] = persisted_embedding_model
+        if persisted_embedding_dimension is not None:
+            config_payload["embedding_dimension"] = persisted_embedding_dimension
         if (
-            built_retriever.gnn_architecture == HGT_ARCHITECTURE_ID
+            built_retriever.gnn_architecture
+            in {HGT_ARCHITECTURE_ID, NBFNET_ARCHITECTURE_ID}
             or getattr(runtime_strategy, "strategy_id", "default") == "rearev"
         ):
             parameter_count = sum(
@@ -1185,7 +1202,10 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 if parameter.requires_grad
             )
             config_payload["parameter_count"] = parameter_count
-            if built_retriever.gnn_architecture == HGT_ARCHITECTURE_ID:
+            if built_retriever.gnn_architecture in {
+                HGT_ARCHITECTURE_ID,
+                NBFNET_ARCHITECTURE_ID,
+            }:
                 config_payload["estimated_training_parameter_bytes"] = (
                     parameter_count * 16
                 )
@@ -1202,6 +1222,14 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     built_retriever.gnn_architecture_context,
                     built_retriever.relation_vocabulary,
                 )
+                if built_retriever.gnn_architecture == NBFNET_ARCHITECTURE_ID:
+                    from pipeline.preparation.helpers.nbfnet_constants import (
+                        validate_nbfnet_architecture_context,
+                    )
+
+                    validate_nbfnet_architecture_context(
+                        built_retriever.gnn_architecture_context
+                    )
             except ValueError as error:
                 raise GnnAnswerRetrieverTrainingException(
                     f"Cannot save invalid categorical relation vocabulary: {error}"

@@ -49,6 +49,27 @@ class PreparedReaRevBatch:
     valid_target_graphs: Any
 
 
+@dataclass
+class PreparedNBFNetBatch:
+    """One disconnected NBFNet batch with query and path metadata."""
+
+    instance_count: int
+    question_features: Any
+    edge_index: Any
+    edge_type: Any
+    node_graph_index: Any
+    seed_node_index: Any
+    active_pair_graph_index: Any
+    active_pair_relation_ids: Any
+    edge_pair_index: Any
+    node_degree: Any
+    graph_mean_log_degree: Any
+    node_labels: Any
+    positive_weights: Any
+    node_loss_weights: Any
+    graph_count: int
+
+
 class DefaultGnnRuntimeStrategy:
     """Default runtime contract used by embedding-based retrievers."""
 
@@ -69,6 +90,10 @@ class DefaultGnnRuntimeStrategy:
         import torch
 
         return torch.sigmoid(scores)
+
+    @staticmethod
+    def contributing_instance_count(batch) -> int:
+        return int(batch.instance_count)
 
 
 class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
@@ -495,9 +520,211 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
         return graph_softmax(scores, graph_index, graph_count)
 
     @staticmethod
+    def contributing_instance_count(batch: PreparedReaRevBatch) -> int:
+        return int(batch.valid_target_graphs.sum().item())
+
+    @staticmethod
     def checkpoint_state_dict(model):
         return model.trainable_state_dict()
 
     @staticmethod
     def load_checkpoint_state_dict(model, state_dict) -> None:
         model.load_trainable_state_dict(state_dict)
+
+
+class NBFNetRuntimeStrategy(DefaultGnnRuntimeStrategy):
+    """Runtime behavior for question-conditioned Bellman-Ford batches."""
+
+    strategy_id = "nbfnet"
+    handles_data_preparation = False
+    handles_training_batches = True
+
+    def build_training_batches(
+        self,
+        *,
+        prepared_data: PreparedGnnTrainingData,
+        batch_size: int,
+        torch: ModuleType,
+        device: str,
+    ) -> list[PreparedNBFNetBatch]:
+        return [
+            self._build_batch(
+                instances=prepared_data.instances[start : start + batch_size],
+                question_embeddings=prepared_data.question_embeddings,
+                relation_count=len(prepared_data.built_retriever.relation_vocabulary or {}),
+                torch=torch,
+                device=device,
+            )
+            for start in range(0, len(prepared_data.instances), batch_size)
+        ]
+
+    def build_evaluation_batch(
+        self,
+        *,
+        prepared_data: PreparedGnnEvaluationData,
+        prepared_instance: PreparedGnnEvaluationInstance,
+        torch: ModuleType,
+        device: str,
+    ) -> PreparedNBFNetBatch:
+        relation_count = 0
+        if prepared_instance.edge_type is not None and prepared_instance.edge_type.numel() > 0:
+            relation_count = int(prepared_instance.edge_type.max().item()) + 1
+        return self._build_batch(
+            instances=[prepared_instance],
+            question_embeddings=prepared_data.question_embeddings,
+            relation_count=relation_count,
+            torch=torch,
+            device=device,
+        )
+
+    @staticmethod
+    def _build_batch(
+        *,
+        instances: list[Any],
+        question_embeddings,
+        relation_count: int,
+        torch: ModuleType,
+        device: str,
+    ) -> PreparedNBFNetBatch:
+        if not instances:
+            raise ValueError("NBFNet batches cannot be empty.")
+        if question_embeddings is None:
+            raise ValueError("Prepared NBFNet question embeddings are missing.")
+
+        edge_parts, edge_type_parts = [], []
+        graph_parts, seed_parts, label_parts = [], [], []
+        question_index_parts = []
+        positive_weight_parts, node_loss_weight_parts = [], []
+        node_offset = 0
+        for graph_id, instance in enumerate(instances):
+            if instance.skip_reason is not None:
+                raise ValueError("Skipped NBFNet instances cannot be placed in a model batch.")
+            if instance.edge_type is None or instance.seed_node_indices is None:
+                raise ValueError("NBFNet instances require edge types and seed nodes.")
+            if instance.question_embedding_index is None:
+                raise ValueError("NBFNet instances require a question embedding index.")
+            labels = getattr(instance, "node_labels", None)
+            if labels is None:
+                source_instance = getattr(instance, "instance", None)
+                labels = getattr(source_instance, "node_labels", None)
+            if labels is None:
+                raise ValueError("NBFNet instances require node labels.")
+            labels = labels.float()
+            node_count = int(labels.shape[0])
+            if node_count <= 0:
+                raise ValueError("NBFNet batches cannot contain empty graphs.")
+            edge_parts.append(instance.edge_index + node_offset)
+            edge_type_parts.append(instance.edge_type)
+            graph_parts.append(torch.full((node_count,), graph_id, dtype=torch.long))
+            seed_parts.append(instance.seed_node_indices + node_offset)
+            question_index_parts.append(instance.question_embedding_index)
+            label_parts.append(labels)
+            positive_count = float(labels.sum().item())
+            negative_count = node_count - positive_count
+            if positive_count > 0 and negative_count > 0:
+                positive_weight = negative_count / positive_count
+                node_loss_weight = 0.5 / (
+                    len(instances) * negative_count
+                )
+            else:
+                positive_weight = 1.0
+                node_loss_weight = 1.0 / (len(instances) * node_count)
+            positive_weight_parts.append(torch.full_like(labels, positive_weight))
+            node_loss_weight_parts.append(
+                torch.full_like(labels, node_loss_weight)
+            )
+            node_offset += node_count
+
+        edge_index = torch.cat(edge_parts, dim=1)
+        edge_type = torch.cat(edge_type_parts)
+        node_graph_index = torch.cat(graph_parts)
+        if edge_type.numel() > 0:
+            edge_graph_index = node_graph_index.index_select(0, edge_index[0].long())
+            resolved_relation_count = max(
+                relation_count, int(edge_type.max().item()) + 1
+            )
+            pair_keys = edge_graph_index * resolved_relation_count + edge_type
+            active_keys, edge_pair_index = torch.unique(
+                pair_keys, sorted=True, return_inverse=True
+            )
+            active_pair_graph_index = torch.div(
+                active_keys, resolved_relation_count, rounding_mode="floor"
+            )
+            active_pair_relation_ids = active_keys.remainder(resolved_relation_count)
+        else:
+            active_pair_graph_index = torch.empty(0, dtype=torch.long)
+            active_pair_relation_ids = torch.empty(0, dtype=torch.long)
+            edge_pair_index = torch.empty(0, dtype=torch.long)
+
+        node_degree = torch.ones(node_offset, dtype=torch.float32)
+        if edge_index.shape[1] > 0:
+            node_degree.index_add_(
+                0, edge_index[1].long(), torch.ones(edge_index.shape[1])
+            )
+        log_degree = node_degree.log()
+        graph_log_sums = torch.zeros(len(instances), dtype=torch.float32)
+        graph_counts = torch.zeros_like(graph_log_sums)
+        graph_log_sums.index_add_(0, node_graph_index, log_degree)
+        graph_counts.index_add_(0, node_graph_index, torch.ones_like(log_degree))
+        graph_mean_log_degree = graph_log_sums / graph_counts.clamp_min(1.0)
+
+        embedding_device = question_embeddings.device
+        question_indices = torch.tensor(question_index_parts, dtype=torch.long).to(
+            device=embedding_device, non_blocking=True
+        )
+        question_features = question_embeddings.index_select(0, question_indices)
+        return PreparedNBFNetBatch(
+            instance_count=len(instances),
+            question_features=question_features.to(device=device, non_blocking=True),
+            edge_index=edge_index.to(device=device, non_blocking=True),
+            edge_type=edge_type.to(device=device, non_blocking=True),
+            node_graph_index=node_graph_index.to(device=device, non_blocking=True),
+            seed_node_index=torch.cat(seed_parts).to(device=device, non_blocking=True),
+            active_pair_graph_index=active_pair_graph_index.to(
+                device=device, non_blocking=True
+            ),
+            active_pair_relation_ids=active_pair_relation_ids.to(
+                device=device, non_blocking=True
+            ),
+            edge_pair_index=edge_pair_index.to(device=device, non_blocking=True),
+            node_degree=node_degree.to(device=device, non_blocking=True),
+            graph_mean_log_degree=graph_mean_log_degree.to(
+                device=device, non_blocking=True
+            ),
+            node_labels=torch.cat(label_parts).to(device=device, non_blocking=True),
+            positive_weights=torch.cat(positive_weight_parts).to(
+                device=device, non_blocking=True
+            ),
+            node_loss_weights=torch.cat(node_loss_weight_parts).to(
+                device=device, non_blocking=True
+            ),
+            graph_count=len(instances),
+        )
+
+    @staticmethod
+    def model_inputs(batch: PreparedNBFNetBatch) -> dict[str, Any]:
+        return {
+            "question_features": batch.question_features,
+            "edge_index": batch.edge_index,
+            "edge_type": batch.edge_type,
+            "node_graph_index": batch.node_graph_index,
+            "seed_node_index": batch.seed_node_index,
+            "active_pair_graph_index": batch.active_pair_graph_index,
+            "active_pair_relation_ids": batch.active_pair_relation_ids,
+            "edge_pair_index": batch.edge_pair_index,
+            "node_degree": batch.node_degree,
+            "graph_mean_log_degree": batch.graph_mean_log_degree,
+            "graph_count": batch.graph_count,
+        }
+
+    @staticmethod
+    def compute_loss(scores, batch: PreparedNBFNetBatch):
+        import torch.nn.functional as torch_functional
+
+        return torch_functional.binary_cross_entropy_with_logits(
+            scores.float(),
+            batch.node_labels,
+            weight=batch.node_loss_weights,
+            pos_weight=batch.positive_weights,
+            reduction="sum",
+        )

@@ -70,6 +70,8 @@ class PreparedGnnEvaluationInstance(BaseModel):
     seed_distribution: TorchTensor | None = Field(default=None)
     initialization_edge_index: TorchTensor | None = Field(default=None)
     initialization_edge_type: TorchTensor | None = Field(default=None)
+    seed_node_indices: TorchTensor | None = Field(default=None)
+    skip_reason: str | None = Field(default=None)
 
 
 class PreparedGnnEvaluationData(BaseModel):

@@ -16,6 +16,7 @@ from helpers.constants import (
 from helpers.logging_config import get_logger
 from pipeline.preparation.helpers.configuration_definitions import (
     GNN_ARCHITECTURES,
+    NBFNET_ARCHITECTURE_ID,
     OPENAI_EMBEDDING_MODELS,
 )
 from pipeline.preparation.helpers.gnn_architecture import (
@@ -356,11 +357,7 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
                 architecture_options=saved_run.config.resolved_gnn_architecture_options,
                 architecture_context=saved_run.config.gnn_architecture_context,
                 entity_embedding_dimension=saved_run.config.resolved_embedding_dimension,
-                question_embedding_dimension=self._embedding_dimension(
-                    saved_run.config.question_embedding_model,
-                    saved_run.config.question_embedding_dimension,
-                    pipeline_configuration.embedding_model,
-                ),
+                question_embedding_dimension=saved_run.config.resolved_embedding_dimension,
                 relation_embedding_dimension=self._embedding_dimension(
                     saved_run.config.relation_embedding_model,
                     saved_run.config.relation_embedding_dimension,
@@ -544,6 +541,14 @@ class GnnAnswerRetrieverModelRunService(AbstractService):
                     config.gnn_architecture_context,
                     relation_vocabulary,
                 )
+                if config.resolved_gnn_architecture == NBFNET_ARCHITECTURE_ID:
+                    from pipeline.preparation.helpers.nbfnet_constants import (
+                        validate_nbfnet_architecture_context,
+                    )
+
+                    validate_nbfnet_architecture_context(
+                        config.gnn_architecture_context
+                    )
             except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
                 raise GnnAnswerRetrieverModelRunException(
                     f"Saved {architecture.architecture_id} relation vocabulary is "
