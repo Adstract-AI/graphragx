@@ -465,9 +465,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         else None
                     )
                     active_relation_offsets = (
-                        instance.active_relation_offsets.to(
-                            device=device, non_blocking=True
-                        )
+                        instance.active_relation_offsets
                         if instance.active_relation_offsets is not None
                         else None
                     )
@@ -874,9 +872,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         if architecture_id == RGCN_ARCHITECTURE_ID
                         else None
                     ),
-                    active_relation_offsets=active_relation_offsets.to(
-                        device=device, non_blocking=True
-                    ),
+                    active_relation_offsets=active_relation_offsets,
                     node_labels=torch.cat(label_parts).to(
                         device=device, non_blocking=True
                     ),

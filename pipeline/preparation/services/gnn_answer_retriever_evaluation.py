@@ -335,9 +335,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     else None
                 )
                 active_relation_offsets = (
-                    prepared_instance.active_relation_offsets.to(
-                        device=device, non_blocking=True
-                    )
+                    prepared_instance.active_relation_offsets
                     if prepared_instance.active_relation_offsets is not None
                     else None
                 )
