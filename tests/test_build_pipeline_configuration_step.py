@@ -57,8 +57,8 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.relation_embedding_model, "text-embedding-3-small")
         self.assertEqual(result.entity_embedding_model, "text-embedding-3-small")
 
-    def test_gpt_5_mini_and_nano_are_supported_main_llm_models(self) -> None:
-        for model_id in ("gpt-5-mini", "gpt-5-nano"):
+    def test_additional_gpt_5_models_are_supported_main_llm_models(self) -> None:
+        for model_id in ("gpt-5.6-luna", "gpt-5-mini", "gpt-5-nano"):
             with self.subTest(model_id=model_id):
                 step = BuildPipelineConfigurationStep(
                     main_llm_model=model_id,

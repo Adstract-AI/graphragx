@@ -505,11 +505,12 @@ class MainEntrypointTests(unittest.TestCase):
 
     def test_openai_model_uses_implicit_openai_provider(self) -> None:
         resolved = main.PipelineRuntimeConfig(
-            main_llm_model="gpt-5-mini",
+            main_llm_model="gpt-5.6-luna",
             use_default_config_values=True,
         ).with_defaulted_user_inputs()
 
         self.assertEqual(resolved.llm_provider, "openai")
+        self.assertEqual(resolved.main_llm_model, "gpt-5.6-luna")
 
     def test_llm_inference_parallel_calls_flag_is_parsed(self) -> None:
         args = main.build_parser().parse_args(

@@ -157,6 +157,11 @@ SHARED_LLM_MODELS: Final[dict[str, LlmModelDefinition]] = {
         display_name="GPT-5.4",
         description="Highest-capability shared model option for primary reasoning.",
     ),
+    "gpt-5.6-luna": LlmModelDefinition(
+        model_id="gpt-5.6-luna",
+        display_name="GPT-5.6 Luna",
+        description="OpenAI GPT-5.6 Luna model for primary reasoning and generation.",
+    ),
     "gpt-5.4-mini": LlmModelDefinition(
         model_id="gpt-5.4-mini",
         display_name="GPT-5.4 Mini",
