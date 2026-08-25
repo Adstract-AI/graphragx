@@ -239,6 +239,7 @@ uv run python main.py --inference-only \
   --llm-provider vezilka \
   --main-llm-model qwen3-4b \
   --reasoning-effort none \
+  --llm-inference-parallel-calls 4 \
   --default
 ```
 
@@ -246,7 +247,8 @@ uv run python main.py --inference-only \
 | --- | --- |
 | `--no-llm-inference` | Stops full or evaluation-only mode after GNN candidate retrieval. Training and retriever W&B logging still run unless `--no-wandb` is supplied. |
 | `--inference-run-name INFERENCE_RUN_NAME` | Optional label for the saved LLM inference run folder. |
-| `--llm-inference-batch-size LLM_INFERENCE_BATCH_SIZE` | Number of samples to process per persistence batch during LLM inference. The LLM calls remain one-by-one. |
+| `--llm-inference-batch-size LLM_INFERENCE_BATCH_SIZE` | Number of completed samples persisted together. Default: `10`. |
+| `--llm-inference-parallel-calls LLM_INFERENCE_PARALLEL_CALLS` | Maximum simultaneous LLM API requests inside each persistence batch. Default: `1` (sequential). Effective concurrency cannot exceed the persistence batch size. |
 | `--reasoning-effort VALUE` | Optional `reasoning_effort` passed to the selected LLM provider. The field is omitted when this flag is absent. Vezilka streaming is always disabled. |
 
 ### W&B

@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from pipeline import (
     BuildReasoningSamplesFromGnnEvaluationStep,
     CandidateNodeScore,
     EvaluationSample,
+    EvaluatedAnswerRetrievalInstance,
+    ExtractedReasoningPathsBatch,
     ExtractShortestPathsBatchStep,
     ExtractShortestPathsStep,
     GenerateAndSaveFinalAnswersBatchesStep,
@@ -24,6 +27,7 @@ from pipeline import (
     SaveInferenceRunStep,
     ShortestPathExtractionService,
     StepContext,
+    ReasoningPathsForPrediction,
     WebQSPVocabularyStore,
 )
 from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
@@ -529,6 +533,49 @@ class FakeAnswerGenerationService:
         }
 
 
+class ConcurrentFakeAnswerGenerationService:
+    def __init__(self, expected_parallel_calls: int) -> None:
+        self.expected_parallel_calls = expected_parallel_calls
+        self.active_calls = 0
+        self.maximum_active_calls = 0
+        self._lock = threading.Lock()
+        self._all_workers_started = threading.Event()
+
+    def generate_answer_with_explanation(
+        self,
+        question: str,
+        reasoning_paths_text: str,
+        model_id: str,
+        provider_id: str = "openai",
+        reasoning_effort: str | None = None,
+    ) -> dict[str, str | int | float]:
+        with self._lock:
+            self.active_calls += 1
+            self.maximum_active_calls = max(
+                self.maximum_active_calls,
+                self.active_calls,
+            )
+            if self.active_calls == self.expected_parallel_calls:
+                self._all_workers_started.set()
+
+        workers_started = self._all_workers_started.wait(timeout=2.0)
+        with self._lock:
+            self.active_calls -= 1
+        if not workers_started:
+            raise AssertionError("Expected concurrent LLM calls did not start.")
+
+        return {
+            "answer": "Answer",
+            "explanation": "Explanation",
+            "raw_response": '{"answer":"Answer","explanation":"Explanation"}',
+            "prompt": question,
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+            "total_tokens": 2,
+            "estimated_cost_usd": 0.0,
+        }
+
+
 class LlmAnswerGenerationStepTests(unittest.TestCase):
     def test_generates_final_answer_from_extracted_paths(self) -> None:
         print("\n[test_generates_final_answer_from_extracted_paths] Starting.")
@@ -809,6 +856,68 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
             self.assertEqual(summary["inference"]["total_cost_usd"], 0.0)
             self.assertEqual(summary["successful_answers"], 2)
         print("[test_batched_inference_saves_each_batch] Passed.")
+
+    def test_parallel_inference_is_bounded_ordered_and_persisted(self) -> None:
+        extracted_paths = ShortestPathExtractionService().extract_paths(
+            sample=make_sample(),
+            candidates=[CandidateNodeScore(node_id="Jaxon Bieber", score=1.0)],
+        )
+        prediction = EvaluatedAnswerRetrievalInstance(
+            instance_index=0,
+            question=make_sample().question,
+            q_entity=make_sample().q_entities,
+            a_entity=make_sample().a_entities,
+            answer_candidates=[],
+            gold_answer_scores=[],
+            hit_at_1=False,
+            missing_gold_in_graph=False,
+        )
+        items = [
+            ReasoningPathsForPrediction(
+                instance_index=instance_index,
+                prediction=prediction.model_copy(
+                    update={"instance_index": instance_index}
+                ),
+                extracted_paths=extracted_paths,
+            )
+            for instance_index in range(3)
+        ]
+        paths_batch = ExtractedReasoningPathsBatch(
+            dataset_id="WebQSP",
+            evaluation_run_name="1_test",
+            items=items,
+        )
+        fake_service = ConcurrentFakeAnswerGenerationService(
+            expected_parallel_calls=3
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            saved_run = GenerateAndSaveFinalAnswersBatchesStep(
+                model_id="test-model",
+                inference_root=Path(temporary_directory) / "inference",
+                inference_batch_size=3,
+                inference_parallel_calls=3,
+                answer_generation_service=fake_service,
+            ).execute(StepContext(result=paths_batch))
+
+            answer_rows = [
+                json.loads(line)
+                for line in saved_run.answers_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            inference_config = json.loads(
+                saved_run.inference_config_path.read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(fake_service.maximum_active_calls, 3)
+        self.assertEqual(
+            [row["instance_index"] for row in answer_rows],
+            [0, 1, 2],
+        )
+        self.assertEqual(saved_run.inference_parallel_calls, 3)
+        self.assertEqual(inference_config["inference"]["parallel_calls"], 3)
+        self.assertEqual(inference_config["inference"]["batch_size"], 3)
 
 
 if __name__ == "__main__":

@@ -487,6 +487,18 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(args.main_llm_model, "qwen3-4b-new")
         self.assertEqual(args.reasoning_effort, "none")
 
+    def test_llm_inference_parallel_calls_flag_is_parsed(self) -> None:
+        args = main.build_parser().parse_args(
+            ["--llm-inference-parallel-calls", "6"]
+        )
+
+        self.assertEqual(args.llm_inference_parallel_calls, 6)
+
+    def test_llm_inference_parallel_calls_defaults_to_one(self) -> None:
+        args = main.build_parser().parse_args([])
+
+        self.assertEqual(args.llm_inference_parallel_calls, 1)
+
     def test_evaluation_log_every_flag_is_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
 
@@ -932,6 +944,17 @@ class MainEntrypointTests(unittest.TestCase):
         with self.assertRaisesRegex(main.PipelineException, "wandb-training-log-every"):
             main.build_pipeline(
                 config=main.PipelineRuntimeConfig(wandb_training_log_every=-1),
+            )
+
+    def test_non_positive_llm_inference_parallel_calls_fail_early(self) -> None:
+        with self.assertRaisesRegex(
+            main.PipelineException,
+            "llm-inference-parallel-calls",
+        ):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    llm_inference_parallel_calls=0,
+                ),
             )
 
     def test_evaluation_only_rejects_training_continuation_flags(self) -> None:

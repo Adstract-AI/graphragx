@@ -217,6 +217,7 @@ class PipelineRuntimeConfig(BaseModel):
     no_llm_inference: bool = False
     inference_run_name: str | None = None
     llm_inference_batch_size: int = 10
+    llm_inference_parallel_calls: int = 1
     no_wandb: bool = False
     wandb_project: str | None = None
     wandb_entity: str | None = None
@@ -340,6 +341,14 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     if config.wandb_training_log_every < 0:
         raise PipelineException(
             "--wandb-training-log-every must be greater than or equal to 0."
+        )
+    if config.llm_inference_batch_size < 1:
+        raise PipelineException(
+            "--llm-inference-batch-size must be greater than or equal to 1."
+        )
+    if config.llm_inference_parallel_calls < 1:
+        raise PipelineException(
+            "--llm-inference-parallel-calls must be greater than or equal to 1."
         )
     if (
         config.use_default_config_values
@@ -558,6 +567,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             model_id=resolved_config.main_llm_model,
             inference_run_name=resolved_config.inference_run_name,
             inference_batch_size=resolved_config.llm_inference_batch_size,
+            inference_parallel_calls=resolved_config.llm_inference_parallel_calls,
         ),
     ]
     if not resolved_config.no_wandb:
@@ -1096,6 +1106,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of samples to generate and save per LLM inference batch.",
     )
     parser.add_argument(
+        "--llm-inference-parallel-calls",
+        type=int,
+        default=1,
+        help="Maximum simultaneous LLM API calls. Defaults to sequential inference.",
+    )
+    parser.add_argument(
         "--no-wandb",
         dest="no_wandb",
         action="store_true",
@@ -1213,6 +1229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         no_llm_inference=args.no_llm_inference,
         inference_run_name=args.inference_run_name,
         llm_inference_batch_size=args.llm_inference_batch_size,
+        llm_inference_parallel_calls=args.llm_inference_parallel_calls,
         no_wandb=args.no_wandb,
         wandb_project=args.wandb_project,
         wandb_entity=args.wandb_entity,
