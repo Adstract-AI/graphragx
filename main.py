@@ -119,6 +119,28 @@ def _saved_model_conflicts(
     return sorted(conflicts)
 
 
+def _is_deepseek_model(model_id: str | None) -> bool:
+    """Return whether a model requires explicit DeepSeek provider selection."""
+    if model_id is None:
+        return False
+    definition = SHARED_LLM_MODELS.get(model_id)
+    return model_id.startswith("deepseek-") or (
+        definition is not None and definition.provider_id == "deepseek"
+    )
+
+
+def _is_unqualified_private_model(
+    model_id: str | None,
+    provider_id: str | None,
+) -> bool:
+    """Return whether an unknown model omitted the required Vezilka provider."""
+    return (
+        model_id is not None
+        and provider_id is None
+        and model_id not in SHARED_LLM_MODELS
+    )
+
+
 def _apply_saved_model_config(
     resolved: "PipelineRuntimeConfig",
     saved: SavedGnnAnswerRetrieverConfig,
@@ -272,14 +294,10 @@ class PipelineRuntimeConfig(BaseModel):
             gnn_architecture=architecture_id,
             gnn_options=resolved_options,
         )
-        llm_provider = self.llm_provider
-        if llm_provider is None and self.main_llm_model is not None:
-            llm_provider = (
-                "deepseek"
-                if self.main_llm_model.startswith("deepseek-")
-                else "openai"
-            )
-        llm_provider = llm_provider or "openai"
+        # OpenAI is the default provider. DeepSeek is intentionally not
+        # inferred from the model name because selecting that backend should
+        # be explicit and visible in commands/configuration.
+        llm_provider = self.llm_provider or "openai"
         main_llm_model = self.main_llm_model
         if main_llm_model is None and llm_provider != "vezilka":
             provider_models = [
@@ -312,6 +330,19 @@ class PipelineRuntimeConfig(BaseModel):
 
 def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     """Build the current runnable graphragX pipeline."""
+    if _is_deepseek_model(config.main_llm_model) and config.llm_provider != "deepseek":
+        raise PipelineException(
+            f"Model {config.main_llm_model} requires explicit "
+            "--llm-provider deepseek."
+        )
+    if _is_unqualified_private_model(
+        config.main_llm_model,
+        config.llm_provider,
+    ):
+        raise PipelineException(
+            f"Model {config.main_llm_model} is not a configured OpenAI model. "
+            "Privately hosted models require explicit --llm-provider vezilka."
+        )
     if config.run_mode == "inference-only" and config.no_llm_inference:
         raise PipelineException(
             "--no-llm-inference is not valid with --inference-only."
@@ -850,8 +881,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=tuple(LLM_PROVIDERS),
         default=None,
         help=(
-            "LLM provider used for inference. Vezilka accepts any value passed "
-            "through --main-llm-model."
+            "LLM provider used for inference. OpenAI is used when omitted. "
+            "DeepSeek and Vezilka models require an explicit provider; Vezilka "
+            "accepts any value passed through --main-llm-model."
         ),
     )
     parser.add_argument(

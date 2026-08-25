@@ -231,7 +231,7 @@ Evaluation compacts the selected test instances into reusable inputs before mode
 
 ### LLM Inference And Results
 
-Vezilka uses the OpenAI-compatible chat-completions endpoint at `https://vllm.finki.ukim.mk/v1/chat/completions`. Streaming is always disabled. Set `VEZILKA_API_KEY`, then pass any currently hosted model name. `reasoning_effort` is omitted by default; add `--reasoning-effort none` (or another provider-supported value) when desired. The same flag is passed to OpenAI and DeepSeek models:
+OpenAI is the default LLM provider when `--llm-provider` is omitted. DeepSeek and Vezilka models require an explicit provider selection. Vezilka uses the OpenAI-compatible chat-completions endpoint at `https://vllm.finki.ukim.mk/v1/chat/completions`. Streaming is always disabled. Set `VEZILKA_API_KEY`, then pass any currently hosted model name. `reasoning_effort` is omitted by default; add `--reasoning-effort none` (or another provider-supported value) when desired. The same flag is passed to OpenAI and DeepSeek models:
 
 ```bash
 uv run python main.py --inference-only \

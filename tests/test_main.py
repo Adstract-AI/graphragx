@@ -487,6 +487,30 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(args.main_llm_model, "qwen3-4b-new")
         self.assertEqual(args.reasoning_effort, "none")
 
+    def test_deepseek_model_requires_explicit_provider(self) -> None:
+        with self.assertRaisesRegex(main.PipelineException, "llm-provider deepseek"):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    main_llm_model="deepseek-v4-pro",
+                )
+            )
+
+    def test_private_model_requires_explicit_vezilka_provider(self) -> None:
+        with self.assertRaisesRegex(main.PipelineException, "llm-provider vezilka"):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    main_llm_model="qwen3.8-27b",
+                )
+            )
+
+    def test_openai_model_uses_implicit_openai_provider(self) -> None:
+        resolved = main.PipelineRuntimeConfig(
+            main_llm_model="gpt-5-mini",
+            use_default_config_values=True,
+        ).with_defaulted_user_inputs()
+
+        self.assertEqual(resolved.llm_provider, "openai")
+
     def test_llm_inference_parallel_calls_flag_is_parsed(self) -> None:
         args = main.build_parser().parse_args(
             ["--llm-inference-parallel-calls", "6"]
