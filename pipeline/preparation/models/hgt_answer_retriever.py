@@ -207,6 +207,7 @@ class HeterogeneousGraphTransformerLayer(nn.Module):
 
         if attention_chunks:
             edge_positions = torch.cat(edge_position_chunks)
+            bucketed_messages = torch.cat(message_chunks, dim=0)
             attention_logits = torch.zeros(
                 edge_type.numel(),
                 self.attention_heads,
@@ -217,7 +218,9 @@ class HeterogeneousGraphTransformerLayer(nn.Module):
                 edge_type.numel(),
                 self.attention_heads,
                 self.head_dimension,
-            ).index_copy(0, edge_positions, torch.cat(message_chunks, dim=0))
+                dtype=bucketed_messages.dtype,
+                device=bucketed_messages.device,
+            ).index_copy(0, edge_positions, bucketed_messages)
             attention = self._target_softmax(
                 attention_logits,
                 target_nodes=target_nodes,

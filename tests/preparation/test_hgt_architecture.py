@@ -251,6 +251,27 @@ def test_hgt_layer_batches_relations_with_equal_edge_counts(monkeypatch) -> None
     assert layer.relation_message.grad is not None
 
 
+def test_hgt_layer_supports_bfloat16_autocast() -> None:
+    layer = HeterogeneousGraphTransformerLayer(
+        hidden_dimension=8,
+        num_relations=2,
+        attention_heads=2,
+        dropout=0.0,
+    )
+    node_features = torch.randn(4, 8, requires_grad=True)
+    edge_index = torch.tensor([[0, 1, 2, 3], [2, 2, 3, 3]])
+    edge_type = torch.tensor([0, 0, 1, 1])
+
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        output = layer(node_features, edge_index, edge_type)
+        loss = output.square().mean()
+    loss.backward()
+
+    assert output.shape == (4, 8)
+    assert node_features.grad is not None
+    assert torch.isfinite(node_features.grad).all()
+
+
 def test_hgt_layer_handles_empty_edges_through_residual_path() -> None:
     layer = HeterogeneousGraphTransformerLayer(8, 2, 2, 0.0)
     node_features = torch.randn(3, 8)
