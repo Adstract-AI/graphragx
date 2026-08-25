@@ -265,22 +265,34 @@ class FinalResultsEvaluationService(AbstractService):
         per_instance_results: list[PerInstanceFinalResult],
         candidate_limit: int,
     ) -> FinalReasoningMetrics:
+        successful_results = [
+            item for item in per_instance_results if item.answer_error_message is None
+        ]
         evaluated_instances = len(per_instance_results)
-        exact_match_count = sum(1 for item in per_instance_results if item.exact_match)
-        hit_count = sum(1 for item in per_instance_results if item.hit)
-        hits_at_1_count = sum(1 for item in per_instance_results if item.hits_at_1)
-        true_positive_count = sum(item.true_positive_count for item in per_instance_results)
-        false_positive_count = sum(item.false_positive_count for item in per_instance_results)
-        false_negative_count = sum(item.false_negative_count for item in per_instance_results)
+        successful_instance_count = len(successful_results)
+        exact_match_count = sum(1 for item in successful_results if item.exact_match)
+        hit_count = sum(1 for item in successful_results if item.hit)
+        hits_at_1_count = sum(1 for item in successful_results if item.hits_at_1)
+        true_positive_count = sum(
+            item.true_positive_count for item in successful_results
+        )
+        false_positive_count = sum(
+            item.false_positive_count for item in successful_results
+        )
+        false_negative_count = sum(
+            item.false_negative_count for item in successful_results
+        )
         precision = self._safe_divide(true_positive_count, true_positive_count + false_positive_count)
         recall = self._safe_divide(true_positive_count, true_positive_count + false_negative_count)
-        grounded_count = sum(1 for item in per_instance_results if item.grounded_explanation)
+        grounded_count = sum(1 for item in successful_results if item.grounded_explanation)
         fully_grounded_count = sum(
-            1 for item in per_instance_results if item.fully_grounded_explanation
+            1 for item in successful_results if item.fully_grounded_explanation
         )
-        mentioned_triple_count = sum(item.mentioned_triple_count for item in per_instance_results)
+        mentioned_triple_count = sum(
+            item.mentioned_triple_count for item in successful_results
+        )
         grounded_mentioned_triple_count = sum(
-            item.grounded_mentioned_triple_count for item in per_instance_results
+            item.grounded_mentioned_triple_count for item in successful_results
         )
         return FinalReasoningMetrics(
             dataset_id=llm_inference_run.dataset_id,
@@ -298,11 +310,14 @@ class FinalResultsEvaluationService(AbstractService):
                     1 for item in per_instance_results if item.answer_error_message is not None
                 ),
                 exact_match_count=exact_match_count,
-                accuracy=self._safe_divide(exact_match_count, evaluated_instances),
+                accuracy=self._safe_divide(exact_match_count, successful_instance_count),
                 hit_count=hit_count,
-                hit_rate=self._safe_divide(hit_count, evaluated_instances),
+                hit_rate=self._safe_divide(hit_count, successful_instance_count),
                 hits_at_1_count=hits_at_1_count,
-                hits_at_1=self._safe_divide(hits_at_1_count, evaluated_instances),
+                hits_at_1=self._safe_divide(
+                    hits_at_1_count,
+                    successful_instance_count,
+                ),
                 true_positive_count=true_positive_count,
                 false_positive_count=false_positive_count,
                 false_negative_count=false_negative_count,
@@ -315,11 +330,11 @@ class FinalResultsEvaluationService(AbstractService):
                 fully_grounded_explanation_count=fully_grounded_count,
                 grounded_explanation_rate=self._safe_divide(
                     grounded_count,
-                    evaluated_instances,
+                    successful_instance_count,
                 ),
                 fully_grounded_explanation_rate=self._safe_divide(
                     fully_grounded_count,
-                    evaluated_instances,
+                    successful_instance_count,
                 ),
                 mentioned_triple_count=mentioned_triple_count,
                 grounded_mentioned_triple_count=grounded_mentioned_triple_count,

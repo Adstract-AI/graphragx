@@ -263,7 +263,7 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
                 "answer": "Unknown",
                 "explanation": "",
                 "raw_response": "",
-                "error_message": None,
+                "error_message": "LLM request failed",
             },
         ],
     )
@@ -318,8 +318,8 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
         inference_run_number=1,
         model_id="test-model",
         total_instances=2,
-        successful_answers=2,
-        failed_answers=0,
+        successful_answers=1,
+        failed_answers=1,
         reasoning_path=reasoning_path,
         answers_path=answers_path,
         inference_config_path=inference_config_path,
@@ -364,15 +364,17 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
 
     metrics = json.loads(outcome.storage_result.reasoning_metrics_path.read_text())
     assert metrics["evaluated_instances"] == 2
-    assert metrics["accuracy"] == 0.5
+    assert metrics["successful_answers"] == 1
+    assert metrics["failed_answers"] == 1
+    assert metrics["accuracy"] == 1.0
     assert metrics["hit_count"] == 1
-    assert metrics["hit_rate"] == 0.5
+    assert metrics["hit_rate"] == 1.0
     assert metrics["hits_at_1_count"] == 1
-    assert metrics["hits_at_1"] == 0.5
+    assert metrics["hits_at_1"] == 1.0
     assert metrics["precision"] == 1.0
-    assert metrics["recall"] == 0.5
-    assert metrics["f1"] == 2 / 3
-    assert metrics["grounded_explanation_rate"] == 0.5
+    assert metrics["recall"] == 1.0
+    assert metrics["f1"] == 1.0
+    assert metrics["grounded_explanation_rate"] == 1.0
     assert metrics["candidate_limit"] == 5
     assert math.isclose(metrics["ndcg_at_5"], (1.0 + 1 / math.log2(3)) / 2)
 
