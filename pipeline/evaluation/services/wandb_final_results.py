@@ -80,6 +80,7 @@ class WandbFinalResultsLoggingService(AbstractService):
         "ndcg_at_10",
         "ndcg_at_candidate_limit",
         "answer_error_message",
+        "retrieved_candidates",
     ]
 
     def log_final_results(
@@ -311,8 +312,11 @@ class WandbFinalResultsLoggingService(AbstractService):
         results_config: dict[str, Any],
         per_instance_rows: list[dict[str, Any]],
     ) -> list[list[Any]]:
-        """Build WandB table rows, adding explanations from answers.jsonl."""
+        """Build final-result rows with the GNN candidates from predictions."""
         answers_by_index = self._load_answers_by_index(results_config)
+        retrieved_candidates_by_index = self._load_retrieved_candidates_by_index(
+            results_config
+        )
         table_rows: list[list[Any]] = []
         for row in per_instance_rows:
             instance_index = row.get("instance_index")
@@ -340,9 +344,45 @@ class WandbFinalResultsLoggingService(AbstractService):
                     row.get("ndcg_at_10", 0.0),
                     row.get("ndcg_at_candidate_limit", 0.0),
                     row.get("answer_error_message"),
+                    self._format_table_cell(
+                        retrieved_candidates_by_index.get(instance_index, [])
+                    ),
                 ]
             )
         return table_rows
+
+    @classmethod
+    def _load_retrieved_candidates_by_index(
+        cls,
+        results_config: dict[str, Any],
+    ) -> dict[int, list[str]]:
+        """Load only ranked candidate node names from the retriever predictions."""
+        predictions_path_value = cls._result_artifact_path(
+            results_config,
+            "predictions_path",
+        )
+        if not isinstance(predictions_path_value, str):
+            return {}
+        predictions_path = project_absolute_path(predictions_path_value)
+        if not predictions_path.exists():
+            return {}
+
+        candidates_by_index: dict[int, list[str]] = {}
+        try:
+            prediction_rows = cls._load_jsonl_objects(predictions_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {}
+        for prediction in prediction_rows:
+            instance_index = prediction.get("instance_index")
+            raw_candidates = prediction.get("answer_candidates", [])
+            if not isinstance(instance_index, int) or not isinstance(raw_candidates, list):
+                continue
+            candidates_by_index[instance_index] = [
+                str(candidate["node"])
+                for candidate in raw_candidates
+                if isinstance(candidate, dict) and candidate.get("node") is not None
+            ]
+        return candidates_by_index
 
     @classmethod
     def _format_table_cell(cls, value: Any) -> Any:

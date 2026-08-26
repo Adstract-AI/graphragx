@@ -108,6 +108,18 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             }
         ],
     )
+    _write_jsonl(
+        predictions_path,
+        [
+            {
+                "instance_index": 0,
+                "answer_candidates": [
+                    {"node": "Earth"},
+                    {"node": "Mars"},
+                ],
+            }
+        ],
+    )
     results_config_path = results_dir / "results_config.json"
     retrieval_metrics_path = results_dir / "retrieval_metrics.json"
     reasoning_metrics_path = results_dir / "reasoning_metrics.json"
@@ -279,6 +291,7 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert table_rows[0][3] == "Earth"
     assert table_rows[0][4] == "Earth"
     assert table_rows[0][5] == "Moon -> orbits -> Earth"
+    assert table_rows[0][-1] == "Earth, Mars"
     assert set(wandb_config) == {
         "configs",
         "dataset_id",
