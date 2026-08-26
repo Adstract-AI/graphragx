@@ -60,6 +60,7 @@ class GnnTrainingDataPreparationConfig(BaseModel):
 
     start_instance: int = 0
     max_instances: int | None = None
+    skip_missing_gold_in_graph: bool = True
     training_device: str = "auto"
     embedding_cache_device: Literal["auto", "gpu", "cpu"] = Field(
         default=DEFAULT_TRAINING_EMBEDDING_CACHE_DEVICE
@@ -132,7 +133,7 @@ class GnnTrainingDataPreparationService(AbstractService):
                 requested_dtype=preparation_config.embedding_cache_dtype,
                 selected_device=selected_device,
             )
-            return runtime_strategy.prepare_training_data(
+            prepared_data = runtime_strategy.prepare_training_data(
                 built_retriever=built_retriever,
                 instances=selected_instances,
                 relation_vocabulary=relation_vocabulary,
@@ -142,6 +143,11 @@ class GnnTrainingDataPreparationService(AbstractService):
                 cache_root=prepared_dataset.cache_directory.parent,
                 torch=torch,
                 autocast_dtype=autocast_dtype,
+            )
+            return self._filter_missing_gold_training_instances(
+                prepared_data=prepared_data,
+                enabled=preparation_config.skip_missing_gold_in_graph,
+                architecture_name=architecture.display_name,
             )
 
         (
@@ -389,7 +395,7 @@ class GnnTrainingDataPreparationService(AbstractService):
             f"instances={len(prepared_instances)} device={embedding_device} "
             f"dtype={embedding_dtype} skipped={skipped_instances}"
         )
-        return PreparedGnnTrainingData(
+        prepared_data = PreparedGnnTrainingData(
             built_retriever=built_retriever,
             instances=prepared_instances,
             node_embeddings=node_embeddings,
@@ -404,6 +410,44 @@ class GnnTrainingDataPreparationService(AbstractService):
             question_embedding_model=question_embedding_model,
             relation_embedding_model=relation_embedding_model,
             cache_root=cache_root,
+        )
+        return self._filter_missing_gold_training_instances(
+            prepared_data=prepared_data,
+            enabled=preparation_config.skip_missing_gold_in_graph,
+            architecture_name=architecture.display_name,
+        )
+
+    @staticmethod
+    def _filter_missing_gold_training_instances(
+        *,
+        prepared_data: PreparedGnnTrainingData,
+        enabled: bool,
+        architecture_name: str,
+    ) -> PreparedGnnTrainingData:
+        if not enabled:
+            return prepared_data
+        kept_instances = [
+            instance
+            for instance in prepared_data.instances
+            if float(instance.node_labels.sum().item()) > 0
+        ]
+        skipped_count = len(prepared_data.instances) - len(kept_instances)
+        if skipped_count:
+            logger.warning(
+                f"Skipped {skipped_count} {architecture_name} training graphs because "
+                "none of their gold answer entities are present in the graph."
+            )
+        if not kept_instances:
+            raise GnnAnswerRetrieverTrainingException(
+                f"{architecture_name} training has no usable graphs after skipping "
+                "instances without an in-graph gold answer. Use "
+                "--no-skip-missing-gold-in-graph to restore the previous behavior."
+            )
+        return prepared_data.model_copy(
+            update={
+                "instances": kept_instances,
+                "skipped_missing_gold_in_graph_count": skipped_count,
+            }
         )
 
     def _resolve_relation_vocabulary(

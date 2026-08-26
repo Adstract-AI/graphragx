@@ -124,6 +124,20 @@ def test_load_legacy_retriever_run_computes_metrics_without_mutating(tmp_path) -
     assert not (run_dir / "retrieval_metrics.json").exists()
 
 
+def test_metrics_retain_missing_gold_count_for_skipped_predictions() -> None:
+    metrics = GnnRetrieverResultsService().build_metrics(
+        dataset_id="WebQSP",
+        model_run_name="3_model",
+        model_run_number=3,
+        predictions=[_prediction(hit=True)],
+        candidate_limit=10,
+        missing_gold_in_graph_count=4,
+    )
+
+    assert metrics.evaluated_instances == 1
+    assert metrics.missing_gold_in_graph_count == 4
+
+
 def test_load_retriever_run_uses_persisted_metrics(tmp_path) -> None:
     run_dir = _write_run(tmp_path, with_metrics=True)
 

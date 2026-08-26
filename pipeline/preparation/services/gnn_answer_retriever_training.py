@@ -80,6 +80,7 @@ class GnnAnswerRetrieverTrainingConfig(BaseModel):
     weight_decay: float = Field(default=DEFAULT_TRAINING_WEIGHT_DECAY)
     max_instances: int | None = Field(default=None)
     start_instance: int = Field(default=0)
+    skip_missing_gold_in_graph: bool = Field(default=True)
     log_every: int = Field(default=DEFAULT_TRAINING_LOG_EVERY)
     batch_size: int = Field(default=DEFAULT_TRAINING_BATCH_SIZE, gt=0)
     device: str = Field(default=DEFAULT_TRAINING_DEVICE)
@@ -144,6 +145,7 @@ class GnnAnswerRetrieverTrainingOutcome(BaseModel):
         description="Average loss per training epoch.",
     )
     trained_instances: int = Field(..., description="Number of training instances used.")
+    skipped_missing_gold_in_graph_count: int = Field(default=0)
     training_start_instance: int = Field(..., description="Inclusive training slice start.")
     training_end_instance: int = Field(..., description="Exclusive training slice end.")
     model_artifact_path: Path = Field(..., description="Saved model weights path.")
@@ -650,6 +652,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             final_loss=final_loss,
             loss_history=loss_history,
             trained_instances=len(prepared_training_data.instances),
+            skipped_missing_gold_in_graph_count=(
+                prepared_training_data.skipped_missing_gold_in_graph_count
+            ),
             training_start_instance=prepared_training_data.training_start_instance,
             training_end_instance=prepared_training_data.training_end_instance,
             continued_run=continued_run,
@@ -670,6 +675,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
             final_loss=final_loss,
             loss_history=loss_history,
             trained_instances=len(prepared_training_data.instances),
+            skipped_missing_gold_in_graph_count=(
+                prepared_training_data.skipped_missing_gold_in_graph_count
+            ),
             training_start_instance=prepared_training_data.training_start_instance,
             training_end_instance=prepared_training_data.training_end_instance,
             model_artifact_path=model_artifact_path,
@@ -1111,6 +1119,7 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
         continued_run: LoadedGnnAnswerRetrieverRun | None,
         model_run_directory: Path,
         torch,
+        skipped_missing_gold_in_graph_count: int = 0,
         embedding_cache_device: str = "qdrant",
         embedding_cache_dtype: str = "float32",
         runtime_strategy=None,
@@ -1155,6 +1164,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                     "end": training_end_instance,
                     "count": trained_instances,
                 },
+                "skipped_missing_gold_in_graph_count": (
+                    skipped_missing_gold_in_graph_count
+                ),
                 "loss_history": loss_history,
             }
         )

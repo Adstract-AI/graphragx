@@ -38,6 +38,7 @@ class GnnRetrieverResultsService(AbstractService):
         model_run_number: int,
         predictions: list[EvaluatedAnswerRetrievalInstance],
         candidate_limit: int,
+        missing_gold_in_graph_count: int | None = None,
         evaluation_run_name: str | None = None,
         evaluation_run_number: int | None = None,
     ) -> GnnAnswerRetrieverMetrics:
@@ -63,7 +64,11 @@ class GnnRetrieverResultsService(AbstractService):
         hits_at_10_count = hit_count(10)
         hits_at_candidate_limit_count = hit_count(candidate_limit)
         total_candidates = sum(len(item.answer_candidates) for item in predictions)
-        missing_gold_count = sum(item.missing_gold_in_graph for item in predictions)
+        missing_gold_count = (
+            missing_gold_in_graph_count
+            if missing_gold_in_graph_count is not None
+            else sum(item.missing_gold_in_graph for item in predictions)
+        )
         return GnnAnswerRetrieverMetrics(
             dataset_id=dataset_id,
             model_run_name=model_run_name,

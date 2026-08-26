@@ -36,6 +36,7 @@ class GnnAnswerRetrieverEvaluationConfig(BaseModel):
     candidate_limit: int = Field(default=DEFAULT_CANDIDATE_LIMIT)
     run_name: str | None = Field(default=None)
     max_instances: int | None = Field(default=None)
+    skip_missing_gold_in_graph: bool = Field(default=True)
     log_every: int = Field(default=DEFAULT_EVALUATION_LOG_EVERY)
     profile: bool = Field(default=DEFAULT_EVALUATION_PROFILE)
     embedding_cache_device: Literal["auto", "gpu", "cpu"] = Field(
@@ -90,6 +91,7 @@ class PreparedGnnEvaluationData(BaseModel):
     relation_attention_mask: TorchTensor | None = Field(default=None)
     runtime_strategy: str = Field(default="default")
     autocast_dtype: str = Field(default="float32")
+    skipped_missing_gold_in_graph_count: int = Field(default=0)
 
     @property
     def uses_bfloat16(self) -> bool:

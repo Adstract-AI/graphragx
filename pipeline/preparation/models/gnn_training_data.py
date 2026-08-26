@@ -64,6 +64,7 @@ class PreparedGnnTrainingData(StepResult):
     runtime_strategy: str = Field(default="default")
     autocast_dtype: str = Field(default="float32")
     cache_root: Path = Field(...)
+    skipped_missing_gold_in_graph_count: int = Field(default=0)
 
     @property
     def uses_bfloat16(self) -> bool:

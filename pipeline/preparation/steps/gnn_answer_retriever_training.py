@@ -97,6 +97,7 @@ class TrainedGnnAnswerRetriever(StepResult):
         description="Average loss per training epoch.",
     )
     trained_instances: int = Field(..., description="Number of instances trained on.")
+    skipped_missing_gold_in_graph_count: int = Field(default=0)
     is_fine_tuned_model: bool = Field(
         default=False,
         description="Whether this model continued training from a saved run.",
@@ -150,6 +151,7 @@ class TrainGnnAnswerRetrieverStep(
         training_weight_decay: float = DEFAULT_TRAINING_WEIGHT_DECAY,
         training_max_instances: int | None = None,
         training_start_instance: int = 0,
+        skip_missing_gold_in_graph: bool = True,
         training_log_every: int = DEFAULT_TRAINING_LOG_EVERY,
         training_batch_size: int = DEFAULT_TRAINING_BATCH_SIZE,
         training_device: str = DEFAULT_TRAINING_DEVICE,
@@ -167,6 +169,7 @@ class TrainGnnAnswerRetrieverStep(
             weight_decay=training_weight_decay,
             max_instances=training_max_instances,
             start_instance=training_start_instance,
+            skip_missing_gold_in_graph=skip_missing_gold_in_graph,
             log_every=training_log_every,
             batch_size=training_batch_size,
             device=training_device,
@@ -247,6 +250,9 @@ class TrainGnnAnswerRetrieverStep(
             final_loss=outcome.final_loss,
             loss_history=outcome.loss_history,
             trained_instances=outcome.trained_instances,
+            skipped_missing_gold_in_graph_count=(
+                outcome.skipped_missing_gold_in_graph_count
+            ),
             is_fine_tuned_model=outcome.is_fine_tuned_model,
             continued_from_model_run_name=outcome.continued_from_model_run_name,
             continued_from_model_run_number=outcome.continued_from_model_run_number,

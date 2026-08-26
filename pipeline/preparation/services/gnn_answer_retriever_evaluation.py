@@ -213,13 +213,21 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             f"log_every={evaluation_config.log_every}"
         )
         prepared_instance_count = len(prepared_evaluation_data.instances)
+        if prepared_instance_count == 0:
+            raise GnnAnswerRetrieverEvaluationException(
+                "GNN evaluation has no usable graphs after skipping instances "
+                "without an in-graph gold answer. Use "
+                "--no-skip-missing-gold-in-graph to restore the previous behavior."
+            )
 
         predictions: list[EvaluatedAnswerRetrievalInstance] = []
         hits_at_1_count = 0
         hits_at_5_count = 0
         hits_at_10_count = 0
         hits_at_candidate_limit_count = 0
-        missing_gold_in_graph_count = 0
+        missing_gold_in_graph_count = (
+            prepared_evaluation_data.skipped_missing_gold_in_graph_count
+        )
         total_candidate_count = 0
 
         # Keep the evaluation boundary robust for injected/custom model-run
@@ -469,6 +477,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     model_run_number=loaded_model_run.run_number,
                     predictions=predictions,
                     candidate_limit=evaluation_config.candidate_limit,
+                    missing_gold_in_graph_count=missing_gold_in_graph_count,
                 ),
             ),
         )
@@ -487,7 +496,9 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             f"hits_at_1={hits_at_1:.4f} hits_at_5={hits_at_5:.4f} "
             f"hits_at_10={hits_at_10:.4f} "
             f"hits_at_candidate_limit={hits_at_candidate_limit:.4f} "
-            f"average_candidate_count={average_candidate_count:.2f}"
+            f"average_candidate_count={average_candidate_count:.2f} "
+            f"skipped_missing_gold="
+            f"{prepared_evaluation_data.skipped_missing_gold_in_graph_count}"
         )
         return GnnAnswerRetrieverEvaluationOutcome(
             loaded_model_run=loaded_model_run,

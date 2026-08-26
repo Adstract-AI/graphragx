@@ -210,6 +210,7 @@ class PipelineRuntimeConfig(BaseModel):
     training_weight_decay: float = DEFAULT_TRAINING_WEIGHT_DECAY
     training_max_instances: int | None = None
     training_start_instance: int = 0
+    skip_missing_gold_in_graph: bool = True
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
     training_batch_size: int = DEFAULT_TRAINING_BATCH_SIZE
     wandb_training_log_every: int = DEFAULT_WANDB_TRAINING_LOG_EVERY
@@ -508,6 +509,9 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         PrepareGnnTrainingDataStep(
             training_max_instances=resolved_config.training_max_instances,
             training_start_instance=resolved_config.training_start_instance,
+            skip_missing_gold_in_graph=(
+                resolved_config.skip_missing_gold_in_graph
+            ),
             training_device=resolved_config.training_device,
             training_embedding_cache_device=(
                 resolved_config.training_embedding_cache_device
@@ -531,6 +535,9 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             training_weight_decay=resolved_config.training_weight_decay,
             training_max_instances=resolved_config.training_max_instances,
             training_start_instance=resolved_config.training_start_instance,
+            skip_missing_gold_in_graph=(
+                resolved_config.skip_missing_gold_in_graph
+            ),
             training_log_every=resolved_config.training_log_every,
             training_batch_size=resolved_config.training_batch_size,
             training_device=resolved_config.training_device,
@@ -569,6 +576,9 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             candidate_limit=resolved_config.candidate_limit,
             evaluation_run_name=resolved_config.evaluation_run_name,
             evaluation_max_instances=resolved_config.evaluation_max_instances,
+            skip_missing_gold_in_graph=(
+                resolved_config.skip_missing_gold_in_graph
+            ),
             evaluation_log_every=resolved_config.evaluation_log_every,
             evaluation_profile=resolved_config.evaluation_profile,
             evaluation_embedding_cache_device=(
@@ -1091,6 +1101,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional maximum number of WebQSP test instances to evaluate.",
     )
     parser.add_argument(
+        "--no-skip-missing-gold-in-graph",
+        dest="skip_missing_gold_in_graph",
+        action="store_false",
+        default=True,
+        help=(
+            "Include training/evaluation graphs that contain none of their gold "
+            "answer entities. By default these unusable graphs are skipped."
+        ),
+    )
+    parser.add_argument(
         "--evaluation-log-every",
         type=int,
         default=DEFAULT_EVALUATION_LOG_EVERY,
@@ -1233,6 +1253,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_weight_decay=args.training_weight_decay,
         training_max_instances=args.training_max_instances,
         training_start_instance=args.training_start_instance,
+        skip_missing_gold_in_graph=args.skip_missing_gold_in_graph,
         training_log_every=args.training_log_every,
         training_batch_size=args.training_batch_size,
         wandb_training_log_every=args.wandb_training_log_every,

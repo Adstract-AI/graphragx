@@ -61,6 +61,7 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         evaluation_run_name: str | None = None,
         evaluation_max_instances: int | None = None,
+        skip_missing_gold_in_graph: bool = True,
         evaluation_log_every: int = DEFAULT_EVALUATION_LOG_EVERY,
         evaluation_profile: bool = DEFAULT_EVALUATION_PROFILE,
         evaluation_embedding_cache_device: Literal[
@@ -84,6 +85,7 @@ class EvaluateGnnAnswerRetrieverStep(AbstractStep[GnnAnswerRetrieverEvaluationRe
             candidate_limit=candidate_limit,
             run_name=evaluation_run_name,
             max_instances=evaluation_max_instances,
+            skip_missing_gold_in_graph=skip_missing_gold_in_graph,
             log_every=evaluation_log_every,
             profile=evaluation_profile,
             embedding_cache_device=evaluation_embedding_cache_device,
