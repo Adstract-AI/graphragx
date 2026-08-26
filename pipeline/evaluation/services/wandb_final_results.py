@@ -120,6 +120,13 @@ class WandbFinalResultsLoggingService(AbstractService):
                 results_config=results_config,
             )
             run_name = final_result.results_run_name
+            architecture_name = results_config.get("gnn_architecture")
+            if (
+                isinstance(architecture_name, str)
+                and architecture_name
+                and not run_name.endswith(f"_{architecture_name}")
+            ):
+                run_name = f"{run_name}_{architecture_name}"
             tags = self._build_tags(results_config)
 
             with wandb.init(

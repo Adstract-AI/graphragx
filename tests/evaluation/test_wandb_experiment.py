@@ -181,6 +181,58 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
     assert tracking["project"] == "project"
 
 
+def test_coordinator_appends_architecture_to_new_run_name(tmp_path) -> None:
+    fake_wandb = FakeWandb()
+    coordinator = WandbExperimentCoordinator(
+        project="project",
+        run_root=tmp_path / "wandb_runs",
+        architecture_name="aa-graphsage",
+    )
+
+    with patch(
+        "pipeline.evaluation.services.wandb_experiment.importlib.import_module",
+        return_value=fake_wandb,
+    ):
+        coordinator.ensure_run()
+
+    run_name = fake_wandb.init_calls[0]["name"]
+    assert run_name.startswith("1_")
+    assert run_name.endswith("_aa-graphsage")
+    assert (tmp_path / "wandb_runs" / run_name.removesuffix("_aa-graphsage")).is_dir()
+
+
+def test_coordinator_preserves_persisted_lineage_run_name(tmp_path) -> None:
+    fake_wandb = FakeWandb()
+    config_path = tmp_path / "model_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "gnn_architecture": "hgt",
+                "wandb": {
+                    "status": "logged",
+                    "run_id": "existing-id",
+                    "run_name": "17_20260826_120000_hgt",
+                    "project": "project",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    coordinator = WandbExperimentCoordinator(
+        project="project",
+        run_root=tmp_path / "wandb_runs",
+        architecture_name="hgt",
+    )
+
+    with patch(
+        "pipeline.evaluation.services.wandb_experiment.importlib.import_module",
+        return_value=fake_wandb,
+    ):
+        coordinator.ensure_run(source_config_path=config_path)
+
+    assert fake_wandb.init_calls[0]["name"] == "17_20260826_120000_hgt"
+
+
 def test_coordinator_resumes_persisted_run(tmp_path) -> None:
     fake_wandb = FakeWandb()
     fake_wandb.run.config.update(

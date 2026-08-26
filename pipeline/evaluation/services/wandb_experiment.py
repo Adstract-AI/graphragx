@@ -73,6 +73,7 @@ class WandbExperimentCoordinator:
         resume_from_lineage: bool = True,
         run_root: Path | None = None,
         run_identifier_service: WandbRunIdentifierService | None = None,
+        architecture_name: str | None = None,
     ) -> None:
         self.requested_project = project
         self.requested_entity = entity
@@ -85,6 +86,7 @@ class WandbExperimentCoordinator:
         self.run_identifier_service = (
             run_identifier_service or WandbRunIdentifierService()
         )
+        self.architecture_name = architecture_name
         self._wandb: Any | None = None
         self._run: Any | None = None
         self._metadata = WandbTrackingMetadata(status="skipped")
@@ -107,12 +109,15 @@ class WandbExperimentCoordinator:
         self,
         *,
         source_config_path: Path | None = None,
+        architecture_name: str | None = None,
     ) -> WandbTrackingMetadata:
         """Initialize or resume the shared run using optional persisted lineage."""
         if not self.enabled:
             return self.metadata
         if self._run is not None:
             return self.metadata
+        if architecture_name:
+            self.architecture_name = architecture_name
 
         lineage = (
             self._load_lineage(source_config_path)
@@ -131,6 +136,8 @@ class WandbExperimentCoordinator:
                 )
             run_name = self.run_identifier_service.allocate(self.run_root)
             logger.info(f"Allocated W&B run identifier: {run_name}")
+            if self.architecture_name:
+                run_name = f"{run_name}_{self.architecture_name}"
         try:
             self._wandb = importlib.import_module("wandb")
             init_kwargs: dict[str, Any] = {
@@ -238,9 +245,13 @@ class WandbExperimentCoordinator:
         *,
         source_config_path: Path | None = None,
         step: int | None = None,
+        architecture_name: str | None = None,
     ) -> None:
         """Best-effort log scalar stage data to the active experiment."""
-        self.ensure_run(source_config_path=source_config_path)
+        self.ensure_run(
+            source_config_path=source_config_path,
+            architecture_name=architecture_name,
+        )
         if self._run is None:
             return
         try:
@@ -251,7 +262,7 @@ class WandbExperimentCoordinator:
         except Exception as error:
             self._record_failure("WandB metric logging failed", error)
 
-    def log_training_progress(self, payload: dict[str, float | int]) -> None:
+    def log_training_progress(self, payload: dict[str, float | int | str]) -> None:
         """Log one live training progress event using optimizer progress as step."""
         global_step = int(payload["global_step"])
         self.log(
@@ -261,9 +272,14 @@ class WandbExperimentCoordinator:
                 "Training/instance": int(payload["instance"]),
                 "Training/global_step": global_step,
             },
+            architecture_name=(
+                str(payload["gnn_architecture"])
+                if payload.get("gnn_architecture")
+                else None
+            ),
         )
 
-    def log_training_epoch(self, payload: dict[str, float | int]) -> None:
+    def log_training_epoch(self, payload: dict[str, float | int | str]) -> None:
         """Log one completed epoch average immediately on the epoch axis."""
         epoch = int(payload["epoch"])
         if epoch in self._logged_training_epochs:
@@ -272,7 +288,12 @@ class WandbExperimentCoordinator:
             {
                 "Training/gnn_training_loss": float(payload["average_loss"]),
                 "Training/epoch": epoch,
-            }
+            },
+            architecture_name=(
+                str(payload["gnn_architecture"])
+                if payload.get("gnn_architecture")
+                else None
+            ),
         )
         if self._run is not None:
             self._logged_training_epochs.add(epoch)

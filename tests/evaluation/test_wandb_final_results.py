@@ -389,7 +389,7 @@ def test_wandb_logging_success_with_fake_module(
     assert captured["init"]["project"] == "project"
     assert captured["init"]["entity"] == "entity"
     assert captured["init"]["mode"] == "disabled"
-    assert captured["init"]["name"] == "1_test"
+    assert captured["init"]["name"] == "1_test_graphsage"
     assert captured["init"]["config"]["runs"]["model"]["number"] == 7
     assert captured["init"]["config"]["configs"]["model"]["training"]["epochs"] == 3
     assert "model_run_number:7" in captured["init"]["tags"]

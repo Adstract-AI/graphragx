@@ -469,6 +469,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         resume_from_lineage=resolved_config.run_mode
         not in {"evaluation-only", "inference-only"},
         run_root=wandb_loader_definition.cache_root / "wandb_runs",
+        architecture_name=resolved_config.gnn_architecture,
     )
     setup_steps = [
         SelectDatasetStep(

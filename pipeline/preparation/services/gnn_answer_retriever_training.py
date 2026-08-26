@@ -602,6 +602,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                         {
                             "epoch": epoch,
                             "instance": processed_instances,
+                            "gnn_architecture": (
+                                prepared_training_data.built_retriever.gnn_architecture
+                            ),
                             "global_step": (
                                 (epoch - 1) * len(prepared_training_data.instances)
                                 + processed_instances
@@ -629,6 +632,9 @@ class GnnAnswerRetrieverTrainingService(AbstractService):
                 self.epoch_callback(
                     {
                         "epoch": epoch,
+                        "gnn_architecture": (
+                            prepared_training_data.built_retriever.gnn_architecture
+                        ),
                         "average_loss": final_loss,
                     }
                 )
