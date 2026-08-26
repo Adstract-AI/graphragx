@@ -94,6 +94,12 @@ class WandbFinalResultsLoggingService(AbstractService):
             retrieval_metrics = self._load_json_object(
                 final_result.retrieval_metrics_path
             )
+            # Legacy retrieval metric files predate this scalar; the final
+            # result still carries the same evaluated-instance denominator.
+            retrieval_metrics.setdefault(
+                "evaluated_instances",
+                final_result.evaluated_instances,
+            )
             reasoning_metrics = self._load_json_object(
                 final_result.reasoning_metrics_path
             )
@@ -181,6 +187,9 @@ class WandbFinalResultsLoggingService(AbstractService):
     ) -> dict[str, float | int]:
         """Build WandB-safe scalar metric names."""
         mappings = {
+            "retrieval_evaluated_instances": retrieval_metrics.get(
+                "evaluated_instances"
+            ),
             "retrieval_hits_at_1": retrieval_metrics.get("hits_at_1"),
             "retrieval_hits_at_5": retrieval_metrics.get("hits_at_5"),
             "retrieval_hits_at_10": retrieval_metrics.get("hits_at_10"),
@@ -248,6 +257,7 @@ class WandbFinalResultsLoggingService(AbstractService):
     ) -> dict[str, float | int]:
         """Build curated run-summary metrics for WandB history plots."""
         run_summary_keys = {
+            "retrieval_evaluated_instances": "retrieval_evaluated_instances",
             "retrieval_hits_at_1": "retrieval_hits_at_1",
             "retrieval_hits_at_10": "retrieval_hits_at_10",
             "retrieval_hits_at_candidate_limit": "retrieval_hits_at_candidate_limit",

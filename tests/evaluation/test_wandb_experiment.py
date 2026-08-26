@@ -557,9 +557,11 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
 
     payload = coordinator.logged[0]
     assert payload["Run_Summary/retrieval_hits_at_1"] == 0.4
+    assert payload["Run_Summary/retrieval_evaluated_instances"] == 10
     assert payload["Run_Summary/retrieval_hits_at_10"] == 0.9
     assert payload["Run_Summary/retrieval_hits_at_candidate_limit"] == 1.0
     assert payload["Summary_Plots/retrieval_hits_at_1"] == 0.4
+    assert payload["Summary_Plots/retrieval_evaluated_instances"] == 10
     assert payload["Summary_Plots/retrieval_hits_at_5"] == 0.8
     assert payload["Summary_Plots/retrieval_hits_at_10"] == 0.9
     assert payload["Summary_Plots/retrieval_hits_at_candidate_limit"] == 1.0

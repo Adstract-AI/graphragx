@@ -311,6 +311,7 @@ class LogRetrieverToWandbStep(
         if not is_logged_continuation:
             scalar_metrics = WandbFinalResultsLoggingService.build_scalar_metrics(
                 retrieval_metrics={
+                    "evaluated_instances": result.evaluated_instances,
                     "hits_at_1": result.hits_at_1,
                     "hits_at_5": result.hits_at_5,
                     "hits_at_10": result.hits_at_10,
