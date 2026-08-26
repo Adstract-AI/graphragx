@@ -28,6 +28,7 @@ from pipeline.evaluation.models import (
     GnnAnswerRetrieverEvaluationResult,
     PerInstanceFinalResult,
     RankingMetrics,
+    RetrievalConditionedAnswerMetrics,
     SavedLlmInferenceRun,
 )
 from pipeline.evaluation.models.final_results import ExplanationGroundingMetrics
@@ -217,6 +218,28 @@ class FinalResultsEvaluationService(AbstractService):
         normalized_predicted_answers = self._normalize_answer_list(predicted_answers)
         gold_set = set(normalized_gold_answers)
         predicted_set = set(normalized_predicted_answers)
+        retrieved_candidate_set = set(
+            self._normalize_answer_list(
+                [candidate.node for candidate in prediction.answer_candidates]
+            )
+        )
+        context_entity_set = self._normalized_context_entities(reasoning_row)
+        retrieved_gold_set = gold_set & retrieved_candidate_set
+        context_visible_gold_set = gold_set & context_entity_set
+        retrieval_gold_coverage = self._safe_divide(
+            len(retrieved_gold_set),
+            len(gold_set),
+        )
+        reasoning_context_gold_coverage = self._safe_divide(
+            len(context_visible_gold_set),
+            len(gold_set),
+        )
+        full_gold_retrieval = bool(gold_set) and retrieved_gold_set == gold_set
+        full_gold_context = bool(gold_set) and context_visible_gold_set == gold_set
+        llm_retrieved_gold_utilization = self._optional_divide(
+            len(predicted_set & retrieved_gold_set),
+            len(retrieved_gold_set),
+        )
         true_positive_count = len(gold_set & predicted_set)
         false_positive_count = len(predicted_set - gold_set)
         false_negative_count = len(gold_set - predicted_set)
@@ -256,6 +279,18 @@ class FinalResultsEvaluationService(AbstractService):
             ndcg_at_5=self._ndcg_at_k(prediction, 5),
             ndcg_at_10=self._ndcg_at_k(prediction, 10),
             ndcg_at_candidate_limit=self._ndcg_at_k(prediction, candidate_limit),
+            retrieved_gold_answers=sorted(retrieved_gold_set),
+            context_visible_gold_answers=sorted(context_visible_gold_set),
+            retrieval_gold_coverage=retrieval_gold_coverage,
+            reasoning_context_gold_coverage=reasoning_context_gold_coverage,
+            llm_retrieved_gold_utilization=llm_retrieved_gold_utilization,
+            full_gold_retrieval=full_gold_retrieval,
+            full_gold_context=full_gold_context,
+            retrieval_generation_outcome=self._retrieval_generation_outcome(
+                gold_set=gold_set,
+                retrieved_gold_set=retrieved_gold_set,
+                predicted_set=predicted_set,
+            ),
         )
 
     def _build_reasoning_metrics(
@@ -347,6 +382,152 @@ class FinalResultsEvaluationService(AbstractService):
                     [item.ndcg_at_candidate_limit for item in per_instance_results]
                 ),
                 candidate_limit=candidate_limit,
+            ),
+            retrieval_conditioned_answer_metrics=(
+                self._build_retrieval_conditioned_answer_metrics(
+                    per_instance_results
+                )
+            ),
+        )
+
+    def _build_retrieval_conditioned_answer_metrics(
+        self,
+        per_instance_results: list[PerInstanceFinalResult],
+    ) -> RetrievalConditionedAnswerMetrics:
+        """Aggregate retrieval availability and downstream answer utilization."""
+        eligible_results = [
+            item for item in per_instance_results if item.normalized_gold_answers
+        ]
+        eligible_count = len(eligible_results)
+        full_retrieval_results = [
+            item for item in eligible_results if item.full_gold_retrieval
+        ]
+        full_context_results = [
+            item for item in eligible_results if item.full_gold_context
+        ]
+        retrieved_gold_answer_count = sum(
+            len(item.retrieved_gold_answers) for item in eligible_results
+        )
+        answered_retrieved_gold_count = sum(
+            len(
+                set(item.normalized_predicted_answers)
+                & set(item.retrieved_gold_answers)
+            )
+            for item in eligible_results
+        )
+        full_retrieval_omissions = sum(
+            not set(item.normalized_gold_answers).issubset(
+                item.normalized_predicted_answers
+            )
+            for item in full_retrieval_results
+        )
+        full_retrieval_exact_matches = sum(
+            item.exact_match for item in full_retrieval_results
+        )
+        full_context_omissions = sum(
+            not set(item.normalized_gold_answers).issubset(
+                item.normalized_predicted_answers
+            )
+            for item in full_context_results
+        )
+        full_context_exact_matches = sum(
+            item.exact_match for item in full_context_results
+        )
+        outcome_names = [
+            "full_retrieval_complete_answer",
+            "full_retrieval_llm_omission",
+            "partial_retrieval_fully_utilized",
+            "partial_retrieval_underutilized",
+            "no_gold_retrieved_no_gold_answered",
+            "correct_without_gold_retrieval",
+        ]
+        outcome_counts = {
+            name: sum(
+                item.retrieval_generation_outcome == name
+                for item in eligible_results
+            )
+            for name in outcome_names
+        }
+
+        return RetrievalConditionedAnswerMetrics(
+            conditioned_evaluated_instances=eligible_count,
+            retrieval_gold_coverage=self._mean(
+                [item.retrieval_gold_coverage for item in eligible_results]
+            ),
+            retrieval_full_gold_coverage_count=len(full_retrieval_results),
+            retrieval_full_gold_coverage_rate=self._safe_divide(
+                len(full_retrieval_results), eligible_count
+            ),
+            reasoning_context_gold_coverage=self._mean(
+                [item.reasoning_context_gold_coverage for item in eligible_results]
+            ),
+            reasoning_context_full_gold_coverage_count=len(full_context_results),
+            reasoning_context_full_gold_coverage_rate=self._safe_divide(
+                len(full_context_results), eligible_count
+            ),
+            retrieved_gold_answer_count=retrieved_gold_answer_count,
+            answered_retrieved_gold_count=answered_retrieved_gold_count,
+            llm_retrieved_gold_utilization=self._optional_divide(
+                answered_retrieved_gold_count,
+                retrieved_gold_answer_count,
+            ),
+            llm_omission_given_full_retrieval_count=full_retrieval_omissions,
+            llm_omission_given_full_retrieval_rate=self._optional_divide(
+                full_retrieval_omissions,
+                len(full_retrieval_results),
+            ),
+            llm_exact_match_given_full_retrieval_count=(
+                full_retrieval_exact_matches
+            ),
+            llm_exact_match_given_full_retrieval=self._optional_divide(
+                full_retrieval_exact_matches,
+                len(full_retrieval_results),
+            ),
+            llm_omission_given_full_context_count=full_context_omissions,
+            llm_omission_given_full_context_rate=self._optional_divide(
+                full_context_omissions,
+                len(full_context_results),
+            ),
+            llm_exact_match_given_full_context_count=full_context_exact_matches,
+            llm_exact_match_given_full_context=self._optional_divide(
+                full_context_exact_matches,
+                len(full_context_results),
+            ),
+            full_retrieval_complete_answer_count=outcome_counts[
+                "full_retrieval_complete_answer"
+            ],
+            full_retrieval_complete_answer_rate=self._safe_divide(
+                outcome_counts["full_retrieval_complete_answer"], eligible_count
+            ),
+            full_retrieval_llm_omission_count=outcome_counts[
+                "full_retrieval_llm_omission"
+            ],
+            full_retrieval_llm_omission_rate=self._safe_divide(
+                outcome_counts["full_retrieval_llm_omission"], eligible_count
+            ),
+            partial_retrieval_fully_utilized_count=outcome_counts[
+                "partial_retrieval_fully_utilized"
+            ],
+            partial_retrieval_fully_utilized_rate=self._safe_divide(
+                outcome_counts["partial_retrieval_fully_utilized"], eligible_count
+            ),
+            partial_retrieval_underutilized_count=outcome_counts[
+                "partial_retrieval_underutilized"
+            ],
+            partial_retrieval_underutilized_rate=self._safe_divide(
+                outcome_counts["partial_retrieval_underutilized"], eligible_count
+            ),
+            no_gold_retrieved_no_gold_answered_count=outcome_counts[
+                "no_gold_retrieved_no_gold_answered"
+            ],
+            no_gold_retrieved_no_gold_answered_rate=self._safe_divide(
+                outcome_counts["no_gold_retrieved_no_gold_answered"], eligible_count
+            ),
+            correct_without_gold_retrieval_count=outcome_counts[
+                "correct_without_gold_retrieval"
+            ],
+            correct_without_gold_retrieval_rate=self._safe_divide(
+                outcome_counts["correct_without_gold_retrieval"], eligible_count
             ),
         )
 
@@ -464,6 +645,48 @@ class FinalResultsEvaluationService(AbstractService):
             )
         return triples
 
+    def _normalized_context_entities(
+        self,
+        reasoning_row: dict[str, Any],
+    ) -> set[str]:
+        """Return normalized entity names actually exposed in reasoning paths."""
+        subgraph = reasoning_row.get("subgraph")
+        if not isinstance(subgraph, list):
+            raise FinalResultsEvaluationException(
+                f"Reasoning row {reasoning_row.get('instance_index')} is missing subgraph."
+            )
+        entities: set[str] = set()
+        for triple in subgraph:
+            if not isinstance(triple, dict):
+                continue
+            for key in ("source", "target"):
+                entity = self._normalize_answer(str(triple.get(key, "")))
+                if entity:
+                    entities.add(entity)
+        return entities
+
+    @staticmethod
+    def _retrieval_generation_outcome(
+        *,
+        gold_set: set[str],
+        retrieved_gold_set: set[str],
+        predicted_set: set[str],
+    ) -> str:
+        """Classify one instance into a mutually exclusive pipeline outcome."""
+        if not gold_set:
+            return "no_gold_answers"
+        if retrieved_gold_set == gold_set:
+            if gold_set.issubset(predicted_set):
+                return "full_retrieval_complete_answer"
+            return "full_retrieval_llm_omission"
+        if retrieved_gold_set:
+            if retrieved_gold_set.issubset(predicted_set):
+                return "partial_retrieval_fully_utilized"
+            return "partial_retrieval_underutilized"
+        if predicted_set & gold_set:
+            return "correct_without_gold_retrieval"
+        return "no_gold_retrieved_no_gold_answered"
+
     def _extract_explanation_triples(self, explanation: str) -> set[tuple[str, str, str]]:
         triples: set[tuple[str, str, str]] = set()
         for match in self.arrow_triple_pattern.finditer(explanation):
@@ -564,6 +787,16 @@ class FinalResultsEvaluationService(AbstractService):
         if denominator == 0:
             return 0.0
 
+        return numerator / denominator
+
+    @staticmethod
+    def _optional_divide(
+        numerator: int | float,
+        denominator: int | float,
+    ) -> float | None:
+        """Divide conditional metrics, preserving an unavailable denominator."""
+        if denominator == 0:
+            return None
         return numerator / denominator
 
     @classmethod

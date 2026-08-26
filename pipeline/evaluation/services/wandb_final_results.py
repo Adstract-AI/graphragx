@@ -51,6 +51,38 @@ class WandbFinalResultsLoggingService(AbstractService):
     aggregate_table_key = "Summary_Metrics/aggregate_metrics"
     summary_plot_prefix = "Summary_Plots"
     artifact_type = "evaluation-results"
+    retrieval_conditioned_metric_keys = (
+        "conditioned_evaluated_instances",
+        "retrieval_gold_coverage",
+        "retrieval_full_gold_coverage_count",
+        "retrieval_full_gold_coverage_rate",
+        "reasoning_context_gold_coverage",
+        "reasoning_context_full_gold_coverage_count",
+        "reasoning_context_full_gold_coverage_rate",
+        "retrieved_gold_answer_count",
+        "answered_retrieved_gold_count",
+        "llm_retrieved_gold_utilization",
+        "llm_omission_given_full_retrieval_count",
+        "llm_omission_given_full_retrieval_rate",
+        "llm_exact_match_given_full_retrieval_count",
+        "llm_exact_match_given_full_retrieval",
+        "llm_omission_given_full_context_count",
+        "llm_omission_given_full_context_rate",
+        "llm_exact_match_given_full_context_count",
+        "llm_exact_match_given_full_context",
+        "full_retrieval_complete_answer_count",
+        "full_retrieval_complete_answer_rate",
+        "full_retrieval_llm_omission_count",
+        "full_retrieval_llm_omission_rate",
+        "partial_retrieval_fully_utilized_count",
+        "partial_retrieval_fully_utilized_rate",
+        "partial_retrieval_underutilized_count",
+        "partial_retrieval_underutilized_rate",
+        "no_gold_retrieved_no_gold_answered_count",
+        "no_gold_retrieved_no_gold_answered_rate",
+        "correct_without_gold_retrieval_count",
+        "correct_without_gold_retrieval_rate",
+    )
     source_path_keys = {
         "answers_path",
         "reasoning_path",
@@ -80,6 +112,10 @@ class WandbFinalResultsLoggingService(AbstractService):
         "ndcg_at_10",
         "ndcg_at_candidate_limit",
         "answer_error_message",
+        "retrieval_gold_coverage",
+        "reasoning_context_gold_coverage",
+        "llm_retrieved_gold_utilization",
+        "retrieval_generation_outcome",
         "retrieved_candidates",
     ]
 
@@ -229,6 +265,12 @@ class WandbFinalResultsLoggingService(AbstractService):
                 "ndcg_at_candidate_limit"
             ),
         }
+        mappings.update(
+            {
+                key: reasoning_metrics.get(key)
+                for key in cls.retrieval_conditioned_metric_keys
+            }
+        )
         return {
             key: value
             for key, value in mappings.items()
@@ -274,6 +316,9 @@ class WandbFinalResultsLoggingService(AbstractService):
             "ranking_ndcg_at_10": "ranking_ndcg_at_10",
             "grounding_grounded_explanation_rate": "grounded_explanation_rate",
         }
+        run_summary_keys.update(
+            {key: key for key in cls.retrieval_conditioned_metric_keys}
+        )
         return {
             f"{cls.run_summary_prefix}/{target_key}": scalar_metrics[source_key]
             for source_key, target_key in run_summary_keys.items()
@@ -344,6 +389,10 @@ class WandbFinalResultsLoggingService(AbstractService):
                     row.get("ndcg_at_10", 0.0),
                     row.get("ndcg_at_candidate_limit", 0.0),
                     row.get("answer_error_message"),
+                    row.get("retrieval_gold_coverage", 0.0),
+                    row.get("reasoning_context_gold_coverage", 0.0),
+                    row.get("llm_retrieved_gold_utilization"),
+                    row.get("retrieval_generation_outcome", ""),
                     self._format_table_cell(
                         retrieved_candidates_by_index.get(instance_index, [])
                     ),

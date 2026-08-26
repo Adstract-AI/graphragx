@@ -126,6 +126,120 @@ def test_answer_normalization_and_set_metrics() -> None:
     assert failed_result.predicted_answers == []
 
 
+def test_retrieval_conditioned_answer_metrics_cover_all_outcomes() -> None:
+    service = FinalResultsEvaluationService()
+
+    def build_result(
+        instance_index: int,
+        retrieved: list[str],
+        predicted: list[str],
+        visible: list[str],
+    ):
+        prediction = EvaluatedAnswerRetrievalInstance(
+            instance_index=instance_index,
+            question="question?",
+            q_entity=["topic"],
+            a_entity=["Alpha", "Beta"],
+            answer_candidates=[
+                _candidate(node, 1.0 - rank * 0.1, node in {"Alpha", "Beta"})
+                for rank, node in enumerate(retrieved)
+            ],
+            gold_answer_scores=[],
+            hit_at_1=bool(retrieved and retrieved[0] in {"Alpha", "Beta"}),
+            hit_at_5=any(node in {"Alpha", "Beta"} for node in retrieved[:5]),
+            hit_at_10=any(node in {"Alpha", "Beta"} for node in retrieved[:10]),
+            hit_at_candidate_limit=any(
+                node in {"Alpha", "Beta"} for node in retrieved
+            ),
+            missing_gold_in_graph=False,
+        )
+        return service._build_per_instance_result(
+            instance_index=instance_index,
+            answer_row={
+                "question": "question?",
+                "q_entity": ["topic"],
+                "gold_answers": ["Alpha", "Beta"],
+                "answer": ", ".join(predicted),
+                "explanation": "",
+                "error_message": None,
+            },
+            reasoning_row={
+                "instance_index": instance_index,
+                "subgraph": [
+                    {"source": "topic", "relation": "related", "target": node}
+                    for node in visible
+                ],
+            },
+            prediction=prediction,
+            candidate_limit=10,
+        )
+
+    results = [
+        build_result(0, ["Alpha", "Beta"], ["Alpha", "Beta"], ["Alpha", "Beta"]),
+        build_result(1, ["Alpha", "Beta"], ["Alpha"], ["Alpha", "Beta"]),
+        build_result(2, ["Alpha"], ["Alpha"], ["Alpha"]),
+        build_result(3, ["Alpha"], [], ["Alpha"]),
+        build_result(4, ["Wrong"], [], []),
+        build_result(5, ["Wrong"], ["Alpha"], []),
+    ]
+
+    assert [item.retrieval_generation_outcome for item in results] == [
+        "full_retrieval_complete_answer",
+        "full_retrieval_llm_omission",
+        "partial_retrieval_fully_utilized",
+        "partial_retrieval_underutilized",
+        "no_gold_retrieved_no_gold_answered",
+        "correct_without_gold_retrieval",
+    ]
+    metrics = service._build_retrieval_conditioned_answer_metrics(results)
+    assert metrics.conditioned_evaluated_instances == 6
+    assert metrics.retrieval_gold_coverage == 0.5
+    assert metrics.retrieval_full_gold_coverage_count == 2
+    assert math.isclose(metrics.retrieval_full_gold_coverage_rate, 1 / 3)
+    assert metrics.reasoning_context_gold_coverage == 0.5
+    assert metrics.retrieved_gold_answer_count == 6
+    assert metrics.answered_retrieved_gold_count == 4
+    assert metrics.llm_retrieved_gold_utilization is not None
+    assert math.isclose(metrics.llm_retrieved_gold_utilization, 2 / 3)
+    assert metrics.llm_omission_given_full_retrieval_count == 1
+    assert metrics.llm_omission_given_full_retrieval_rate == 0.5
+    assert metrics.llm_exact_match_given_full_retrieval == 0.5
+    assert metrics.llm_omission_given_full_context_rate == 0.5
+    assert metrics.llm_exact_match_given_full_context == 0.5
+    assert metrics.full_retrieval_complete_answer_count == 1
+    assert metrics.full_retrieval_llm_omission_count == 1
+    assert metrics.partial_retrieval_fully_utilized_count == 1
+    assert metrics.partial_retrieval_underutilized_count == 1
+    assert metrics.no_gold_retrieved_no_gold_answered_count == 1
+    assert metrics.correct_without_gold_retrieval_count == 1
+    assert math.isclose(metrics.correct_without_gold_retrieval_rate, 1 / 6)
+
+
+def test_conditional_metrics_are_none_when_no_answers_are_available() -> None:
+    service = FinalResultsEvaluationService()
+    result = service._build_per_instance_result(
+        instance_index=0,
+        answer_row={
+            "question": "question?",
+            "q_entity": ["topic"],
+            "gold_answers": ["Gold"],
+            "answer": "Unknown",
+            "explanation": "",
+            "error_message": None,
+        },
+        reasoning_row={"instance_index": 0, "subgraph": []},
+        prediction=_prediction([_candidate("Wrong", 0.9, False)]),
+        candidate_limit=10,
+    )
+
+    metrics = service._build_retrieval_conditioned_answer_metrics([result])
+    assert metrics.llm_retrieved_gold_utilization is None
+    assert metrics.llm_omission_given_full_retrieval_rate is None
+    assert metrics.llm_exact_match_given_full_retrieval is None
+    assert metrics.llm_omission_given_full_context_rate is None
+    assert metrics.llm_exact_match_given_full_context is None
+
+
 def test_explanation_grounding_exact_missing_and_empty() -> None:
     service = FinalResultsEvaluationService()
     reasoning_row = {
@@ -377,6 +491,17 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     assert metrics["grounded_explanation_rate"] == 1.0
     assert metrics["candidate_limit"] == 5
     assert math.isclose(metrics["ndcg_at_5"], (1.0 + 1 / math.log2(3)) / 2)
+    assert metrics["retrieval_gold_coverage"] == 1.0
+    assert metrics["retrieval_full_gold_coverage_rate"] == 1.0
+    assert metrics["reasoning_context_gold_coverage"] == 1.0
+    assert metrics["reasoning_context_full_gold_coverage_rate"] == 1.0
+    assert metrics["llm_retrieved_gold_utilization"] == 0.5
+    assert metrics["llm_omission_given_full_retrieval_rate"] == 0.5
+    assert metrics["llm_exact_match_given_full_retrieval"] == 0.5
+    assert metrics["llm_omission_given_full_context_rate"] == 0.5
+    assert metrics["llm_exact_match_given_full_context"] == 0.5
+    assert metrics["full_retrieval_complete_answer_rate"] == 0.5
+    assert metrics["full_retrieval_llm_omission_rate"] == 0.5
 
     rows = outcome.storage_result.per_instance_results_path.read_text().splitlines()
     assert len(rows) == 2
@@ -384,5 +509,13 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     second_row = json.loads(rows[1])
     assert first_row["hit"] is True
     assert first_row["hits_at_1"] is True
+    assert first_row["retrieval_generation_outcome"] == (
+        "full_retrieval_complete_answer"
+    )
+    assert first_row["retrieval_gold_coverage"] == 1.0
+    assert first_row["reasoning_context_gold_coverage"] == 1.0
     assert second_row["hit"] is False
     assert second_row["hits_at_1"] is False
+    assert second_row["retrieval_generation_outcome"] == (
+        "full_retrieval_llm_omission"
+    )
