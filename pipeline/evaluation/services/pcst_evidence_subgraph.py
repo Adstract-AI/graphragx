@@ -108,28 +108,12 @@ class PcstEvidenceSubgraphService(AbstractService):
             question_embedding=question_embedding,
             relation_embeddings=relation_embeddings,
         )
-        (
-            solver_edges,
-            solver_edge_costs,
-            solver_record_indices,
-        ) = self._simple_structural_projection(records, edge_costs)
-        if not solver_edges:
-            logger.warning(
-                "PCST produced empty evidence before solving: "
-                f"reason=no_structural_edges question={sample.question!r}"
-            )
-            return self._empty_result(
-                sample=sample,
-                candidates=candidates,
-                valid_candidate_count=len(valid_candidates),
-                valid_seed_count=len(valid_seeds),
-                missing_seed_count=missing_seed_count,
-                strategy=edge_cost_strategy,
-                edge_cost_lambda=edge_cost_lambda,
-                semantic_embedding_model=semantic_embedding_model,
-                started_at=started_at,
-                reason="no_structural_edges",
-            )
+        # Keep every relation-distinct original triple in the structural
+        # projection. Parallel relations are meaningful alternatives and map
+        # directly back to the evidence triple selected by the solver.
+        solver_edges = [(source, target) for source, _, target in records]
+        solver_edge_costs = list(edge_costs)
+        solver_record_indices = list(range(len(records)))
         prizes = np.zeros(len(instance.nodes), dtype=np.float64)
         candidate_prizes: dict[int, float] = {}
         candidate_ranks: dict[int, int] = {}
@@ -536,9 +520,6 @@ class PcstEvidenceSubgraphService(AbstractService):
                 "original_record_count": len(records),
                 "self_loop_count": self_loop_count,
                 "structural_edge_count": synthetic_edge_start,
-                "collapsed_or_removed_edge_count": (
-                    len(records) - self_loop_count - synthetic_edge_start
-                ),
             },
             "configuration": {
                 "edge_cost_strategy": edge_cost_strategy,
@@ -685,45 +666,6 @@ class PcstEvidenceSubgraphService(AbstractService):
                 item[2],
             ),
         )
-
-    @staticmethod
-    def _simple_structural_projection(
-        records: list[tuple[int, str, int]],
-        edge_costs: list[float],
-    ) -> tuple[list[tuple[int, int]], list[float], list[int]]:
-        """Collapse directed relation triples into deterministic simple edges.
-
-        A tree can use at most one structural edge between the same node pair.
-        pcst-fast is designed around a simple undirected graph and can produce
-        unstable pruning output for self-loops and large parallel-edge groups.
-        Keep the cheapest original relation for every unordered pair, breaking
-        equal-cost ties by the already deterministic relation record.
-        """
-        if len(records) != len(edge_costs):
-            raise ShortestPathExtractionException(
-                "PCST records and edge costs must contain the same number of items."
-            )
-        representatives: dict[tuple[int, int], tuple[float, tuple[int, str, int], int]] = {}
-        for record_index, ((source, relation, target), cost) in enumerate(
-            zip(records, edge_costs, strict=True)
-        ):
-            if source == target:
-                continue
-            pair = (min(source, target), max(source, target))
-            candidate = (float(cost), (source, relation, target), record_index)
-            current = representatives.get(pair)
-            if current is None or candidate < current:
-                representatives[pair] = candidate
-
-        solver_edges: list[tuple[int, int]] = []
-        solver_costs: list[float] = []
-        record_indices: list[int] = []
-        for pair in sorted(representatives):
-            cost, _, record_index = representatives[pair]
-            solver_edges.append(pair)
-            solver_costs.append(cost)
-            record_indices.append(record_index)
-        return solver_edges, solver_costs, record_indices
 
     @classmethod
     def _edge_costs(

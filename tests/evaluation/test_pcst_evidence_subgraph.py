@@ -64,7 +64,7 @@ def test_pcst_maps_selected_solver_edges_to_original_directed_triples() -> None:
             pruning=pruning,
             verbosity=verbosity,
         )
-        return np.array([0, 1, 2, 3]), np.array([0, 1, 2])
+        return np.array([0, 1, 2, 3]), np.array([0, 1, 3])
 
     result = PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
         instance=_instance(),
@@ -74,17 +74,22 @@ def test_pcst_maps_selected_solver_edges_to_original_directed_triples() -> None:
         edge_cost_lambda=1.0,
     )
 
-    assert captured["edges"].shape == (3, 2)
-    assert captured["edges"].tolist() == [[0, 1], [1, 2], [1, 3]]
+    assert captured["edges"].shape == (4, 2)
+    assert captured["edges"].tolist() == [
+        [1, 2],
+        [1, 3],
+        [0, 1],
+        [0, 1],
+    ]
     assert captured["root"] == 0
     assert captured["clusters"] == 1
     assert captured["pruning"] == "gw"
     assert captured["verbosity"] == 0
     assert captured["prizes"].tolist() == [0.0, 0.0, 2.0, 1.0]
     assert [triple.model_dump() for triple in result.reasoning_subgraph_triples] == [
-        {"source": "seed", "relation": "r.parallel", "target": "connector"},
         {"source": "connector", "relation": "r.answer_a", "target": "answer_a"},
         {"source": "connector", "relation": "r.answer_b", "target": "answer_b"},
+        {"source": "seed", "relation": "r.seed", "target": "connector"},
     ]
     assert all("reverse__" not in triple.relation for triple in result.reasoning_subgraph_triples)
     assert result.construction.selected_candidate_ranks == [1, 2]
@@ -181,7 +186,7 @@ def test_rooted_solution_rejects_missing_root() -> None:
 
 def test_rooted_solution_rejects_disconnected_vertices() -> None:
     def solver(*_):
-        return np.array([0, 1, 2]), np.array([1])
+        return np.array([0, 1, 2]), np.array([0])
 
     with pytest.raises(ShortestPathExtractionException, match="single connected tree"):
         PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
@@ -191,18 +196,6 @@ def test_rooted_solution_rejects_disconnected_vertices() -> None:
             edge_cost_strategy="constant",
             edge_cost_lambda=1.0,
         )
-
-
-def test_structural_projection_removes_loops_and_keeps_cheapest_parallel_relation() -> None:
-    records = [(0, "expensive", 1), (1, "cheap", 0), (1, "loop", 1)]
-    edges, costs, record_indices = PcstEvidenceSubgraphService._simple_structural_projection(
-        records,
-        [2.0, 0.5, 0.01],
-    )
-
-    assert edges == [(0, 1)]
-    assert costs == [0.5]
-    assert record_indices == [1]
 
 
 def test_debug_profile_saves_replayable_failure_snapshot(tmp_path) -> None:
@@ -225,8 +218,8 @@ def test_debug_profile_saves_replayable_failure_snapshot(tmp_path) -> None:
     )
     assert snapshot["root"]["node"] == "seed"
     assert snapshot["root"]["reported_selected"] is False
-    assert snapshot["instance"]["structural_edge_count"] == 3
-    assert snapshot["instance"]["collapsed_or_removed_edge_count"] == 1
+    assert snapshot["instance"]["structural_edge_count"] == 4
+    assert "collapsed_or_removed_edge_count" not in snapshot["instance"]
     assert snapshot["solver_output"]["selected_vertices"] == [2]
     assert snapshot["configuration"]["rooted_solver"] is True
 
