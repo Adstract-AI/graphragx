@@ -7,6 +7,7 @@ import pytest
 import torch
 
 from pipeline.evaluation.models import CandidateNodeScore, EvaluationSample
+from pipeline.evaluation.exceptions import ShortestPathExtractionException
 from pipeline.evaluation.services.pcst_evidence_subgraph import (
     PcstEvidenceSubgraphService,
 )
@@ -61,7 +62,7 @@ def test_pcst_maps_selected_solver_edges_to_original_directed_triples() -> None:
             pruning=pruning,
             verbosity=verbosity,
         )
-        return np.array([0, 1, 2, 3]), np.array([0, 1, 3])
+        return np.array([0, 1, 2, 3]), np.array([0, 1, 2])
 
     result = PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
         instance=_instance(),
@@ -71,16 +72,17 @@ def test_pcst_maps_selected_solver_edges_to_original_directed_triples() -> None:
         edge_cost_lambda=1.0,
     )
 
-    assert captured["edges"].shape == (4, 2)
-    assert captured["root"] == 0
+    assert captured["edges"].shape == (3, 2)
+    assert captured["edges"].tolist() == [[0, 1], [1, 2], [1, 3]]
+    assert captured["root"] == -1
     assert captured["clusters"] == 1
     assert captured["pruning"] == "gw"
     assert captured["verbosity"] == 0
-    assert captured["prizes"].tolist() == [0.0, 0.0, 2.0, 1.0]
+    assert captured["prizes"].tolist() == [7.0, 0.0, 2.0, 1.0]
     assert [triple.model_dump() for triple in result.reasoning_subgraph_triples] == [
+        {"source": "seed", "relation": "r.parallel", "target": "connector"},
         {"source": "connector", "relation": "r.answer_a", "target": "answer_a"},
         {"source": "connector", "relation": "r.answer_b", "target": "answer_b"},
-        {"source": "seed", "relation": "r.seed", "target": "connector"},
     ]
     assert all("reverse__" not in triple.relation for triple in result.reasoning_subgraph_triples)
     assert result.construction.selected_candidate_ranks == [1, 2]
@@ -121,7 +123,7 @@ def test_multiple_seeds_use_virtual_root_and_mandatory_seed_prizes() -> None:
         edge_cost_lambda=1.0,
     )
 
-    assert captured["root"] == len(instance.nodes)
+    assert captured["root"] == -1
     assert captured["edges"][-2:].tolist() == [[4, 0], [4, 1]]
     assert captured["costs"][-2:].tolist() == [0.0, 0.0]
     assert captured["prizes"][0] > 3.0
@@ -159,63 +161,43 @@ def test_real_solver_can_drop_candidate_when_path_cost_exceeds_prize() -> None:
     assert result.construction.empty_result_reason == "root_only_solution"
 
 
-def test_solver_may_omit_implicit_root_and_selected_edge_endpoints() -> None:
+def test_forced_root_solution_rejects_missing_root() -> None:
     def solver(*_):
-        # Select seed -> connector -> answer_a while omitting the zero-prize
-        # seed and connector from the solver's explicit vertex array.
-        return np.array([2]), np.array([0, 3])
+        return np.array([2]), np.array([])
 
-    result = PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
-        instance=_instance(),
-        sample=_sample(),
-        candidates=[CandidateNodeScore(node_id="answer_a", local_node_id=2, score=0.9)],
-        edge_cost_strategy="constant",
-        edge_cost_lambda=1.0,
-    )
-
-    assert [triple.model_dump() for triple in result.reasoning_subgraph_triples] == [
-        {"source": "connector", "relation": "r.answer_a", "target": "answer_a"},
-        {"source": "seed", "relation": "r.seed", "target": "connector"},
-    ]
-    assert result.construction.selected_candidate_count == 1
+    with pytest.raises(ShortestPathExtractionException, match="required root"):
+        PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
+            instance=_instance(),
+            sample=_sample(),
+            candidates=[
+                CandidateNodeScore(node_id="answer_a", local_node_id=2, score=0.9)
+            ],
+            edge_cost_strategy="constant",
+            edge_cost_lambda=1.0,
+        )
 
 
-def test_solver_reported_vertices_outside_pruned_tree_are_ignored() -> None:
+def test_forced_root_solution_rejects_disconnected_vertices() -> None:
     def solver(*_):
-        # answer_b is reported as selected but has no edge in the final rooted
-        # tree. It is solver bookkeeping, not evidence visible to the LLM.
-        return np.array([0, 1, 2, 3]), np.array([0, 3])
+        return np.array([0, 1, 2]), np.array([1])
 
-    result = PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
-        instance=_instance(),
-        sample=_sample(),
-        candidates=_candidates(),
-        edge_cost_strategy="constant",
-        edge_cost_lambda=1.0,
+    with pytest.raises(ShortestPathExtractionException, match="single connected tree"):
+        PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
+            instance=_instance(),
+            sample=_sample(),
+            candidates=_candidates(),
+            edge_cost_strategy="constant",
+            edge_cost_lambda=1.0,
+        )
+
+
+def test_structural_projection_removes_loops_and_keeps_cheapest_parallel_relation() -> None:
+    records = [(0, "expensive", 1), (1, "cheap", 0), (1, "loop", 1)]
+    edges, costs, record_indices = PcstEvidenceSubgraphService._simple_structural_projection(
+        records,
+        [2.0, 0.5, 0.01],
     )
 
-    assert result.construction.selected_candidate_count == 1
-    assert result.construction.selected_candidate_ranks == [1]
-    assert all(
-        "answer_b" not in (triple.source, triple.target)
-        for triple in result.reasoning_subgraph_triples
-    )
-
-
-def test_solver_edges_outside_rooted_component_are_discarded() -> None:
-    def solver(*_):
-        # The answer_a edge is disconnected because the seed-to-connector edge
-        # is absent from the selected forest.
-        return np.array([0, 1, 2]), np.array([0])
-
-    result = PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
-        instance=_instance(),
-        sample=_sample(),
-        candidates=[CandidateNodeScore(node_id="answer_a", local_node_id=2, score=0.9)],
-        edge_cost_strategy="constant",
-        edge_cost_lambda=1.0,
-    )
-
-    assert result.reasoning_subgraph_triples == []
-    assert result.construction.selected_candidate_count == 0
-    assert result.construction.empty_result_reason == "root_only_solution"
+    assert edges == [(0, 1)]
+    assert costs == [0.5]
+    assert record_indices == [1]

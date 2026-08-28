@@ -101,6 +101,28 @@ class PcstEvidenceSubgraphService(AbstractService):
             question_embedding=question_embedding,
             relation_embeddings=relation_embeddings,
         )
+        (
+            solver_edges,
+            solver_edge_costs,
+            solver_record_indices,
+        ) = self._simple_structural_projection(records, edge_costs)
+        if not solver_edges:
+            logger.warning(
+                "PCST produced empty evidence before solving: "
+                f"reason=no_structural_edges question={sample.question!r}"
+            )
+            return self._empty_result(
+                sample=sample,
+                candidates=candidates,
+                valid_candidate_count=len(valid_candidates),
+                valid_seed_count=len(valid_seeds),
+                missing_seed_count=missing_seed_count,
+                strategy=edge_cost_strategy,
+                edge_cost_lambda=edge_cost_lambda,
+                semantic_embedding_model=semantic_embedding_model,
+                started_at=started_at,
+                reason="no_structural_edges",
+            )
         prizes = np.zeros(len(instance.nodes), dtype=np.float64)
         candidate_prizes: dict[int, float] = {}
         candidate_ranks: dict[int, int] = {}
@@ -114,7 +136,6 @@ class PcstEvidenceSubgraphService(AbstractService):
             candidate_prizes[node_id] = max(candidate_prizes.get(node_id, 0.0), prize)
             candidate_ranks.setdefault(node_id, original_rank)
 
-        solver_edges = [(source, target) for source, _, target in records]
         synthetic_edge_start = len(solver_edges)
         if len(valid_seeds) == 1:
             root = valid_seeds[0]
@@ -122,19 +143,33 @@ class PcstEvidenceSubgraphService(AbstractService):
             root = len(prizes)
             prizes = np.concatenate([prizes, np.zeros(1, dtype=np.float64)])
             mandatory_prize = (
-                float(sum(candidate_prizes.values())) + float(sum(edge_costs)) + 1.0
+                float(sum(candidate_prizes.values()))
+                + float(sum(solver_edge_costs))
+                + 1.0
             )
             for seed in valid_seeds:
                 prizes[seed] += mandatory_prize
                 solver_edges.append((root, seed))
-                edge_costs.append(0.0)
+                solver_edge_costs.append(0.0)
+
+        # Reduce rooted PCST to a one-cluster unrooted problem. A dominating
+        # root prize makes every better solution contain the requested root,
+        # while avoiding architecture-dependent rooted-mode output observed in
+        # pcst-fast. Multi-seed synthetic links remain zero-cost and mandatory
+        # seed prizes ensure every valid question entity joins the root cluster.
+        root_prize = (
+            float(prizes.sum() - prizes[root])
+            + float(sum(solver_edge_costs))
+            + 1.0
+        )
+        prizes[root] += root_prize
 
         try:
             selected_vertices, selected_edges = self._resolve_solver()(
                 np.asarray(solver_edges, dtype=np.int64),
                 prizes,
-                np.asarray(edge_costs, dtype=np.float64),
-                root,
+                np.asarray(solver_edge_costs, dtype=np.float64),
+                -1,
                 1,
                 "gw",
                 0,
@@ -155,17 +190,19 @@ class PcstEvidenceSubgraphService(AbstractService):
                 "PCST solver returned an edge index outside the input graph."
             )
 
-        # pcst-fast's selected-edge array is authoritative. Depending on the
-        # native build and pruning result, selected_vertices may omit implicit
-        # root/connectors or retain isolated growth-phase vertices that are not
-        # part of the final pruned tree. Build the evidence vertex set strictly
-        # from the root and selected-edge endpoints. Reported vertices are still
-        # range-checked above, but do not define evidence membership.
-        selected_vertex_ids = {root}
+        if root not in reported_vertex_ids:
+            raise ShortestPathExtractionException(
+                "PCST forced-root solution does not contain its required root."
+            )
+        selected_vertex_ids = set(reported_vertex_ids)
         selected_adjacency: dict[int, set[int]] = {}
         for edge_index in selected_edge_ids:
             source, target = solver_edges[edge_index]
-            selected_vertex_ids.update((source, target))
+            if source not in selected_vertex_ids or target not in selected_vertex_ids:
+                raise ShortestPathExtractionException(
+                    "PCST solver selected an edge whose endpoint is absent from "
+                    "the selected vertices."
+                )
             selected_adjacency.setdefault(source, set()).add(target)
             selected_adjacency.setdefault(target, set()).add(source)
         reachable_selected = {root}
@@ -177,34 +214,25 @@ class PcstEvidenceSubgraphService(AbstractService):
                     reachable_selected.add(neighbor)
                     selected_queue.append(neighbor)
 
-        root_connected_edge_ids = [
-            edge_index
-            for edge_index in selected_edge_ids
-            if all(
-                endpoint in reachable_selected
-                for endpoint in solver_edges[edge_index]
+        if not selected_vertex_ids.issubset(reachable_selected):
+            raise ShortestPathExtractionException(
+                "PCST forced-root solution is not a single connected tree."
             )
-        ]
-        discarded_edge_count = len(selected_edge_ids) - len(root_connected_edge_ids)
-        if discarded_edge_count:
-            logger.warning(
-                "PCST solver returned disconnected edge components; retaining only "
-                f"the rooted component: discarded_edges={discarded_edge_count} "
-                f"question={sample.question!r}"
-            )
-        selected_edge_ids = root_connected_edge_ids
-        selected_vertex_ids = reachable_selected
 
-        selected_original_edge_ids = sorted(
+        selected_original_solver_edge_ids = sorted(
             index for index in selected_edge_ids if index < synthetic_edge_start
         )
+        selected_record_ids = [
+            solver_record_indices[index]
+            for index in selected_original_solver_edge_ids
+        ]
         selected_triples = [
             GraphTriple(
                 source=instance.nodes[records[index][0]],
                 relation=records[index][1],
                 target=instance.nodes[records[index][2]],
             )
-            for index in selected_original_edge_ids
+            for index in selected_record_ids
         ]
         selected_candidates = [
             (rank, node_id, candidate)
@@ -224,7 +252,10 @@ class PcstEvidenceSubgraphService(AbstractService):
             for candidate in candidates
         ]
         total_edge_cost = float(
-            sum(edge_costs[index] for index in selected_original_edge_ids)
+            sum(
+                solver_edge_costs[index]
+                for index in selected_original_solver_edge_ids
+            )
         )
         collected_prize = float(
             sum(candidate_prizes[node_id] for _, node_id, _ in selected_candidates)
@@ -311,6 +342,45 @@ class PcstEvidenceSubgraphService(AbstractService):
                 item[2],
             ),
         )
+
+    @staticmethod
+    def _simple_structural_projection(
+        records: list[tuple[int, str, int]],
+        edge_costs: list[float],
+    ) -> tuple[list[tuple[int, int]], list[float], list[int]]:
+        """Collapse directed relation triples into deterministic simple edges.
+
+        A tree can use at most one structural edge between the same node pair.
+        pcst-fast is designed around a simple undirected graph and can produce
+        unstable pruning output for self-loops and large parallel-edge groups.
+        Keep the cheapest original relation for every unordered pair, breaking
+        equal-cost ties by the already deterministic relation record.
+        """
+        if len(records) != len(edge_costs):
+            raise ShortestPathExtractionException(
+                "PCST records and edge costs must contain the same number of items."
+            )
+        representatives: dict[tuple[int, int], tuple[float, tuple[int, str, int], int]] = {}
+        for record_index, ((source, relation, target), cost) in enumerate(
+            zip(records, edge_costs, strict=True)
+        ):
+            if source == target:
+                continue
+            pair = (min(source, target), max(source, target))
+            candidate = (float(cost), (source, relation, target), record_index)
+            current = representatives.get(pair)
+            if current is None or candidate < current:
+                representatives[pair] = candidate
+
+        solver_edges: list[tuple[int, int]] = []
+        solver_costs: list[float] = []
+        record_indices: list[int] = []
+        for pair in sorted(representatives):
+            cost, _, record_index = representatives[pair]
+            solver_edges.append(pair)
+            solver_costs.append(cost)
+            record_indices.append(record_index)
+        return solver_edges, solver_costs, record_indices
 
     @classmethod
     def _edge_costs(
