@@ -31,6 +31,13 @@ from pipeline import (
     WebQSPVocabularyStore,
 )
 from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
+from pipeline.evaluation.models import (
+    GeneratedAnswerForPrediction,
+    GeneratedFinalAnswersBatch,
+)
+from pipeline.evaluation.services.llm_inference_storage import (
+    LlmInferenceStorageService,
+)
 
 
 def make_sample() -> EvaluationSample:
@@ -603,6 +610,33 @@ class LlmAnswerGenerationStepTests(unittest.TestCase):
 
 
 class LlmInferenceBatchStepTests(unittest.TestCase):
+    def test_candidate_reduction_percentage_uses_global_candidate_counts(self) -> None:
+        answers = GeneratedFinalAnswersBatch(
+            dataset_id="WebQSP",
+            evaluation_run_name="1_test",
+            model_id="test-model",
+            items=[
+                GeneratedAnswerForPrediction(
+                    instance_index=0,
+                    question="Question one?",
+                    model_id="test-model",
+                    found_reasoning_paths=3,
+                    missing_reasoning_paths=1,
+                ),
+                GeneratedAnswerForPrediction(
+                    instance_index=1,
+                    question="Question two?",
+                    model_id="test-model",
+                    found_reasoning_paths=2,
+                    missing_reasoning_paths=2,
+                ),
+            ],
+        )
+
+        metrics = LlmInferenceStorageService._build_evidence_metrics(answers)
+
+        self.assertEqual(metrics["candidate_reduction_percentage"], 37.5)
+
     @staticmethod
     def _make_processed_instance():
         import torch
@@ -861,6 +895,12 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
             self.assertEqual(summary["inference"]["total_tokens"], 0)
             self.assertEqual(summary["inference"]["total_cost_usd"], 0.0)
             self.assertFalse(summary["inference"]["generate_explanation"])
+            self.assertEqual(
+                summary["inference"]["evidence_metrics"][
+                    "candidate_reduction_percentage"
+                ],
+                0.0,
+            )
             self.assertTrue(
                 all(
                     json.loads(line)["explanation"] == ""

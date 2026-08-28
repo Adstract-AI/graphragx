@@ -438,6 +438,11 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
                         "inference": {
                             "model_id": "gpt-test",
                             "total_tokens": run_number * 10,
+                            "evidence_metrics": {
+                                "candidate_reduction_percentage": (
+                                    run_number * 10.0
+                                ),
+                            },
                         },
                     }
                 ),
@@ -471,6 +476,19 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
         key for payload, _ in fake_wandb.run.logged for key in payload
     }
     assert not any(key.startswith("Inference/") for key in logged_keys)
+    assert (
+        "Summary_Plots/evidence_candidate_reduction_percentage"
+        in logged_keys
+    )
+    assert (
+        "Run_Summary/evidence_candidate_reduction_percentage"
+        in logged_keys
+    )
+    assert any(
+        payload.get("Run_Summary/evidence_candidate_reduction_percentage")
+        == 20.0
+        for payload, _ in fake_wandb.run.logged
+    )
     assert fake_wandb.run.config["dataset_id"] == "WebQSP"
     assert fake_wandb.run.config["model_id"] == "gpt-test"
     assert fake_wandb.run.config["runs"]["inference"] == {

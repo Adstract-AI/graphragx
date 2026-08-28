@@ -350,6 +350,7 @@ class LlmInferenceStorageService(AbstractService):
                 "average_subgraph_triples": 0.0,
                 "average_distinct_nodes": 0.0,
                 "average_candidate_evidence_coverage": 0.0,
+                "candidate_reduction_percentage": 0.0,
                 "empty_subgraph_count": 0,
                 "empty_subgraph_rate": 0.0,
                 "average_construction_time_ms": 0.0,
@@ -367,6 +368,9 @@ class LlmInferenceStorageService(AbstractService):
         empty_count = sum(
             not item.reasoning_subgraph_triples for item in items
         )
+        found_candidates = sum(item.found_reasoning_paths for item in items)
+        missing_candidates = sum(item.missing_reasoning_paths for item in items)
+        total_candidates = found_candidates + missing_candidates
         metrics: dict[str, float | int] = {
             "average_subgraph_triples": sum(
                 len(item.reasoning_subgraph_triples) for item in items
@@ -376,6 +380,11 @@ class LlmInferenceStorageService(AbstractService):
                 construction.candidate_evidence_coverage
                 for construction in constructions
             ) / count,
+            "candidate_reduction_percentage": (
+                100.0 * missing_candidates / total_candidates
+                if total_candidates
+                else 0.0
+            ),
             "empty_subgraph_count": empty_count,
             "empty_subgraph_rate": empty_count / count,
             "average_construction_time_ms": sum(

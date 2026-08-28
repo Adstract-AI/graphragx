@@ -502,12 +502,20 @@ class LogInferenceToWandbStep(
             else {}
         )
         if isinstance(evidence_metrics, dict):
+            evidence_payload = {
+                f"Summary_Plots/evidence_{name}": value
+                for name, value in evidence_metrics.items()
+                if isinstance(value, int | float)
+            }
+            candidate_reduction_percentage = evidence_metrics.get(
+                "candidate_reduction_percentage"
+            )
+            if isinstance(candidate_reduction_percentage, int | float):
+                evidence_payload[
+                    "Run_Summary/evidence_candidate_reduction_percentage"
+                ] = candidate_reduction_percentage
             self.coordinator.log(
-                {
-                    f"Summary_Plots/evidence_{name}": value
-                    for name, value in evidence_metrics.items()
-                    if isinstance(value, int | float)
-                },
+                evidence_payload,
                 source_config_path=source_config_path,
                 architecture_name=(
                     str(architecture_name) if architecture_name is not None else None
