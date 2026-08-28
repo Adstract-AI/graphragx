@@ -299,11 +299,17 @@ class BuildEvidenceSubgraphsBatchStep(
         )
         found_paths = sum(item.extracted_paths.found_paths for item in result.items)
         missing_paths = sum(item.extracted_paths.missing_paths for item in result.items)
+        total_paths = found_paths + missing_paths
+        candidate_reduction_percentage = (
+            100.0 * missing_paths / total_paths if total_paths else 0.0
+        )
         logger.info(
             f"Finished evidence subgraphs: strategy={strategy} "
             f"evaluation_run={built_samples.evaluation_run_name} "
             f"samples={len(result.items)} found_paths={found_paths} "
-            f"missing_paths={missing_paths}"
+            f"missing_paths={missing_paths} "
+            f"candidate_reduction_percentage="
+            f"{candidate_reduction_percentage:.2f}%"
         )
         return result
 

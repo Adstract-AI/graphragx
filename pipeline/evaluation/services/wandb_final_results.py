@@ -318,6 +318,28 @@ class WandbFinalResultsLoggingService(AbstractService):
         }
         run_summary_keys.update(
             {
+                "retrieval_gold_coverage": "retrieval_gold_coverage",
+                "retrieval_full_gold_coverage_rate": (
+                    "retrieval_full_gold_coverage"
+                ),
+                "reasoning_context_gold_coverage": (
+                    "reasoning_context_gold_coverage"
+                ),
+                "reasoning_context_full_gold_coverage_rate": (
+                    "reasoning_context_full_gold_coverage"
+                ),
+                "llm_exact_match_given_full_context": (
+                    "llm_exact_match_given_full_context"
+                ),
+                "llm_omission_given_full_context_rate": (
+                    "llm_omission_given_full_context"
+                ),
+                "llm_exact_match_given_full_retrieval": (
+                    "llm_exact_match_given_full_retrieval"
+                ),
+                "llm_omission_given_full_retrieval_rate": (
+                    "llm_omission_given_full_retrieval"
+                ),
                 "full_retrieval_complete_answer_rate": (
                     "full_retrieval_complete_answer"
                 ),
