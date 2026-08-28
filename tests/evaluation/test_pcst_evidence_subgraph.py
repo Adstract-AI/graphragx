@@ -157,3 +157,24 @@ def test_real_solver_can_drop_candidate_when_path_cost_exceeds_prize() -> None:
     assert result.reasoning_subgraph_triples == []
     assert result.construction.selected_candidate_count == 0
     assert result.construction.empty_result_reason == "root_only_solution"
+
+
+def test_solver_may_omit_implicit_root_and_selected_edge_endpoints() -> None:
+    def solver(*_):
+        # Select seed -> connector -> answer_a while omitting the zero-prize
+        # seed and connector from the solver's explicit vertex array.
+        return np.array([2]), np.array([0, 3])
+
+    result = PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
+        instance=_instance(),
+        sample=_sample(),
+        candidates=[CandidateNodeScore(node_id="answer_a", local_node_id=2, score=0.9)],
+        edge_cost_strategy="constant",
+        edge_cost_lambda=1.0,
+    )
+
+    assert [triple.model_dump() for triple in result.reasoning_subgraph_triples] == [
+        {"source": "connector", "relation": "r.answer_a", "target": "answer_a"},
+        {"source": "seed", "relation": "r.seed", "target": "connector"},
+    ]
+    assert result.construction.selected_candidate_count == 1

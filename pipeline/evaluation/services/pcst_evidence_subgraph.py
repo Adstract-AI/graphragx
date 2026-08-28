@@ -144,24 +144,29 @@ class PcstEvidenceSubgraphService(AbstractService):
                 f"PCST solver failed for question {sample.question!r}: {error}"
             ) from error
 
-        selected_vertex_ids = {int(value) for value in selected_vertices}
+        reported_vertex_ids = {int(value) for value in selected_vertices}
         selected_edge_ids = [int(value) for value in selected_edges]
+        if any(index < 0 or index >= len(prizes) for index in reported_vertex_ids):
+            raise ShortestPathExtractionException(
+                "PCST solver returned a vertex index outside the input graph."
+            )
         if any(index < 0 or index >= len(solver_edges) for index in selected_edge_ids):
             raise ShortestPathExtractionException(
                 "PCST solver returned an edge index outside the input graph."
             )
-        if root not in selected_vertex_ids:
-            raise ShortestPathExtractionException(
-                "PCST solver returned a rooted solution that does not contain its root."
-            )
+
+        # pcst-fast's selected-edge array is authoritative. Some valid rooted
+        # outputs (notably root-only solutions in builds used on remote hosts)
+        # omit the zero-prize root or connector endpoints from selected_vertices.
+        # An endpoint of a selected edge is selected by definition, and the root
+        # is implicit in rooted mode, so canonicalize the vertex set before
+        # validating connectivity.
+        selected_vertex_ids = set(reported_vertex_ids)
+        selected_vertex_ids.add(root)
         selected_adjacency: dict[int, set[int]] = {}
         for edge_index in selected_edge_ids:
             source, target = solver_edges[edge_index]
-            if source not in selected_vertex_ids or target not in selected_vertex_ids:
-                raise ShortestPathExtractionException(
-                    "PCST solver selected an edge whose endpoint is absent from "
-                    "the selected vertices."
-                )
+            selected_vertex_ids.update((source, target))
             selected_adjacency.setdefault(source, set()).add(target)
             selected_adjacency.setdefault(target, set()).add(source)
         reachable_selected = {root}
