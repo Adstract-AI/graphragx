@@ -491,6 +491,11 @@ class WandbFinalResultsLoggingService(AbstractService):
                 **inference_payload,
                 "total_instances": inference_config["total_instances"],
             }
+        inference_payload = {
+            key: value
+            for key, value in inference_payload.items()
+            if key != "evidence_metrics"
+        }
 
         model_run_name = model_ref.get("model_run_name") or results_config.get("model_run_name")
         model_run_number = self._int_or_none(model_ref.get("model_run_number")) or self._extract_run_number(model_run_name)

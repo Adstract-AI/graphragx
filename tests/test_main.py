@@ -1175,5 +1175,52 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertTrue(retriever_wandb_step.copy_to_new_experiment)
 
 
+class PcstCliTests(unittest.TestCase):
+    def test_pcst_cli_options_parse(self) -> None:
+        args = main.build_parser().parse_args(
+            [
+                "--subgraph-algorithm",
+                "pcst",
+                "--pcst-edge-cost-strategy",
+                "semantic",
+                "--pcst-edge-cost",
+                "0.5",
+            ]
+        )
+        self.assertEqual(args.subgraph_algorithm, "pcst")
+        self.assertEqual(args.pcst_edge_cost_strategy, "semantic")
+        self.assertEqual(args.pcst_edge_cost, 0.5)
+
+    def test_default_pcst_configuration_uses_constant_cost(self) -> None:
+        resolved = main.PipelineRuntimeConfig(
+            subgraph_algorithm="pcst",
+            use_default_config_values=True,
+        ).with_defaulted_user_inputs()
+        self.assertEqual(resolved.pcst_edge_cost_strategy, "constant")
+        self.assertEqual(resolved.pcst_edge_cost, 1.0)
+
+    def test_pcst_flags_are_rejected_for_shortest_path(self) -> None:
+        with self.assertRaisesRegex(
+            main.PipelineException,
+            "require --subgraph-algorithm pcst",
+        ):
+            main.build_pipeline(
+                main.PipelineRuntimeConfig(
+                    subgraph_algorithm="shortest_path",
+                    pcst_edge_cost=1.0,
+                    use_default_config_values=True,
+                )
+            )
+
+    def test_semantic_pcst_resolves_embedding_for_rearev(self) -> None:
+        resolved = main.PipelineRuntimeConfig(
+            gnn_architecture="rearev",
+            subgraph_algorithm="pcst",
+            pcst_edge_cost_strategy="semantic",
+            use_default_config_values=True,
+        ).with_defaulted_user_inputs()
+        self.assertEqual(resolved.embedding_model, "text-embedding-3-small")
+
+
 if __name__ == "__main__":
     unittest.main()

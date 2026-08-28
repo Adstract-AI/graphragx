@@ -12,6 +12,7 @@ from pipeline.evaluation.models.gnn_answer_retriever_evaluation import (
 )
 from pipeline.evaluation.models.path_extraction import (
     CandidateNodeScores,
+    EvidenceSubgraphConstruction,
     ExtractedReasoningPaths,
     GraphTriple,
 )
@@ -84,6 +85,9 @@ class GeneratedAnswerForPrediction(BaseModel):
     found_reasoning_paths: int = Field(default=0)
     missing_reasoning_paths: int = Field(default=0)
     reasoning_paths_text: str = Field(default="")
+    evidence_construction: EvidenceSubgraphConstruction = Field(
+        default_factory=EvidenceSubgraphConstruction
+    )
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
     answer: str = Field(default="", description="Generated final answer.")
@@ -110,6 +114,7 @@ class GeneratedFinalAnswersBatch(StepResult):
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
     reasoning_effort: str | None = Field(default=None)
+    evidence_subgraph: dict[str, object] = Field(default_factory=dict)
     inference_batch_size: int | None = Field(
         default=None,
         description="Number of answers persisted together during batched inference.",
@@ -142,6 +147,7 @@ class SavedLlmInferenceRun(StepResult):
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
     reasoning_effort: str | None = Field(default=None)
+    evidence_subgraph: dict[str, object] = Field(default_factory=dict)
     inference_batch_size: int | None = None
     inference_parallel_calls: int = 1
     total_instances: int = Field(..., description="Number of instances processed.")

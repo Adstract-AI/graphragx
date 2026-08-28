@@ -16,6 +16,8 @@ from pipeline.evaluation.steps.final_results_evaluation import (
     ComputeFinalResultsStep,
 )
 from pipeline.evaluation.steps.llm_inference import (
+    BuildEvidenceSubgraphsBatchStep,
+    BuildEvidenceSubgraphsContext,
     BuildReasoningSamplesFromGnnEvaluationContext,
     BuildReasoningSamplesFromGnnEvaluationStep,
     GenerateAndSaveFinalAnswersBatchesContext,
@@ -60,6 +62,7 @@ class StepContextBuilder:
             BuildReasoningSamplesFromGnnEvaluationStep: (
                 self._create_build_reasoning_samples_from_gnn_context
             ),
+            BuildEvidenceSubgraphsBatchStep: self._create_evidence_subgraphs_context,
             GenerateAndSaveFinalAnswersBatchesStep: (
                 self._create_generate_and_save_final_answers_batches_context
             ),
@@ -193,6 +196,22 @@ class StepContextBuilder:
     ) -> GenerateAndSaveFinalAnswersBatchesContext:
         """Create the context required by batched LLM inference."""
         return GenerateAndSaveFinalAnswersBatchesContext(
+            result=result,
+            outcome=outcome,
+            exception=exception,
+            pipeline_configuration=self.get_required_result(
+                BuiltPipelineConfiguration
+            ),
+        )
+
+    def _create_evidence_subgraphs_context(
+        self,
+        result: StepResult | None,
+        outcome: bool,
+        exception: PipelineException,
+    ) -> BuildEvidenceSubgraphsContext:
+        """Create the context required by strategy-aware evidence construction."""
+        return BuildEvidenceSubgraphsContext(
             result=result,
             outcome=outcome,
             exception=exception,

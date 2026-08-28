@@ -11,6 +11,27 @@ from pipeline.evaluation.services.wandb_experiment import (
     WandbExperimentCoordinator,
     WandbRunIdentifierService,
 )
+
+
+def test_wandb_tags_include_pcst_strategy_and_semantic_embedding() -> None:
+    tags = WandbExperimentCoordinator._build_tags_from_config(
+        {
+            "configs": {
+                "inference": {
+                    "evidence_subgraph": {
+                        "algorithm": "pcst",
+                        "pcst": {
+                            "edge_cost_strategy": "semantic",
+                            "semantic_embedding_model": "text-embedding-3-small",
+                        },
+                    }
+                }
+            }
+        }
+    )
+    assert "pcst" in tags
+    assert "pcst-semantic" in tags
+    assert "text-embedding-3-small" in tags
 from pipeline.exceptions import PipelineException
 from pipeline.abstract import StepContext
 from pipeline.evaluation.models import (

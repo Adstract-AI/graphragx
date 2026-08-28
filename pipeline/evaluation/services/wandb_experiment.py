@@ -433,6 +433,24 @@ class WandbExperimentCoordinator:
             if trained_instances is not None:
                 tags.append(f"trained_instances:{trained_instances}")
 
+        inference_config = (
+            configs.get("inference", {}) if isinstance(configs, dict) else {}
+        )
+        if isinstance(inference_config, dict):
+            evidence = inference_config.get("evidence_subgraph", {})
+            if isinstance(evidence, dict):
+                algorithm = evidence.get("algorithm")
+                if algorithm:
+                    tags.append(str(algorithm))
+                pcst = evidence.get("pcst", {})
+                if algorithm == "pcst" and isinstance(pcst, dict):
+                    strategy = pcst.get("edge_cost_strategy")
+                    if strategy:
+                        tags.append(f"pcst-{strategy}")
+                    embedding_model = pcst.get("semantic_embedding_model")
+                    if embedding_model:
+                        tags.append(str(embedding_model))
+
         runs = config.get("runs", {})
         if isinstance(runs, dict):
             for stage in ["model", "evaluation", "inference"]:

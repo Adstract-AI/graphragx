@@ -116,6 +116,8 @@ _EXPORT_MODULES: dict[str, str] = {
     "AnswerCandidateScore": "pipeline.evaluation",
     "BuildReasoningSamplesFromGnnEvaluationContext": "pipeline.evaluation",
     "BuildReasoningSamplesFromGnnEvaluationStep": "pipeline.evaluation",
+    "BuildEvidenceSubgraphsBatchStep": "pipeline.evaluation",
+    "BuildEvidenceSubgraphsContext": "pipeline.evaluation",
     "BuiltReasoningSamples": "pipeline.evaluation",
     "CandidateNodeScore": "pipeline.evaluation",
     "CandidateNodeScores": "pipeline.evaluation",

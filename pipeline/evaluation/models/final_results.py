@@ -251,6 +251,7 @@ class FinalResultsEvaluationResult(StepResult):
 
     dataset_id: str = Field(..., description="Evaluated dataset identifier.")
     gnn_architecture: str = Field(default="graphsage")
+    subgraph_algorithm: str = Field(default="shortest_path")
     model_run_name: str | None = Field(default=None)
     evaluation_run_name: str | None = Field(default=None)
     inference_run_name: str | None = Field(default=None)

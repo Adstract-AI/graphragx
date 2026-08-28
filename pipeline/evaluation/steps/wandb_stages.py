@@ -148,7 +148,11 @@ def _build_available_wandb_config(
         runs["inference"] = _run_reference(inference_config)
         inference_payload = inference_config.get("inference")
         if isinstance(inference_payload, dict):
-            configs["inference"] = inference_payload
+            configs["inference"] = {
+                key: value
+                for key, value in inference_payload.items()
+                if key != "evidence_metrics"
+            }
             if inference_payload.get("model_id") is not None:
                 payload["model_id"] = inference_payload["model_id"]
             if inference_payload.get("llm_provider") is not None:
@@ -491,6 +495,24 @@ class LogInferenceToWandbStep(
             ),
             source_config_path=source_config_path,
         )
+        inference_payload = config.get("inference", {})
+        evidence_metrics = (
+            inference_payload.get("evidence_metrics", {})
+            if isinstance(inference_payload, dict)
+            else {}
+        )
+        if isinstance(evidence_metrics, dict):
+            self.coordinator.log(
+                {
+                    f"Summary_Plots/evidence_{name}": value
+                    for name, value in evidence_metrics.items()
+                    if isinstance(value, int | float)
+                },
+                source_config_path=source_config_path,
+                architecture_name=(
+                    str(architecture_name) if architecture_name is not None else None
+                ),
+            )
         self.coordinator.persist_metadata(result.inference_config_path)
         self.coordinator.log_artifact(
             name=f"inference-raw-{result.inference_run_name}",

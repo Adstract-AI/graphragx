@@ -39,6 +39,16 @@ class SubgraphConstructionDefinition(BaseModel):
     description: str = Field(..., description="Short description of the algorithm.")
 
 
+class PcstEdgeCostStrategyDefinition(BaseModel):
+    """Typed definition of a PCST edge-cost strategy."""
+
+    model_config = ConfigDict(frozen=True)
+
+    strategy_id: str
+    display_name: str
+    description: str
+
+
 class ContextConstructionDefinition(BaseModel):
     """Typed definition of an available context construction strategy."""
 
@@ -238,13 +248,28 @@ SUBGRAPH_CONSTRUCTION_ALGORITHMS: Final[dict[str, SubgraphConstructionDefinition
         display_name="Shortest Path",
         description="Build a question-specific subgraph using shortest paths between relevant nodes.",
     ),
-    # Not Supported Yet
-    # "pcst": SubgraphConstructionDefinition(
-    #     algorithm_id="pcst",
-    #     display_name="Prize-Collecting Steiner Tree (PCST)",
-    #     description="Optimize a compact subgraph that balances node value and connection cost.",
-    # ),
+    "pcst": SubgraphConstructionDefinition(
+        algorithm_id="pcst",
+        display_name="Prize-Collecting Steiner Tree (PCST)",
+        description="Optimize a compact rooted subgraph that balances candidate prizes and edge costs.",
+    ),
 }
+
+PCST_EDGE_COST_STRATEGIES: Final[dict[str, PcstEdgeCostStrategyDefinition]] = {
+    "constant": PcstEdgeCostStrategyDefinition(
+        strategy_id="constant",
+        display_name="Constant edge cost",
+        description="Charge the configured lambda for every selected edge.",
+    ),
+    "semantic": PcstEdgeCostStrategyDefinition(
+        strategy_id="semantic",
+        display_name="Semantic cosine edge cost",
+        description="Make question-relevant relations cheaper using cosine distance.",
+    ),
+}
+
+RECOMMENDED_PCST_EDGE_COST_STRATEGY_ID: Final[str] = "constant"
+DEFAULT_PCST_EDGE_COST: Final[float] = 1.0
 
 CONTEXT_CONSTRUCTION_STRATEGIES: Final[dict[str, ContextConstructionDefinition]] = {
 

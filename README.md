@@ -145,7 +145,9 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--dataset DATASET` | Dataset id to use. The current supported dataset is `WebQSP`. |
 | `--llm-provider {openai,deepseek,vezilka}` | LLM provider used for final answer generation. Default: `openai`. |
 | `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. For Vezilka this is free-form and is passed unchanged to the endpoint. |
-| `--subgraph-algorithm SUBGRAPH_ALGORITHM` | Subgraph construction algorithm. The current supported option is `shortest_path`. |
+| `--subgraph-algorithm {shortest_path,pcst}` | Evidence-subgraph construction algorithm. Default: `shortest_path`. |
+| `--pcst-edge-cost-strategy {constant,semantic}` | PCST edge costs: a constant lambda or cosine-derived question/relation distance. Default: `constant`. |
+| `--pcst-edge-cost FLOAT` | Positive PCST lambda used directly for constant costs and as the semantic distance scale. Default: `1.0`. |
 | `--context-strategy CONTEXT_STRATEGY` | How the reasoning subgraph is represented for the LLM. The current supported option is `structured_triples`. |
 | `--gnn-architecture {graphsage,aa-graphsage,rgcn,hgt,rearev,nbfnet}` | Select GraphSAGE, Advance GraphSAGE, R-GCN, HGT, ReaRev, or NBFNet. GraphSAGE is the default; the lowercase values are stable CLI/configuration ids. |
 | `--gnn-layers {2,3,4,6}` | Architecture-specific message-passing depth. GraphSAGE, Advance GraphSAGE, R-GCN, and HGT support `2` or `3` and default to `2`; NBFNet supports `2`, `3`, `4`, or `6` and defaults to `3`; ReaRev does not use this option. |
@@ -228,6 +230,23 @@ The compact matrices are still copied into VRAM at the start of every process be
 | `--evaluation-gpu-cache-reserve-gb EVALUATION_GPU_CACHE_RESERVE_GB` | VRAM kept free outside the evaluation embedding matrices. Default: `6.0`. |
 
 Evaluation compacts the selected test instances into reusable inputs before model inference. GraphSAGE loads node, relation, and question embeddings; R-GCN and HGT load only node embeddings and use the saved categorical relation vocabulary. NBFNet loads only pooled question embeddings. ReaRev prepares token IDs and makes no Qdrant/OpenAI embedding requests. Embedding-based architectures reuse incremental tensor shards, fetching and appending only missing vectors. Evaluation uses `torch.inference_mode()` and BF16 autocast when BF16 is selected on CUDA.
+
+Evidence construction defaults to the existing union of shortest paths. PCST can instead treat ranked GNN candidates as prizes and select a compact rooted evidence structure. Constant PCST charges the configured lambda for every edge. Semantic PCST uses `max(1e-6, lambda * (1 - cosine(question, relation)))` and prepares the required question/relation embeddings once through the same incremental local and Qdrant caches. For example:
+
+```bash
+uv run python main.py --inference-only \
+  --retriever-run-number 7 \
+  --subgraph-algorithm pcst \
+  --pcst-edge-cost-strategy semantic \
+  --pcst-edge-cost 1.0 \
+  --default
+```
+
+The local Conda environment can install the compiled PCST dependency with isolated PEP 517 builds:
+
+```bash
+conda run -n data-science python -m pip install --use-pep517 -r requirements.txt
+```
 
 ### LLM Inference And Results
 

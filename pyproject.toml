@@ -12,7 +12,9 @@ authors = [
 dependencies = [
     "datasets",
     "langchain-openai",
+    "numpy",
     "openai",
+    "pcst-fast==1.0.10",
     "pydantic",
     "python-dotenv",
     "qdrant-client",

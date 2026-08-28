@@ -33,6 +33,7 @@ from pipeline.evaluation.models.llm_inference import (
 from pipeline.evaluation.models.path_extraction import (
     CandidateNodeScore,
     CandidateNodeScores,
+    EvidenceSubgraphConstruction,
     EvaluationSample,
     ExtractedReasoningPaths,
     GraphTriple,
@@ -45,6 +46,7 @@ __all__ = [
     "CandidateNodeScore",
     "CandidateNodeScores",
     "EvaluationSample",
+    "EvidenceSubgraphConstruction",
     "EvaluatedAnswerRetrievalInstance",
     "ExtractedReasoningPathsBatch",
     "ExtractedReasoningPaths",

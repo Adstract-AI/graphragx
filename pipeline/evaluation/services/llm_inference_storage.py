@@ -194,6 +194,7 @@ class LlmInferenceStorageService(AbstractService):
                     triple.model_dump(mode="json")
                     for triple in item.reasoning_subgraph_triples
                 ],
+                "construction": item.evidence_construction.model_dump(mode="json"),
                 "analytics": LlmInferenceStorageService._build_reasoning_analytics(item),
             }
             for item in payload.answers.items
@@ -239,6 +240,9 @@ class LlmInferenceStorageService(AbstractService):
             ),
             "has_gold_answer_candidate": any(
                 candidate in item.a_entity for candidate in item.answer_candidates
+            ),
+            "candidate_evidence_coverage": (
+                item.evidence_construction.candidate_evidence_coverage
             ),
         }
 
@@ -326,10 +330,74 @@ class LlmInferenceStorageService(AbstractService):
                 "total_completion_tokens": total_completion_tokens,
                 "total_tokens": total_tokens,
                 "total_cost_usd": round(total_cost, 8),
+                "evidence_subgraph": answers.evidence_subgraph,
+                "evidence_metrics": cls._build_evidence_metrics(answers),
             },
             "successful_answers": answers.successful_answers,
             "failed_answers": answers.failed_answers,
         }
+
+    @staticmethod
+    def _build_evidence_metrics(
+        answers: GeneratedFinalAnswersBatch,
+    ) -> dict[str, float | int]:
+        """Aggregate evidence size, coverage, timing, and PCST objective values."""
+        items = answers.items
+        count = len(items)
+        if count == 0:
+            return {
+                "average_subgraph_triples": 0.0,
+                "average_distinct_nodes": 0.0,
+                "average_candidate_evidence_coverage": 0.0,
+                "empty_subgraph_count": 0,
+                "empty_subgraph_rate": 0.0,
+                "average_construction_time_ms": 0.0,
+            }
+
+        constructions = [item.evidence_construction for item in items]
+        distinct_node_counts = [
+            len({
+                node
+                for triple in item.reasoning_subgraph_triples
+                for node in (triple.source, triple.target)
+            })
+            for item in items
+        ]
+        empty_count = sum(
+            not item.reasoning_subgraph_triples for item in items
+        )
+        metrics: dict[str, float | int] = {
+            "average_subgraph_triples": sum(
+                len(item.reasoning_subgraph_triples) for item in items
+            ) / count,
+            "average_distinct_nodes": sum(distinct_node_counts) / count,
+            "average_candidate_evidence_coverage": sum(
+                construction.candidate_evidence_coverage
+                for construction in constructions
+            ) / count,
+            "empty_subgraph_count": empty_count,
+            "empty_subgraph_rate": empty_count / count,
+            "average_construction_time_ms": sum(
+                construction.construction_time_ms
+                for construction in constructions
+            ) / count,
+        }
+        pcst = [
+            construction
+            for construction in constructions
+            if construction.strategy == "pcst"
+        ]
+        if pcst:
+            metrics.update(
+                average_collected_prize=sum(
+                    item.collected_prize for item in pcst
+                ) / len(pcst),
+                average_edge_cost=sum(
+                    item.total_edge_cost for item in pcst
+                ) / len(pcst),
+                average_objective=sum(item.objective for item in pcst) / len(pcst),
+            )
+        return metrics
 
     @staticmethod
     def _load_inference_architecture(evaluation_config_path: Path) -> str:

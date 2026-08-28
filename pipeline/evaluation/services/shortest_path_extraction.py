@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable
+import time
 
 from pipeline.evaluation.models import (
     CandidateNodeScore,
+    EvidenceSubgraphConstruction,
     EvaluationSample,
     ExtractedReasoningPaths,
     GraphTriple,
@@ -34,6 +36,7 @@ class ShortestPathExtractionService(AbstractService):
         Returns:
             ExtractedReasoningPaths: Structured paths and deduplicated subgraph text.
         """
+        started_at = time.perf_counter()
         adjacency = self._build_undirected_adjacency(sample.graph_triples)
         paths = [
             self._build_candidate_path(sample, candidate, adjacency)
@@ -50,6 +53,28 @@ class ShortestPathExtractionService(AbstractService):
             reasoning_paths_text=reasoning_paths_text,
             found_paths=found_paths,
             missing_paths=len(paths) - found_paths,
+            construction=EvidenceSubgraphConstruction(
+                strategy="shortest_path",
+                input_candidate_count=len(candidates),
+                valid_candidate_count=found_paths,
+                selected_candidate_count=found_paths,
+                selected_candidate_ranks=[
+                    rank for rank, path in enumerate(paths, start=1) if path.path_found
+                ],
+                selected_node_count=len(
+                    {
+                        node
+                        for triple in reasoning_subgraph_triples
+                        for node in (triple.source, triple.target)
+                    }
+                ),
+                selected_triple_count=len(reasoning_subgraph_triples),
+                valid_seed_count=len(set(sample.q_entities)),
+                construction_time_ms=(time.perf_counter() - started_at) * 1000,
+                empty_result_reason=(
+                    "no_reasoning_paths" if not reasoning_subgraph_triples else None
+                ),
+            ),
         )
 
     def extract_paths_from_processed_graph(
@@ -60,6 +85,7 @@ class ShortestPathExtractionService(AbstractService):
         candidates: list[CandidateNodeScore],
     ) -> ExtractedReasoningPaths:
         """Extract all candidate paths directly over compact integer graph data."""
+        started_at = time.perf_counter()
         adjacency, edge_records = self._build_integer_adjacency(instance)
         seed_node_ids = [
             instance.node2id[entity]
@@ -134,6 +160,37 @@ class ShortestPathExtractionService(AbstractService):
             ),
             found_paths=found_paths,
             missing_paths=len(paths) - found_paths,
+            construction=EvidenceSubgraphConstruction(
+                strategy="shortest_path",
+                input_candidate_count=len(candidates),
+                valid_candidate_count=sum(
+                    node_id is not None for node_id in candidate_node_ids
+                ),
+                selected_candidate_count=found_paths,
+                selected_candidate_ranks=[
+                    rank for rank, path in enumerate(paths, start=1) if path.path_found
+                ],
+                selected_node_count=len(
+                    {
+                        node
+                        for triple in reasoning_subgraph_triples
+                        for node in (triple.source, triple.target)
+                    }
+                ),
+                selected_triple_count=len(reasoning_subgraph_triples),
+                valid_seed_count=len(seed_node_ids),
+                missing_seed_count=len(set(sample.q_entities)) - len(seed_node_ids),
+                construction_time_ms=(time.perf_counter() - started_at) * 1000,
+                empty_result_reason=(
+                    "no_valid_seeds"
+                    if not seed_node_ids
+                    else "no_candidates"
+                    if not candidates
+                    else "no_reasoning_paths"
+                    if not reasoning_subgraph_triples
+                    else None
+                ),
+            ),
         )
 
     @staticmethod

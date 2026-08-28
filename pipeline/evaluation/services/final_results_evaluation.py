@@ -183,6 +183,7 @@ class FinalResultsEvaluationService(AbstractService):
                 },
                 "inference": {
                     "name": llm_inference_run.inference_run_name,
+                    "evidence_subgraph": llm_inference_run.evidence_subgraph,
                     "inference_config_path": str(
                         llm_inference_run.inference_config_path
                     ),
