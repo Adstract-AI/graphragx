@@ -145,6 +145,7 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--dataset DATASET` | Dataset id to use. The current supported dataset is `WebQSP`. |
 | `--llm-provider {openai,deepseek,vezilka}` | LLM provider used for final answer generation. Default: `openai`. |
 | `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. For Vezilka this is free-form and is passed unchanged to the endpoint. |
+| `--generate-explanation` | Ask the LLM to generate explanations. Without this flag, only answers are requested and explanation metrics are saved as zero. |
 | `--subgraph-algorithm {shortest_path,pcst}` | Evidence-subgraph construction algorithm. Default: `shortest_path`. |
 | `--pcst-debug-profile` | Save a replayable JSON diagnostic if PCST returns an invalid rooted solution. |
 | `--pcst-edge-cost-strategy {constant,semantic}` | PCST edge costs: a constant lambda or cosine-derived question/relation distance. Default: `constant`. |

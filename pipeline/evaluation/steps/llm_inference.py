@@ -453,6 +453,7 @@ class GenerateFinalAnswersBatchStep(
         model_id: str = "gpt-4.1-mini",
         llm_provider: str = "openai",
         reasoning_effort: str | None = None,
+        generate_explanation: bool = False,
         answer_generation_service: LangChainOpenAiAnswerGenerationService | None = None,
         force_default: bool = False,
     ):
@@ -460,6 +461,7 @@ class GenerateFinalAnswersBatchStep(
         self.model_id = model_id
         self.llm_provider = llm_provider
         self.reasoning_effort = reasoning_effort
+        self.generate_explanation = generate_explanation
         self.answer_generation_service = (
             answer_generation_service or LangChainOpenAiAnswerGenerationService()
         )
@@ -488,6 +490,7 @@ class GenerateFinalAnswersBatchStep(
             model_id=self.model_id,
             llm_provider=self.llm_provider,
             reasoning_effort=self.reasoning_effort,
+            generate_explanation=self.generate_explanation,
             evidence_subgraph=self._infer_evidence_configuration(paths_batch),
             items=items,
         )
@@ -519,11 +522,16 @@ class GenerateFinalAnswersBatchStep(
                     **generation_kwargs,
                     provider_id=self.llm_provider,
                     reasoning_effort=self.reasoning_effort,
+                    generate_explanation=self.generate_explanation,
                 )
             except TypeError as error:
                 if not any(
                     name in str(error)
-                    for name in ("provider_id", "reasoning_effort")
+                    for name in (
+                        "provider_id",
+                        "reasoning_effort",
+                        "generate_explanation",
+                    )
                 ):
                     raise
                 # Keep existing injected/custom services compatible with the
@@ -532,7 +540,11 @@ class GenerateFinalAnswersBatchStep(
                     **generation_kwargs,
                 )
             answer = result["answer"]
-            explanation = result["explanation"]
+            explanation = (
+                result.get("explanation", "")
+                if self.generate_explanation
+                else ""
+            )
             raw_response = result["raw_response"]
             prompt_tokens = int(result.get("prompt_tokens", 0))
             completion_tokens = int(result.get("completion_tokens", 0))
@@ -640,6 +652,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
         self,
         llm_provider: str | None = None,
         reasoning_effort: str | None = None,
+        generate_explanation: bool = False,
         model_id: str | None = None,
         inference_root: str | Path = "data/webqsp/inference",
         inference_run_name: str | None = None,
@@ -653,6 +666,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
         self.model_id = model_id
         self.llm_provider = llm_provider
         self.reasoning_effort = reasoning_effort
+        self.generate_explanation = generate_explanation
         self.inference_root = Path(inference_root)
         self.inference_run_name = inference_run_name
         self.inference_batch_size = max(1, inference_batch_size)
@@ -682,6 +696,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             f"provider={llm_provider} model={model_id} samples={total_items} "
             f"batch_size={self.inference_batch_size} "
             f"parallel_calls={self.inference_parallel_calls} "
+            f"generate_explanation={self.generate_explanation} "
             f"root={self.inference_root}"
         )
         run = self.storage_service.create_inference_run(
@@ -716,6 +731,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
                     model_id=model_id,
                     llm_provider=llm_provider,
                     reasoning_effort=self.reasoning_effort,
+                    generate_explanation=self.generate_explanation,
                     evidence_subgraph=evidence_subgraph,
                     inference_batch_size=self.inference_batch_size,
                     inference_parallel_calls=self.inference_parallel_calls,
@@ -733,6 +749,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
                     model_id=model_id,
                     llm_provider=llm_provider,
                     reasoning_effort=self.reasoning_effort,
+                    generate_explanation=self.generate_explanation,
                     evidence_subgraph=evidence_subgraph,
                     inference_batch_size=self.inference_batch_size,
                     inference_parallel_calls=self.inference_parallel_calls,
@@ -763,6 +780,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             model_id=model_id,
             llm_provider=llm_provider,
             reasoning_effort=self.reasoning_effort,
+            generate_explanation=self.generate_explanation,
             evidence_subgraph=evidence_subgraph,
             inference_batch_size=self.inference_batch_size,
             inference_parallel_calls=self.inference_parallel_calls,
@@ -785,6 +803,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             model_id=final_answers.model_id,
             llm_provider=final_answers.llm_provider,
             reasoning_effort=final_answers.reasoning_effort,
+            generate_explanation=final_answers.generate_explanation,
             evidence_subgraph=final_answers.evidence_subgraph,
             inference_batch_size=final_answers.inference_batch_size,
             inference_parallel_calls=final_answers.inference_parallel_calls,
@@ -847,6 +866,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             model_id=model_id,
             llm_provider=llm_provider,
             reasoning_effort=self.reasoning_effort,
+            generate_explanation=self.generate_explanation,
             answer_generation_service=self.answer_generation_service,
         )._generate_answer(item)
 
@@ -941,6 +961,7 @@ class SaveInferenceRunStep(
             model_id=answers.model_id,
             llm_provider=answers.llm_provider,
             reasoning_effort=answers.reasoning_effort,
+            generate_explanation=answers.generate_explanation,
             evidence_subgraph=answers.evidence_subgraph,
             inference_batch_size=answers.inference_batch_size,
             inference_parallel_calls=answers.inference_parallel_calls,

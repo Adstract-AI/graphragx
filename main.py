@@ -198,6 +198,7 @@ class PipelineRuntimeConfig(BaseModel):
     local_graph_profile: bool = False
     llm_provider: str | None = None
     reasoning_effort: str | None = None
+    generate_explanation: bool = False
     main_llm_model: str | None = None
     subgraph_algorithm: str | None = None
     pcst_edge_cost_strategy: str | None = None
@@ -664,6 +665,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         GenerateAndSaveFinalAnswersBatchesStep(
             llm_provider=resolved_config.llm_provider,
             reasoning_effort=resolved_config.reasoning_effort,
+            generate_explanation=resolved_config.generate_explanation,
             model_id=resolved_config.main_llm_model,
             inference_run_name=resolved_config.inference_run_name,
             inference_batch_size=resolved_config.llm_inference_batch_size,
@@ -968,6 +970,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Optional reasoning_effort value passed to the selected LLM provider, "
             "for example 'none', 'low', 'medium', or 'high'. When omitted, the "
             "field is not sent."
+        ),
+    )
+    parser.add_argument(
+        "--generate-explanation",
+        action="store_true",
+        default=False,
+        help=(
+            "Ask the LLM to generate and save an explanation. By default only "
+            "the answer is generated and explanation metrics remain zero."
         ),
     )
     parser.add_argument(
@@ -1303,6 +1314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         local_graph_profile=args.local_graph_profile,
         llm_provider=args.llm_provider,
         reasoning_effort=args.reasoning_effort,
+        generate_explanation=args.generate_explanation,
         main_llm_model=args.main_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
         pcst_edge_cost_strategy=args.pcst_edge_cost_strategy,

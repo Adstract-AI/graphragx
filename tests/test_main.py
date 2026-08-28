@@ -487,6 +487,24 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(args.main_llm_model, "qwen3-4b-new")
         self.assertEqual(args.reasoning_effort, "none")
 
+    def test_explanation_generation_is_opt_in(self) -> None:
+        parser = main.build_parser()
+
+        self.assertFalse(parser.parse_args([]).generate_explanation)
+        self.assertTrue(
+            parser.parse_args(["--generate-explanation"]).generate_explanation
+        )
+
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(generate_explanation=True),
+        )
+        generation_step = next(
+            step
+            for step in pipeline.evaluation_steps
+            if isinstance(step, GenerateAndSaveFinalAnswersBatchesStep)
+        )
+        self.assertTrue(generation_step.generate_explanation)
+
     def test_deepseek_model_requires_explicit_provider(self) -> None:
         with self.assertRaisesRegex(main.PipelineException, "llm-provider deepseek"):
             main.build_pipeline(

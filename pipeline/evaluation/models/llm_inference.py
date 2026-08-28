@@ -114,6 +114,10 @@ class GeneratedFinalAnswersBatch(StepResult):
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
     reasoning_effort: str | None = Field(default=None)
+    generate_explanation: bool = Field(
+        default=True,
+        description="Whether this run requested LLM-generated explanations.",
+    )
     evidence_subgraph: dict[str, object] = Field(default_factory=dict)
     inference_batch_size: int | None = Field(
         default=None,
@@ -147,6 +151,10 @@ class SavedLlmInferenceRun(StepResult):
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
     reasoning_effort: str | None = Field(default=None)
+    generate_explanation: bool = Field(
+        default=True,
+        description="Whether this run requested LLM-generated explanations.",
+    )
     evidence_subgraph: dict[str, object] = Field(default_factory=dict)
     inference_batch_size: int | None = None
     inference_parallel_calls: int = 1

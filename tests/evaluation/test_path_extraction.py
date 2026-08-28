@@ -750,6 +750,7 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
             )
             answers_batch = GenerateFinalAnswersBatchStep(
                 model_id="test-model",
+                generate_explanation=True,
                 answer_generation_service=FakeAnswerGenerationService(),
             ).execute(StepContext(result=paths_batch))
 
@@ -786,6 +787,11 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
             self.assertEqual(reasoning_row["analytics"]["min_length"], 2)
             self.assertIn("Jaxon Bieber", answers_text)
             self.assertIn("explanation", answers_text)
+            self.assertIn("Used Justin Bieber", answers_text)
+            inference_config = json.loads(
+                saved_run.inference_config_path.read_text(encoding="utf-8")
+            )
+            self.assertTrue(inference_config["inference"]["generate_explanation"])
         print("[test_batch_inference_saves_expected_files] Passed.")
 
     def test_batched_inference_saves_each_batch(self) -> None:
@@ -854,6 +860,13 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
             self.assertEqual(summary["inference"]["total_requests"], 2)
             self.assertEqual(summary["inference"]["total_tokens"], 0)
             self.assertEqual(summary["inference"]["total_cost_usd"], 0.0)
+            self.assertFalse(summary["inference"]["generate_explanation"])
+            self.assertTrue(
+                all(
+                    json.loads(line)["explanation"] == ""
+                    for line in answer_lines
+                )
+            )
             self.assertEqual(summary["successful_answers"], 2)
         print("[test_batched_inference_saves_each_batch] Passed.")
 

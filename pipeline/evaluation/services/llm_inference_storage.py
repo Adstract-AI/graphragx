@@ -319,6 +319,7 @@ class LlmInferenceStorageService(AbstractService):
                 "model_id": answers.model_id,
                 "llm_provider": answers.llm_provider,
                 "reasoning_effort": answers.reasoning_effort,
+                "generate_explanation": answers.generate_explanation,
                 **(
                     {"batch_size": answers.inference_batch_size}
                     if answers.inference_batch_size is not None
