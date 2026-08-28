@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from collections import defaultdict
+from typing import Any, TypeAlias
 
 import torch
 import torch.nn.functional as torch_functional
@@ -12,6 +13,9 @@ from torch import Tensor, nn
 from pipeline.preparation.helpers.configuration_definitions import HGT_ARCHITECTURE_ID
 from pipeline.preparation.models.gnn_answer_retriever import build_node_classifier
 from pipeline.preparation.models.interfaces import AnswerRetrieverModel
+
+
+HgtRelationBucket: TypeAlias = tuple[Tensor, Tensor]
 
 
 class HeterogeneousGraphTransformerLayer(nn.Module):
@@ -96,13 +100,31 @@ class HeterogeneousGraphTransformerLayer(nn.Module):
         edge_type: Tensor,
         active_relation_ids: Tensor | None = None,
         active_relation_offsets: Tensor | None = None,
+        relation_buckets: tuple[HgtRelationBucket, ...] | None = None,
+        *,
+        validate_relation_values: bool = True,
     ) -> Tensor:
-        self._validate_inputs(node_features, edge_index, edge_type)
+        self._validate_inputs(
+            node_features,
+            edge_index,
+            edge_type,
+            validate_relation_values=validate_relation_values,
+        )
         active_relation_ids, active_relation_offsets = self._resolve_relation_groups(
             edge_type=edge_type,
             active_relation_ids=active_relation_ids,
             active_relation_offsets=active_relation_offsets,
         )
+        if active_relation_ids.device != node_features.device:
+            active_relation_ids = active_relation_ids.to(
+                device=node_features.device,
+                non_blocking=True,
+            )
+        if relation_buckets is None:
+            relation_buckets = self.build_relation_buckets(
+                active_relation_offsets=active_relation_offsets,
+                device=node_features.device,
+            )
 
         node_count = node_features.shape[0]
         query = self.query_projection(node_features).view(
@@ -117,39 +139,88 @@ class HeterogeneousGraphTransformerLayer(nn.Module):
 
         source_nodes = edge_index[0].long()
         target_nodes = edge_index[1].long()
+        active_relation_attention = self.relation_attention.index_select(
+            0, active_relation_ids
+        )
+        active_relation_message = self.relation_message.index_select(
+            0, active_relation_ids
+        )
+        active_relation_prior = self.relation_prior.index_select(
+            0, active_relation_ids
+        )
+        edge_position_chunks: list[Tensor] = []
         attention_chunks: list[Tensor] = []
         message_chunks: list[Tensor] = []
-        relation_ids = active_relation_ids.detach().cpu().tolist()
-        relation_offsets = active_relation_offsets.detach().cpu().tolist()
         scale = math.sqrt(self.head_dimension)
-        for relation_index, relation_id in enumerate(relation_ids):
-            start = relation_offsets[relation_index]
-            end = relation_offsets[relation_index + 1]
-            relation_sources = source_nodes[start:end]
-            relation_targets = target_nodes[start:end]
+        for relation_indices, edge_positions in relation_buckets:
+            relation_count = relation_indices.numel()
+            edges_per_relation = edge_positions.numel() // relation_count
+            relation_sources = source_nodes.index_select(0, edge_positions).view(
+                relation_count, edges_per_relation
+            )
+            relation_targets = target_nodes.index_select(0, edge_positions).view(
+                relation_count, edges_per_relation
+            )
             relation_keys = torch.einsum(
-                "ehd,hdf->ehf",
-                key.index_select(0, relation_sources),
-                self.relation_attention[relation_id],
+                "bchd,bhdf->bchf",
+                key.index_select(0, relation_sources.reshape(-1)).view(
+                    relation_count,
+                    edges_per_relation,
+                    self.attention_heads,
+                    self.head_dimension,
+                ),
+                active_relation_attention.index_select(0, relation_indices),
             )
             relation_values = torch.einsum(
-                "ehd,hdf->ehf",
-                value.index_select(0, relation_sources),
-                self.relation_message[relation_id],
+                "bchd,bhdf->bchf",
+                value.index_select(0, relation_sources.reshape(-1)).view(
+                    relation_count,
+                    edges_per_relation,
+                    self.attention_heads,
+                    self.head_dimension,
+                ),
+                active_relation_message.index_select(0, relation_indices),
             )
-            relation_queries = query.index_select(0, relation_targets)
+            relation_queries = query.index_select(
+                0, relation_targets.reshape(-1)
+            ).view(
+                relation_count,
+                edges_per_relation,
+                self.attention_heads,
+                self.head_dimension,
+            )
+            edge_position_chunks.append(edge_positions)
             attention_chunks.append(
                 (
                     (relation_queries * relation_keys).sum(dim=-1)
-                    * self.relation_prior[relation_id]
+                    * active_relation_prior.index_select(
+                        0, relation_indices
+                    ).unsqueeze(1)
                     / scale
-                ).float()
+                ).reshape(-1, self.attention_heads).float()
             )
-            message_chunks.append(relation_values)
+            message_chunks.append(
+                relation_values.reshape(
+                    -1, self.attention_heads, self.head_dimension
+                )
+            )
 
         if attention_chunks:
-            attention_logits = torch.cat(attention_chunks, dim=0)
-            transformed_messages = torch.cat(message_chunks, dim=0)
+            edge_positions = torch.cat(edge_position_chunks)
+            bucketed_messages = torch.cat(message_chunks, dim=0)
+            attention_logits = torch.zeros(
+                edge_type.numel(),
+                self.attention_heads,
+                dtype=torch.float32,
+                device=node_features.device,
+            ).index_copy(0, edge_positions, torch.cat(attention_chunks, dim=0))
+            transformed_messages = node_features.new_zeros(
+                edge_type.numel(),
+                self.attention_heads,
+                self.head_dimension,
+                dtype=bucketed_messages.dtype,
+                device=bucketed_messages.device,
+            ).index_copy(0, edge_positions, bucketed_messages)
             attention = self._target_softmax(
                 attention_logits,
                 target_nodes=target_nodes,
@@ -192,6 +263,49 @@ class HeterogeneousGraphTransformerLayer(nn.Module):
         alpha = torch.sigmoid(self.skip).to(dtype=transformed.dtype)
         output = alpha * transformed + (1.0 - alpha) * node_features
         return self.layer_norm(output)
+
+    @staticmethod
+    def build_relation_buckets(
+        *,
+        active_relation_offsets: Tensor,
+        device: torch.device | str,
+    ) -> tuple[HgtRelationBucket, ...]:
+        """Group equally sized relation ranges for vectorized transforms.
+
+        Offsets intentionally remain on the CPU. They are control-plane metadata,
+        and reading CUDA offsets would synchronize the device in every HGT layer.
+        """
+        if active_relation_offsets.device.type != "cpu":
+            active_relation_offsets = active_relation_offsets.cpu()
+        offsets = active_relation_offsets.tolist()
+        relation_indices_by_size: dict[int, list[int]] = defaultdict(list)
+        for relation_index, (start, end) in enumerate(zip(offsets, offsets[1:])):
+            edge_count = end - start
+            if edge_count > 0:
+                relation_indices_by_size[edge_count].append(relation_index)
+
+        buckets: list[HgtRelationBucket] = []
+        for edge_count, relation_indices in relation_indices_by_size.items():
+            relation_index_tensor = torch.tensor(
+                relation_indices,
+                dtype=torch.long,
+                device=device,
+            )
+            starts = torch.tensor(
+                [offsets[index] for index in relation_indices],
+                dtype=torch.long,
+                device=device,
+            )
+            edge_positions = (
+                starts.unsqueeze(1)
+                + torch.arange(
+                    edge_count,
+                    dtype=torch.long,
+                    device=device,
+                ).unsqueeze(0)
+            ).reshape(-1)
+            buckets.append((relation_index_tensor, edge_positions))
+        return tuple(buckets)
 
     @staticmethod
     def _target_softmax(
@@ -258,6 +372,8 @@ class HeterogeneousGraphTransformerLayer(nn.Module):
         node_features: Tensor,
         edge_index: Tensor,
         edge_type: Tensor,
+        *,
+        validate_relation_values: bool,
     ) -> None:
         if node_features.ndim != 2 or node_features.shape[1] != self.hidden_dimension:
             raise ValueError(
@@ -269,12 +385,15 @@ class HeterogeneousGraphTransformerLayer(nn.Module):
             raise ValueError("edge_type must contain one relation id per graph edge.")
         if edge_type.dtype != torch.long:
             raise ValueError("edge_type must use torch.long dtype.")
-        if edge_type.numel() > 1 and torch.any(edge_type[1:] < edge_type[:-1]):
-            raise ValueError("HGT edge_type values must be sorted by relation id.")
-        if edge_type.numel() > 0 and (
-            torch.any(edge_type < 0) or torch.any(edge_type >= self.num_relations)
-        ):
-            raise ValueError("edge_type contains a relation id outside the vocabulary.")
+        if validate_relation_values:
+            if edge_type.numel() > 1 and torch.any(edge_type[1:] < edge_type[:-1]):
+                raise ValueError("HGT edge_type values must be sorted by relation id.")
+            if edge_type.numel() > 0 and (
+                torch.any(edge_type < 0) or torch.any(edge_type >= self.num_relations)
+            ):
+                raise ValueError(
+                    "edge_type contains a relation id outside the vocabulary."
+                )
 
 
 class HGTAnswerRetriever(nn.Module, AnswerRetrieverModel):
@@ -338,6 +457,19 @@ class HGTAnswerRetriever(nn.Module, AnswerRetrieverModel):
     ) -> Tensor:
         if edge_type is None:
             raise ValueError("edge_type is required for HGT message passing.")
+        active_relation_ids, active_relation_offsets = (
+            HeterogeneousGraphTransformerLayer._resolve_relation_groups(
+                edge_type=edge_type,
+                active_relation_ids=active_relation_ids,
+                active_relation_offsets=active_relation_offsets,
+            )
+        )
+        if active_relation_offsets.device.type != "cpu":
+            active_relation_offsets = active_relation_offsets.cpu()
+        relation_buckets = HeterogeneousGraphTransformerLayer.build_relation_buckets(
+            active_relation_offsets=active_relation_offsets,
+            device=edge_type.device,
+        )
         node_features = self.entity_projection(entity_features)
         for layer in self.gnn_layers:
             node_features = layer(
@@ -346,6 +478,8 @@ class HGTAnswerRetriever(nn.Module, AnswerRetrieverModel):
                 edge_type,
                 active_relation_ids=active_relation_ids,
                 active_relation_offsets=active_relation_offsets,
+                relation_buckets=relation_buckets,
+                validate_relation_values=False,
             )
         return self.classifier(node_features).squeeze(-1)
 

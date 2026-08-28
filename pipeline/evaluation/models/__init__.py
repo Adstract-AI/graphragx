@@ -19,6 +19,7 @@ from pipeline.evaluation.models.final_results import (
     FinalResultsEvaluationResult,
     PerInstanceFinalResult,
     RankingMetrics,
+    RetrievalConditionedAnswerMetrics,
 )
 from pipeline.evaluation.models.llm_inference import (
     BuiltReasoningSamples,
@@ -64,6 +65,7 @@ __all__ = [
     "GraphTriple",
     "PerInstanceFinalResult",
     "RankingMetrics",
+    "RetrievalConditionedAnswerMetrics",
     "ReasoningPathsForPrediction",
     "ReasoningPath",
     "ReasoningSampleForPrediction",

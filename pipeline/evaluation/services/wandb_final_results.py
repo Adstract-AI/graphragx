@@ -51,6 +51,38 @@ class WandbFinalResultsLoggingService(AbstractService):
     aggregate_table_key = "Summary_Metrics/aggregate_metrics"
     summary_plot_prefix = "Summary_Plots"
     artifact_type = "evaluation-results"
+    retrieval_conditioned_metric_keys = (
+        "conditioned_evaluated_instances",
+        "retrieval_gold_coverage",
+        "retrieval_full_gold_coverage_count",
+        "retrieval_full_gold_coverage_rate",
+        "reasoning_context_gold_coverage",
+        "reasoning_context_full_gold_coverage_count",
+        "reasoning_context_full_gold_coverage_rate",
+        "retrieved_gold_answer_count",
+        "answered_retrieved_gold_count",
+        "llm_retrieved_gold_utilization",
+        "llm_omission_given_full_retrieval_count",
+        "llm_omission_given_full_retrieval_rate",
+        "llm_exact_match_given_full_retrieval_count",
+        "llm_exact_match_given_full_retrieval",
+        "llm_omission_given_full_context_count",
+        "llm_omission_given_full_context_rate",
+        "llm_exact_match_given_full_context_count",
+        "llm_exact_match_given_full_context",
+        "full_retrieval_complete_answer_count",
+        "full_retrieval_complete_answer_rate",
+        "full_retrieval_llm_omission_count",
+        "full_retrieval_llm_omission_rate",
+        "partial_retrieval_fully_utilized_count",
+        "partial_retrieval_fully_utilized_rate",
+        "partial_retrieval_underutilized_count",
+        "partial_retrieval_underutilized_rate",
+        "no_gold_retrieved_no_gold_answered_count",
+        "no_gold_retrieved_no_gold_answered_rate",
+        "correct_without_gold_retrieval_count",
+        "correct_without_gold_retrieval_rate",
+    )
     source_path_keys = {
         "answers_path",
         "reasoning_path",
@@ -80,6 +112,11 @@ class WandbFinalResultsLoggingService(AbstractService):
         "ndcg_at_10",
         "ndcg_at_candidate_limit",
         "answer_error_message",
+        "retrieval_gold_coverage",
+        "reasoning_context_gold_coverage",
+        "llm_retrieved_gold_utilization",
+        "retrieval_generation_outcome",
+        "retrieved_candidates",
     ]
 
     def log_final_results(
@@ -93,6 +130,12 @@ class WandbFinalResultsLoggingService(AbstractService):
             results_config = self._load_json_object(final_result.results_config_path)
             retrieval_metrics = self._load_json_object(
                 final_result.retrieval_metrics_path
+            )
+            # Legacy retrieval metric files predate this scalar; the final
+            # result still carries the same evaluated-instance denominator.
+            retrieval_metrics.setdefault(
+                "evaluated_instances",
+                final_result.evaluated_instances,
             )
             reasoning_metrics = self._load_json_object(
                 final_result.reasoning_metrics_path
@@ -114,6 +157,13 @@ class WandbFinalResultsLoggingService(AbstractService):
                 results_config=results_config,
             )
             run_name = final_result.results_run_name
+            architecture_name = results_config.get("gnn_architecture")
+            if (
+                isinstance(architecture_name, str)
+                and architecture_name
+                and not run_name.endswith(f"_{architecture_name}")
+            ):
+                run_name = f"{run_name}_{architecture_name}"
             tags = self._build_tags(results_config)
 
             with wandb.init(
@@ -181,6 +231,9 @@ class WandbFinalResultsLoggingService(AbstractService):
     ) -> dict[str, float | int]:
         """Build WandB-safe scalar metric names."""
         mappings = {
+            "retrieval_evaluated_instances": retrieval_metrics.get(
+                "evaluated_instances"
+            ),
             "retrieval_hits_at_1": retrieval_metrics.get("hits_at_1"),
             "retrieval_hits_at_5": retrieval_metrics.get("hits_at_5"),
             "retrieval_hits_at_10": retrieval_metrics.get("hits_at_10"),
@@ -212,6 +265,12 @@ class WandbFinalResultsLoggingService(AbstractService):
                 "ndcg_at_candidate_limit"
             ),
         }
+        mappings.update(
+            {
+                key: reasoning_metrics.get(key)
+                for key in cls.retrieval_conditioned_metric_keys
+            }
+        )
         return {
             key: value
             for key, value in mappings.items()
@@ -248,6 +307,7 @@ class WandbFinalResultsLoggingService(AbstractService):
     ) -> dict[str, float | int]:
         """Build curated run-summary metrics for WandB history plots."""
         run_summary_keys = {
+            "retrieval_evaluated_instances": "retrieval_evaluated_instances",
             "retrieval_hits_at_1": "retrieval_hits_at_1",
             "retrieval_hits_at_10": "retrieval_hits_at_10",
             "retrieval_hits_at_candidate_limit": "retrieval_hits_at_candidate_limit",
@@ -256,6 +316,9 @@ class WandbFinalResultsLoggingService(AbstractService):
             "ranking_ndcg_at_10": "ranking_ndcg_at_10",
             "grounding_grounded_explanation_rate": "grounded_explanation_rate",
         }
+        run_summary_keys.update(
+            {key: key for key in cls.retrieval_conditioned_metric_keys}
+        )
         return {
             f"{cls.run_summary_prefix}/{target_key}": scalar_metrics[source_key]
             for source_key, target_key in run_summary_keys.items()
@@ -294,8 +357,11 @@ class WandbFinalResultsLoggingService(AbstractService):
         results_config: dict[str, Any],
         per_instance_rows: list[dict[str, Any]],
     ) -> list[list[Any]]:
-        """Build WandB table rows, adding explanations from answers.jsonl."""
+        """Build final-result rows with the GNN candidates from predictions."""
         answers_by_index = self._load_answers_by_index(results_config)
+        retrieved_candidates_by_index = self._load_retrieved_candidates_by_index(
+            results_config
+        )
         table_rows: list[list[Any]] = []
         for row in per_instance_rows:
             instance_index = row.get("instance_index")
@@ -323,9 +389,49 @@ class WandbFinalResultsLoggingService(AbstractService):
                     row.get("ndcg_at_10", 0.0),
                     row.get("ndcg_at_candidate_limit", 0.0),
                     row.get("answer_error_message"),
+                    row.get("retrieval_gold_coverage", 0.0),
+                    row.get("reasoning_context_gold_coverage", 0.0),
+                    row.get("llm_retrieved_gold_utilization"),
+                    row.get("retrieval_generation_outcome", ""),
+                    self._format_table_cell(
+                        retrieved_candidates_by_index.get(instance_index, [])
+                    ),
                 ]
             )
         return table_rows
+
+    @classmethod
+    def _load_retrieved_candidates_by_index(
+        cls,
+        results_config: dict[str, Any],
+    ) -> dict[int, list[str]]:
+        """Load only ranked candidate node names from the retriever predictions."""
+        predictions_path_value = cls._result_artifact_path(
+            results_config,
+            "predictions_path",
+        )
+        if not isinstance(predictions_path_value, str):
+            return {}
+        predictions_path = project_absolute_path(predictions_path_value)
+        if not predictions_path.exists():
+            return {}
+
+        candidates_by_index: dict[int, list[str]] = {}
+        try:
+            prediction_rows = cls._load_jsonl_objects(predictions_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {}
+        for prediction in prediction_rows:
+            instance_index = prediction.get("instance_index")
+            raw_candidates = prediction.get("answer_candidates", [])
+            if not isinstance(instance_index, int) or not isinstance(raw_candidates, list):
+                continue
+            candidates_by_index[instance_index] = [
+                str(candidate["node"])
+                for candidate in raw_candidates
+                if isinstance(candidate, dict) and candidate.get("node") is not None
+            ]
+        return candidates_by_index
 
     @classmethod
     def _format_table_cell(cls, value: Any) -> Any:

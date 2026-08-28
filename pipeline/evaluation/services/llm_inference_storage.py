@@ -315,6 +315,12 @@ class LlmInferenceStorageService(AbstractService):
                 "model_id": answers.model_id,
                 "llm_provider": answers.llm_provider,
                 "reasoning_effort": answers.reasoning_effort,
+                **(
+                    {"batch_size": answers.inference_batch_size}
+                    if answers.inference_batch_size is not None
+                    else {}
+                ),
+                "parallel_calls": answers.inference_parallel_calls,
                 "total_requests": len(answers.items),
                 "total_prompt_tokens": total_prompt_tokens,
                 "total_completion_tokens": total_completion_tokens,

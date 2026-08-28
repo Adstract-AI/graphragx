@@ -231,7 +231,7 @@ Evaluation compacts the selected test instances into reusable inputs before mode
 
 ### LLM Inference And Results
 
-Vezilka uses the OpenAI-compatible chat-completions endpoint at `https://vllm.finki.ukim.mk/v1/chat/completions`. Streaming is always disabled. Set `VEZILKA_API_KEY`, then pass any currently hosted model name. `reasoning_effort` is omitted by default; add `--reasoning-effort none` (or another provider-supported value) when desired. The same flag is passed to OpenAI and DeepSeek models:
+OpenAI is the default LLM provider when `--llm-provider` is omitted. DeepSeek and Vezilka models require an explicit provider selection. Vezilka uses the OpenAI-compatible chat-completions endpoint at `https://vllm.finki.ukim.mk/v1/chat/completions`. Streaming is always disabled. Set `VEZILKA_API_KEY`, then pass any currently hosted model name. `reasoning_effort` is omitted by default; add `--reasoning-effort none` (or another provider-supported value) when desired. The same flag is passed to OpenAI and DeepSeek models:
 
 ```bash
 uv run python main.py --inference-only \
@@ -239,6 +239,7 @@ uv run python main.py --inference-only \
   --llm-provider vezilka \
   --main-llm-model qwen3-4b \
   --reasoning-effort none \
+  --llm-inference-parallel-calls 4 \
   --default
 ```
 
@@ -246,7 +247,8 @@ uv run python main.py --inference-only \
 | --- | --- |
 | `--no-llm-inference` | Stops full or evaluation-only mode after GNN candidate retrieval. Training and retriever W&B logging still run unless `--no-wandb` is supplied. |
 | `--inference-run-name INFERENCE_RUN_NAME` | Optional label for the saved LLM inference run folder. |
-| `--llm-inference-batch-size LLM_INFERENCE_BATCH_SIZE` | Number of samples to process per persistence batch during LLM inference. The LLM calls remain one-by-one. |
+| `--llm-inference-batch-size LLM_INFERENCE_BATCH_SIZE` | Number of completed samples persisted together. Default: `10`. |
+| `--llm-inference-parallel-calls LLM_INFERENCE_PARALLEL_CALLS` | Maximum simultaneous LLM API requests inside each persistence batch. Default: `1` (sequential). Effective concurrency cannot exceed the persistence batch size. |
 | `--reasoning-effort VALUE` | Optional `reasoning_effort` passed to the selected LLM provider. The field is omitted when this flag is absent. Vezilka streaming is always disabled. |
 
 ### W&B
@@ -270,6 +272,7 @@ W&B tags are populated incrementally from the stages available in each mode. Dep
 | --- | --- |
 | `--default` | Uses recommended default values for configurable selections instead of prompting interactively. |
 | `--force-default` | Forces every pipeline step to use its default execution path. This is mostly useful for tests and controlled runs. |
+| `--local-graph-profile` | Reports detailed WebQSP graph processing, cache loading, cache saving, file-size, and mapping-fingerprint timings. Off by default. |
 
 ## Outputs
 
@@ -278,6 +281,13 @@ Pipeline outputs are saved under `data/webqsp`:
 `data/webqsp/processed`
 
 Processed WebQSP graph cache and vocabulary artifacts.
+
+Processed graph cache version 6 stores edge indices and labels in packed contiguous
+tensors and memory-maps them on cache hits. Pipeline modes load only the instance
+splits they consume, while the shared vocabularies remain available in every mode.
+Cache metadata includes the Hugging Face split fingerprints and entity-name mapping
+hash, so changing either input triggers a one-time rebuild instead of reusing stale
+graphs. Cache load and save logs include per-phase timings and artifact sizes.
 
 `data/webqsp/models/<run>`
 

@@ -119,6 +119,28 @@ def _saved_model_conflicts(
     return sorted(conflicts)
 
 
+def _is_deepseek_model(model_id: str | None) -> bool:
+    """Return whether a model requires explicit DeepSeek provider selection."""
+    if model_id is None:
+        return False
+    definition = SHARED_LLM_MODELS.get(model_id)
+    return model_id.startswith("deepseek-") or (
+        definition is not None and definition.provider_id == "deepseek"
+    )
+
+
+def _is_unqualified_private_model(
+    model_id: str | None,
+    provider_id: str | None,
+) -> bool:
+    """Return whether an unknown model omitted the required Vezilka provider."""
+    return (
+        model_id is not None
+        and provider_id is None
+        and model_id not in SHARED_LLM_MODELS
+    )
+
+
 def _apply_saved_model_config(
     resolved: "PipelineRuntimeConfig",
     saved: SavedGnnAnswerRetrieverConfig,
@@ -161,6 +183,7 @@ class PipelineRuntimeConfig(BaseModel):
         "inference-only",
     ] = "full"
     dataset: str | None = None
+    local_graph_profile: bool = False
     llm_provider: str | None = None
     reasoning_effort: str | None = None
     main_llm_model: str | None = None
@@ -187,6 +210,7 @@ class PipelineRuntimeConfig(BaseModel):
     training_weight_decay: float = DEFAULT_TRAINING_WEIGHT_DECAY
     training_max_instances: int | None = None
     training_start_instance: int = 0
+    skip_missing_gold_in_graph: bool = True
     training_log_every: int = DEFAULT_TRAINING_LOG_EVERY
     training_batch_size: int = DEFAULT_TRAINING_BATCH_SIZE
     wandb_training_log_every: int = DEFAULT_WANDB_TRAINING_LOG_EVERY
@@ -216,6 +240,7 @@ class PipelineRuntimeConfig(BaseModel):
     no_llm_inference: bool = False
     inference_run_name: str | None = None
     llm_inference_batch_size: int = 10
+    llm_inference_parallel_calls: int = 1
     no_wandb: bool = False
     wandb_project: str | None = None
     wandb_entity: str | None = None
@@ -270,14 +295,10 @@ class PipelineRuntimeConfig(BaseModel):
             gnn_architecture=architecture_id,
             gnn_options=resolved_options,
         )
-        llm_provider = self.llm_provider
-        if llm_provider is None and self.main_llm_model is not None:
-            llm_provider = (
-                "deepseek"
-                if self.main_llm_model.startswith("deepseek-")
-                else "openai"
-            )
-        llm_provider = llm_provider or "openai"
+        # OpenAI is the default provider. DeepSeek is intentionally not
+        # inferred from the model name because selecting that backend should
+        # be explicit and visible in commands/configuration.
+        llm_provider = self.llm_provider or "openai"
         main_llm_model = self.main_llm_model
         if main_llm_model is None and llm_provider != "vezilka":
             provider_models = [
@@ -310,6 +331,19 @@ class PipelineRuntimeConfig(BaseModel):
 
 def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     """Build the current runnable graphragX pipeline."""
+    if _is_deepseek_model(config.main_llm_model) and config.llm_provider != "deepseek":
+        raise PipelineException(
+            f"Model {config.main_llm_model} requires explicit "
+            "--llm-provider deepseek."
+        )
+    if _is_unqualified_private_model(
+        config.main_llm_model,
+        config.llm_provider,
+    ):
+        raise PipelineException(
+            f"Model {config.main_llm_model} is not a configured OpenAI model. "
+            "Privately hosted models require explicit --llm-provider vezilka."
+        )
     if config.run_mode == "inference-only" and config.no_llm_inference:
         raise PipelineException(
             "--no-llm-inference is not valid with --inference-only."
@@ -339,6 +373,14 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     if config.wandb_training_log_every < 0:
         raise PipelineException(
             "--wandb-training-log-every must be greater than or equal to 0."
+        )
+    if config.llm_inference_batch_size < 1:
+        raise PipelineException(
+            "--llm-inference-batch-size must be greater than or equal to 1."
+        )
+    if config.llm_inference_parallel_calls < 1:
+        raise PipelineException(
+            "--llm-inference-parallel-calls must be greater than or equal to 1."
         )
     if (
         config.use_default_config_values
@@ -427,6 +469,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         resume_from_lineage=resolved_config.run_mode
         not in {"evaluation-only", "inference-only"},
         run_root=wandb_loader_definition.cache_root / "wandb_runs",
+        architecture_name=resolved_config.gnn_architecture,
     )
     setup_steps = [
         SelectDatasetStep(
@@ -455,13 +498,21 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             entity_embedding_model=resolved_config.entity_embedding_model,
         ),
         LoadDatasetStep(),
-        BuildWebQSPLocalGraphsStep(),
+        BuildWebQSPLocalGraphsStep(
+            load_train_instances=resolved_config.run_mode
+            in {"full", "train-only", "retriever-only"},
+            load_test_instances=resolved_config.run_mode != "train-only",
+            profile=resolved_config.local_graph_profile,
+        ),
     ]
     training_steps = [
         BuildGnnAnswerRetrieverStep(),
         PrepareGnnTrainingDataStep(
             training_max_instances=resolved_config.training_max_instances,
             training_start_instance=resolved_config.training_start_instance,
+            skip_missing_gold_in_graph=(
+                resolved_config.skip_missing_gold_in_graph
+            ),
             training_device=resolved_config.training_device,
             training_embedding_cache_device=(
                 resolved_config.training_embedding_cache_device
@@ -485,6 +536,9 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             training_weight_decay=resolved_config.training_weight_decay,
             training_max_instances=resolved_config.training_max_instances,
             training_start_instance=resolved_config.training_start_instance,
+            skip_missing_gold_in_graph=(
+                resolved_config.skip_missing_gold_in_graph
+            ),
             training_log_every=resolved_config.training_log_every,
             training_batch_size=resolved_config.training_batch_size,
             training_device=resolved_config.training_device,
@@ -523,6 +577,9 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             candidate_limit=resolved_config.candidate_limit,
             evaluation_run_name=resolved_config.evaluation_run_name,
             evaluation_max_instances=resolved_config.evaluation_max_instances,
+            skip_missing_gold_in_graph=(
+                resolved_config.skip_missing_gold_in_graph
+            ),
             evaluation_log_every=resolved_config.evaluation_log_every,
             evaluation_profile=resolved_config.evaluation_profile,
             evaluation_embedding_cache_device=(
@@ -552,6 +609,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             model_id=resolved_config.main_llm_model,
             inference_run_name=resolved_config.inference_run_name,
             inference_batch_size=resolved_config.llm_inference_batch_size,
+            inference_parallel_calls=resolved_config.llm_inference_parallel_calls,
         ),
     ]
     if not resolved_config.no_wandb:
@@ -824,12 +882,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Dataset choice for the current run.",
     )
     parser.add_argument(
+        "--local-graph-profile",
+        action="store_true",
+        default=False,
+        help="Report detailed WebQSP graph processing and cache phase timings.",
+    )
+    parser.add_argument(
         "--llm-provider",
         choices=tuple(LLM_PROVIDERS),
         default=None,
         help=(
-            "LLM provider used for inference. Vezilka accepts any value passed "
-            "through --main-llm-model."
+            "LLM provider used for inference. OpenAI is used when omitted. "
+            "DeepSeek and Vezilka models require an explicit provider; Vezilka "
+            "accepts any value passed through --main-llm-model."
         ),
     )
     parser.add_argument(
@@ -1037,6 +1102,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional maximum number of WebQSP test instances to evaluate.",
     )
     parser.add_argument(
+        "--no-skip-missing-gold-in-graph",
+        dest="skip_missing_gold_in_graph",
+        action="store_false",
+        default=True,
+        help=(
+            "Include training/evaluation graphs that contain none of their gold "
+            "answer entities. By default these unusable graphs are skipped."
+        ),
+    )
+    parser.add_argument(
         "--evaluation-log-every",
         type=int,
         default=DEFAULT_EVALUATION_LOG_EVERY,
@@ -1082,6 +1157,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=10,
         help="Number of samples to generate and save per LLM inference batch.",
+    )
+    parser.add_argument(
+        "--llm-inference-parallel-calls",
+        type=int,
+        default=1,
+        help="Maximum simultaneous LLM API calls. Defaults to sequential inference.",
     )
     parser.add_argument(
         "--no-wandb",
@@ -1138,6 +1219,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     runtime_config = PipelineRuntimeConfig(
         run_mode=args.run_mode,
         dataset=args.dataset,
+        local_graph_profile=args.local_graph_profile,
         llm_provider=args.llm_provider,
         reasoning_effort=args.reasoning_effort,
         main_llm_model=args.main_llm_model,
@@ -1172,6 +1254,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_weight_decay=args.training_weight_decay,
         training_max_instances=args.training_max_instances,
         training_start_instance=args.training_start_instance,
+        skip_missing_gold_in_graph=args.skip_missing_gold_in_graph,
         training_log_every=args.training_log_every,
         training_batch_size=args.training_batch_size,
         wandb_training_log_every=args.wandb_training_log_every,
@@ -1200,6 +1283,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         no_llm_inference=args.no_llm_inference,
         inference_run_name=args.inference_run_name,
         llm_inference_batch_size=args.llm_inference_batch_size,
+        llm_inference_parallel_calls=args.llm_inference_parallel_calls,
         no_wandb=args.no_wandb,
         wandb_project=args.wandb_project,
         wandb_entity=args.wandb_entity,

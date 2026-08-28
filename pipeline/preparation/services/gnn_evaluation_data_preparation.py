@@ -84,12 +84,20 @@ class GnnEvaluationDataPreparationService(AbstractService):
                 requested_dtype=evaluation_config.embedding_cache_dtype,
                 selected_device=selected_device,
             )
-            return runtime_strategy.prepare_evaluation_data(
+            prepared_data = runtime_strategy.prepare_evaluation_data(
                 instances=test_instances,
                 relation_vocabulary=relation_vocabulary,
                 selected_device=selected_device,
                 torch=torch,
                 autocast_dtype=autocast_dtype,
+            )
+            return self._filter_missing_gold_evaluation_instances(
+                prepared_data=prepared_data,
+                enabled=getattr(
+                    evaluation_config,
+                    "skip_missing_gold_in_graph",
+                    True,
+                ),
             )
 
         requirements = GNN_ARCHITECTURES[gnn_architecture].data_requirements
@@ -309,7 +317,7 @@ class GnnEvaluationDataPreparationService(AbstractService):
                     skip_reason=skip_reason,
                 )
             )
-        return PreparedGnnEvaluationData(
+        prepared_data = PreparedGnnEvaluationData(
             instances=prepared_instances,
             node_embeddings=node_embeddings,
             relation_embeddings=relation_embeddings,
@@ -317,6 +325,40 @@ class GnnEvaluationDataPreparationService(AbstractService):
             selected_device=selected_device,
             embedding_cache_device=embedding_device,
             embedding_cache_dtype=embedding_dtype,
+        )
+        return self._filter_missing_gold_evaluation_instances(
+            prepared_data=prepared_data,
+            enabled=getattr(
+                evaluation_config,
+                "skip_missing_gold_in_graph",
+                True,
+            ),
+        )
+
+    @staticmethod
+    def _filter_missing_gold_evaluation_instances(
+        *,
+        prepared_data: PreparedGnnEvaluationData,
+        enabled: bool,
+    ) -> PreparedGnnEvaluationData:
+        if not enabled:
+            return prepared_data
+        kept_instances = [
+            prepared_instance
+            for prepared_instance in prepared_data.instances
+            if float(prepared_instance.instance.node_labels.sum().item()) > 0
+        ]
+        skipped_count = len(prepared_data.instances) - len(kept_instances)
+        if skipped_count:
+            logger.warning(
+                f"Skipped {skipped_count} evaluation graphs because none of their "
+                "gold answer entities are present in the graph."
+            )
+        return prepared_data.model_copy(
+            update={
+                "instances": kept_instances,
+                "skipped_missing_gold_in_graph_count": skipped_count,
+            }
         )
 
     def _build_cache_handles(

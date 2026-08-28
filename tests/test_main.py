@@ -487,6 +487,43 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(args.main_llm_model, "qwen3-4b-new")
         self.assertEqual(args.reasoning_effort, "none")
 
+    def test_deepseek_model_requires_explicit_provider(self) -> None:
+        with self.assertRaisesRegex(main.PipelineException, "llm-provider deepseek"):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    main_llm_model="deepseek-v4-pro",
+                )
+            )
+
+    def test_private_model_requires_explicit_vezilka_provider(self) -> None:
+        with self.assertRaisesRegex(main.PipelineException, "llm-provider vezilka"):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    main_llm_model="qwen3.8-27b",
+                )
+            )
+
+    def test_openai_model_uses_implicit_openai_provider(self) -> None:
+        resolved = main.PipelineRuntimeConfig(
+            main_llm_model="gpt-5.6-luna",
+            use_default_config_values=True,
+        ).with_defaulted_user_inputs()
+
+        self.assertEqual(resolved.llm_provider, "openai")
+        self.assertEqual(resolved.main_llm_model, "gpt-5.6-luna")
+
+    def test_llm_inference_parallel_calls_flag_is_parsed(self) -> None:
+        args = main.build_parser().parse_args(
+            ["--llm-inference-parallel-calls", "6"]
+        )
+
+        self.assertEqual(args.llm_inference_parallel_calls, 6)
+
+    def test_llm_inference_parallel_calls_defaults_to_one(self) -> None:
+        args = main.build_parser().parse_args([])
+
+        self.assertEqual(args.llm_inference_parallel_calls, 1)
+
     def test_evaluation_log_every_flag_is_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
 
@@ -559,6 +596,28 @@ class MainEntrypointTests(unittest.TestCase):
             self.assertEqual(main.main(["--wandb-upload-retriever"]), 0)
 
         self.assertTrue(captured_configs[-1].wandb_upload_retriever)
+
+    def test_local_graph_profile_flag_defaults_off_and_is_wired(self) -> None:
+        parser = main.build_parser()
+        self.assertFalse(parser.parse_args([]).local_graph_profile)
+        self.assertTrue(
+            parser.parse_args(
+                ["--local-graph-profile"]
+            ).local_graph_profile
+        )
+
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(
+                local_graph_profile=True,
+                no_wandb=True,
+            )
+        )
+        graph_step = next(
+            step
+            for step in pipeline.preparation_steps
+            if isinstance(step, BuildWebQSPLocalGraphsStep)
+        )
+        self.assertTrue(graph_step.profile)
 
     def test_evaluation_embedding_and_profile_flags_are_parsed(self) -> None:
         captured_configs: list[main.PipelineRuntimeConfig] = []
@@ -653,6 +712,51 @@ class MainEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(len(pipeline.evaluation_steps), 8)
         self.assertIsInstance(pipeline.preparation_steps[-1], LogTrainingToWandbStep)
+
+    def test_pipeline_modes_load_only_required_processed_graph_splits(self) -> None:
+        expectations = {
+            "full": (True, True),
+            "train-only": (True, False),
+            "retriever-only": (True, True),
+            "evaluation-only": (False, True),
+            "inference-only": (False, True),
+        }
+        saved_config = SavedGnnAnswerRetrieverConfig(dataset_id="WebQSP")
+        with patch.object(
+            main.GnnAnswerRetrieverModelRunService,
+            "resolve_run",
+            return_value=type("Run", (), {"config": saved_config})(),
+        ), patch.object(
+            main.GnnRetrieverResultsService,
+            "load_model_config",
+            return_value=saved_config,
+        ):
+            for run_mode, expected in expectations.items():
+                with self.subTest(run_mode=run_mode):
+                    pipeline = main.build_pipeline(
+                        config=main.PipelineRuntimeConfig(
+                            run_mode=run_mode,
+                            no_wandb=True,
+                            evaluation_model_run_number=(
+                                1 if run_mode == "evaluation-only" else None
+                            ),
+                            retriever_run_number=(
+                                1 if run_mode == "inference-only" else None
+                            ),
+                        ),
+                    )
+                    graph_step = next(
+                        step
+                        for step in pipeline.preparation_steps
+                        if isinstance(step, BuildWebQSPLocalGraphsStep)
+                    )
+                    self.assertEqual(
+                        (
+                            graph_step.load_train_instances,
+                            graph_step.load_test_instances,
+                        ),
+                        expected,
+                    )
 
     def test_evaluation_log_every_is_wired_into_evaluation_step(self) -> None:
         pipeline = main.build_pipeline(
@@ -865,6 +969,17 @@ class MainEntrypointTests(unittest.TestCase):
         with self.assertRaisesRegex(main.PipelineException, "wandb-training-log-every"):
             main.build_pipeline(
                 config=main.PipelineRuntimeConfig(wandb_training_log_every=-1),
+            )
+
+    def test_non_positive_llm_inference_parallel_calls_fail_early(self) -> None:
+        with self.assertRaisesRegex(
+            main.PipelineException,
+            "llm-inference-parallel-calls",
+        ):
+            main.build_pipeline(
+                config=main.PipelineRuntimeConfig(
+                    llm_inference_parallel_calls=0,
+                ),
             )
 
     def test_evaluation_only_rejects_training_continuation_flags(self) -> None:

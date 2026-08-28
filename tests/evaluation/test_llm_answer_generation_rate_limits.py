@@ -30,44 +30,38 @@ class FakeChatModel:
 
 class CapturingChatOpenAI:
     captured_kwargs = None
+    instance_count = 0
+    invoke_count = 0
+    captured_messages = None
 
     def __init__(self, **kwargs):
         self.__class__.captured_kwargs = kwargs
+        self.__class__.instance_count += 1
 
-
-class FakeVezilkaCompletions:
-    captured_kwargs = None
-
-    def create(self, **kwargs):
-        self.__class__.captured_kwargs = kwargs
-        usage = type(
-            "Usage",
+    def invoke(self, messages):
+        self.__class__.invoke_count += 1
+        self.__class__.captured_messages = messages
+        return type(
+            "LangChainResponse",
             (),
-            {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20},
+            {
+                "content": '{"answer":"A","explanation":"B"}',
+                "usage_metadata": {
+                    "input_tokens": 12,
+                    "output_tokens": 8,
+                    "total_tokens": 20,
+                },
+            },
         )()
-        message = type(
-            "Message",
-            (),
-            {"content": '{"answer":"A","explanation":"B"}'},
-        )()
-        choice = type("Choice", (), {"message": message})()
-        return type("Completion", (), {"choices": [choice], "usage": usage})()
-
-
-class FakeVezilkaChat:
-    def __init__(self):
-        self.completions = FakeVezilkaCompletions()
-
-
-class FakeVezilkaClient:
-    captured_kwargs = None
-
-    def __init__(self, **kwargs):
-        self.__class__.captured_kwargs = kwargs
-        self.chat = FakeVezilkaChat()
 
 
 class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
+    def setUp(self) -> None:
+        CapturingChatOpenAI.captured_kwargs = None
+        CapturingChatOpenAI.instance_count = 0
+        CapturingChatOpenAI.invoke_count = 0
+        CapturingChatOpenAI.captured_messages = None
+
     def test_rate_limit_is_logged_and_retried(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
         chat_model = FakeChatModel()
@@ -101,7 +95,6 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
         model = service._create_chat_model(
             chat_openai_type=CapturingChatOpenAI,
             model_id="deepseek-v4-flash",
-            prompt="question",
             api_key="deepseek-key",
             base_url="https://api.deepseek.com",
         )
@@ -125,7 +118,6 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
         model = service._create_chat_model(
             chat_openai_type=CapturingChatOpenAI,
             model_id="gpt-4.1-nano",
-            prompt="question",
             api_key="openai-key",
         )
 
@@ -142,7 +134,6 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
         service._create_chat_model(
             chat_openai_type=CapturingChatOpenAI,
             model_id="gpt-5-mini",
-            prompt="question",
             api_key="openai-key",
             reasoning_effort="low",
         )
@@ -174,12 +165,12 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
 
         self.assertEqual(cost, 1.305)
 
-    def test_vezilka_uses_free_form_model_and_chat_completions_endpoint(self) -> None:
+    def test_vezilka_uses_chat_openai_with_custom_endpoint(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
         with patch(
             "pipeline.evaluation.services.llm_answer_generation.VEZILKA_API_KEY",
             "vezilka-key",
-        ), patch("openai.OpenAI", FakeVezilkaClient):
+        ), patch("langchain_openai.ChatOpenAI", CapturingChatOpenAI):
             result = service.generate_answer_with_explanation(
                 question="Question?",
                 reasoning_paths_text="<A, relation, B>",
@@ -192,35 +183,48 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
         self.assertEqual(result["total_tokens"], 20)
         self.assertEqual(result["estimated_cost_usd"], 0.0)
         self.assertEqual(
-            FakeVezilkaClient.captured_kwargs["base_url"],
+            CapturingChatOpenAI.captured_kwargs["base_url"],
             "https://vllm.finki.ukim.mk/v1",
         )
         self.assertEqual(
-            FakeVezilkaCompletions.captured_kwargs["model"],
+            CapturingChatOpenAI.captured_kwargs["model"],
             "qwen3-4b-custom",
         )
         self.assertEqual(
-            FakeVezilkaCompletions.captured_kwargs["extra_body"],
-            {"reasoning_effort": "none"},
+            CapturingChatOpenAI.captured_kwargs["reasoning_effort"],
+            "none",
         )
-        self.assertFalse(FakeVezilkaCompletions.captured_kwargs["stream"])
+        self.assertFalse(CapturingChatOpenAI.captured_kwargs["streaming"])
+        self.assertNotIn("max_completion_tokens", CapturingChatOpenAI.captured_kwargs)
+        self.assertFalse(CapturingChatOpenAI.captured_kwargs["use_responses_api"])
         self.assertEqual(
-            FakeVezilkaCompletions.captured_kwargs["messages"][0]["role"],
+            CapturingChatOpenAI.captured_messages[0].type,
             "system",
         )
 
-    def test_vezilka_omits_optional_reasoning_and_always_disables_streaming(self) -> None:
+    def test_vezilka_reuses_chat_model_and_omits_optional_reasoning(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
-        with patch("openai.OpenAI", FakeVezilkaClient):
-            service._invoke_vezilka_chat_completion(
+        with patch(
+            "pipeline.evaluation.services.llm_answer_generation.VEZILKA_API_KEY",
+            "vezilka-key",
+        ), patch("langchain_openai.ChatOpenAI", CapturingChatOpenAI):
+            service.generate_answer_with_explanation(
+                question="Question one?",
+                reasoning_paths_text="paths",
                 model_id="qwen3.8-27b",
-                prompt="question",
-                api_key="vezilka-key",
-                base_url="https://vllm.finki.ukim.mk/v1",
+                provider_id="vezilka",
+            )
+            service.generate_answer_with_explanation(
+                question="Question two?",
+                reasoning_paths_text="paths",
+                model_id="qwen3.8-27b",
+                provider_id="vezilka",
             )
 
-        self.assertNotIn("extra_body", FakeVezilkaCompletions.captured_kwargs)
-        self.assertFalse(FakeVezilkaCompletions.captured_kwargs["stream"])
+        self.assertEqual(CapturingChatOpenAI.instance_count, 1)
+        self.assertEqual(CapturingChatOpenAI.invoke_count, 2)
+        self.assertNotIn("reasoning_effort", CapturingChatOpenAI.captured_kwargs)
+        self.assertFalse(CapturingChatOpenAI.captured_kwargs["streaming"])
 
 
 if __name__ == "__main__":

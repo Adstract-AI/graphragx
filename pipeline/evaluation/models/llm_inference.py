@@ -15,6 +15,7 @@ from pipeline.evaluation.models.path_extraction import (
     ExtractedReasoningPaths,
     GraphTriple,
 )
+from pipeline.preparation.models.webqsp_local_graph import WebQSPProcessedInstance
 
 
 class ReasoningSampleForPrediction(BaseModel):
@@ -28,6 +29,11 @@ class ReasoningSampleForPrediction(BaseModel):
     candidate_scores: CandidateNodeScores = Field(
         ...,
         description="Candidate scores and local graph sample for path extraction.",
+    )
+    graph_instance: WebQSPProcessedInstance | None = Field(
+        default=None,
+        exclude=True,
+        description="In-memory processed graph used by optimized path extraction.",
     )
 
 
@@ -104,6 +110,14 @@ class GeneratedFinalAnswersBatch(StepResult):
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
     reasoning_effort: str | None = Field(default=None)
+    inference_batch_size: int | None = Field(
+        default=None,
+        description="Number of answers persisted together during batched inference.",
+    )
+    inference_parallel_calls: int = Field(
+        default=1,
+        description="Maximum simultaneous LLM API calls used for this run.",
+    )
     items: list[GeneratedAnswerForPrediction] = Field(default_factory=list)
 
     @property
@@ -128,6 +142,8 @@ class SavedLlmInferenceRun(StepResult):
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
     reasoning_effort: str | None = Field(default=None)
+    inference_batch_size: int | None = None
+    inference_parallel_calls: int = 1
     total_instances: int = Field(..., description="Number of instances processed.")
     successful_answers: int = Field(..., description="Number of successful generations.")
     failed_answers: int = Field(..., description="Number of failed generations.")

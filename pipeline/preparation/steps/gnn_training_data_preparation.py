@@ -43,6 +43,7 @@ class PrepareGnnTrainingDataStep(
         self,
         training_max_instances: int | None = None,
         training_start_instance: int = 0,
+        skip_missing_gold_in_graph: bool = True,
         training_device: str = DEFAULT_TRAINING_DEVICE,
         training_embedding_cache_device: Literal[
             "auto", "gpu", "cpu"
@@ -60,6 +61,7 @@ class PrepareGnnTrainingDataStep(
         self.preparation_config = GnnTrainingDataPreparationConfig(
             start_instance=training_start_instance,
             max_instances=training_max_instances,
+            skip_missing_gold_in_graph=skip_missing_gold_in_graph,
             training_device=training_device,
             embedding_cache_device=training_embedding_cache_device,
             embedding_cache_dtype=training_embedding_cache_dtype,

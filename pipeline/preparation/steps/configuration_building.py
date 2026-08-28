@@ -251,9 +251,33 @@ class BuildPipelineConfigurationStep(
                     provided_value=None,
                     architecture_name=architecture.display_name,
                 )
-        inferred_provider = self._infer_llm_provider(
-            self.configuration_input.main_llm_model
-        )
+        requested_model = self.configuration_input.main_llm_model
+        if (
+            self.configuration_input.llm_provider is None
+            and requested_model is not None
+            and (
+                requested_model.startswith("deepseek-")
+                or (
+                    SHARED_LLM_MODELS.get(requested_model) is not None
+                    and SHARED_LLM_MODELS[requested_model].provider_id == "deepseek"
+                )
+            )
+        ):
+            raise InvalidLlmProviderSelectionException(
+                f"Model {requested_model} requires explicit provider selection: "
+                "use llm_provider='deepseek'."
+            )
+        if (
+            self.configuration_input.llm_provider is None
+            and requested_model is not None
+            and requested_model not in SHARED_LLM_MODELS
+        ):
+            raise InvalidMainLlmSelectionException(
+                f"Model {requested_model} is not a configured OpenAI model. "
+                "Privately hosted models require explicit provider selection: "
+                "use llm_provider='vezilka'."
+            )
+        inferred_provider = self._infer_llm_provider(requested_model)
         llm_provider = self.selection_service.resolve_choice(
             provided_value=self.configuration_input.llm_provider or inferred_provider,
             options=LLM_PROVIDERS,
@@ -375,10 +399,9 @@ class BuildPipelineConfigurationStep(
     def _infer_llm_provider(model_id: str | None) -> str | None:
         if model_id is None:
             return None
-        definition = SHARED_LLM_MODELS.get(model_id)
-        # Preserve historical behavior: an unqualified model is interpreted as
-        # OpenAI and therefore still receives normal model validation.
-        return definition.provider_id if definition is not None else "openai"
+        # OpenAI remains the recommended/default provider. Unknown model names
+        # are validated against that provider unless Vezilka is selected.
+        return "openai"
 
     def _provided_embedding_model(self) -> str | None:
         """Resolve the unified model while accepting legacy constructor fields."""

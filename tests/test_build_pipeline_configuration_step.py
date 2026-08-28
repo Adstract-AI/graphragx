@@ -46,6 +46,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         result = step.execute(self.make_dataset_context())
 
         self.assertEqual(result.dataset_id, "WebQSP")
+        self.assertEqual(result.llm_provider, "openai")
         self.assertEqual(result.gnn_architecture, "graphsage")
         self.assertEqual(result.main_llm_model, "gpt-5.4")
         self.assertEqual(result.subgraph_construction_algorithm, "shortest_path")
@@ -56,8 +57,8 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         self.assertEqual(result.relation_embedding_model, "text-embedding-3-small")
         self.assertEqual(result.entity_embedding_model, "text-embedding-3-small")
 
-    def test_gpt_5_mini_and_nano_are_supported_main_llm_models(self) -> None:
-        for model_id in ("gpt-5-mini", "gpt-5-nano"):
+    def test_additional_gpt_5_models_are_supported_main_llm_models(self) -> None:
+        for model_id in ("gpt-5.6-luna", "gpt-5-mini", "gpt-5-nano"):
             with self.subTest(model_id=model_id):
                 step = BuildPipelineConfigurationStep(
                     main_llm_model=model_id,
@@ -79,6 +80,7 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
         for model_id in ("deepseek-v4-flash", "deepseek-v4-pro"):
             with self.subTest(model_id=model_id):
                 step = BuildPipelineConfigurationStep(
+                    llm_provider="deepseek",
                     main_llm_model=model_id,
                     subgraph_algorithm="shortest_path",
                     context_strategy="structured_triples",
@@ -92,7 +94,22 @@ class BuildPipelineConfigurationStepTests(unittest.TestCase):
 
                 result = step.execute(self.make_dataset_context())
 
+                self.assertEqual(result.llm_provider, "deepseek")
                 self.assertEqual(result.main_llm_model, model_id)
+
+    def test_private_model_without_vezilka_provider_is_rejected(self) -> None:
+        step = BuildPipelineConfigurationStep(
+            main_llm_model="qwen3.8-27b",
+            subgraph_algorithm="shortest_path",
+            context_strategy="structured_triples",
+            gnn_layer_count=2,
+            gnn_hidden_dimension=256,
+            node_classifier="mlp",
+            embedding_model="text-embedding-3-small",
+        )
+
+        with self.assertRaisesRegex(Exception, "llm_provider='vezilka'"):
+            step.execute(self.make_dataset_context())
 
     def test_vezilka_accepts_an_arbitrary_model_name(self) -> None:
         step = BuildPipelineConfigurationStep(

@@ -192,7 +192,7 @@ class LogTrainingToWandbStep(
         result = context.result
         if result is None:
             raise PipelineException("Training W&B logging requires a training result.")
-        self.coordinator.ensure_run()
+        self.coordinator.ensure_run(architecture_name=result.gnn_architecture)
         self.coordinator.update_config(
             _build_available_wandb_config(
                 model_config_path=result.model_config_path,
@@ -211,7 +211,12 @@ class LogTrainingToWandbStep(
                 None,
             )
             if callable(log_training_epoch):
-                log_training_epoch(payload)
+                epoch_payload = {
+                    "average_loss": payload["average_loss"],
+                    "epoch": epoch,
+                    "gnn_architecture": result.gnn_architecture,
+                }
+                log_training_epoch(epoch_payload)
             else:
                 self.coordinator.log(
                     {
@@ -283,6 +288,7 @@ class LogRetrieverToWandbStep(
         )
         self.coordinator.ensure_run(
             source_config_path=source_config_path,
+            architecture_name=result.gnn_architecture,
         )
         if not had_active_run and result.wandb_run_id is None:
             self._backfill_training(
@@ -311,6 +317,7 @@ class LogRetrieverToWandbStep(
         if not is_logged_continuation:
             scalar_metrics = WandbFinalResultsLoggingService.build_scalar_metrics(
                 retrieval_metrics={
+                    "evaluated_instances": result.evaluated_instances,
                     "hits_at_1": result.hits_at_1,
                     "hits_at_5": result.hits_at_5,
                     "hits_at_10": result.hits_at_10,
@@ -459,6 +466,21 @@ class LogInferenceToWandbStep(
             project_absolute_path(evaluation_config_value)
             if isinstance(evaluation_config_value, str)
             else None
+        )
+        architecture_name = None
+        if source_config_path is not None:
+            try:
+                source_config = json.loads(
+                    source_config_path.read_text(encoding="utf-8")
+                )
+                architecture_name = source_config.get("gnn_architecture")
+            except (OSError, json.JSONDecodeError):
+                pass
+        self.coordinator.ensure_run(
+            source_config_path=source_config_path,
+            architecture_name=(
+                str(architecture_name) if architecture_name is not None else None
+            ),
         )
         self.coordinator.update_config(
             _build_available_wandb_config(

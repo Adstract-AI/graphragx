@@ -108,6 +108,18 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             }
         ],
     )
+    _write_jsonl(
+        predictions_path,
+        [
+            {
+                "instance_index": 0,
+                "answer_candidates": [
+                    {"node": "Earth"},
+                    {"node": "Mars"},
+                ],
+            }
+        ],
+    )
     results_config_path = results_dir / "results_config.json"
     retrieval_metrics_path = results_dir / "retrieval_metrics.json"
     reasoning_metrics_path = results_dir / "reasoning_metrics.json"
@@ -149,6 +161,7 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
     _write_json(
         retrieval_metrics_path,
         {
+            "evaluated_instances": 1,
             "hits_at_1": 0.5,
             "hits_at_5": 1.0,
             "hits_at_10": 1.0,
@@ -172,6 +185,24 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             "ndcg_at_5": 0.75,
             "ndcg_at_10": 0.75,
             "ndcg_at_candidate_limit": 0.75,
+            "conditioned_evaluated_instances": 20,
+            "retrieval_gold_coverage": 0.8,
+            "retrieval_full_gold_coverage_count": 12,
+            "retrieval_full_gold_coverage_rate": 0.6,
+            "reasoning_context_gold_coverage": 0.7,
+            "reasoning_context_full_gold_coverage_rate": 0.5,
+            "llm_retrieved_gold_utilization": 0.75,
+            "llm_omission_given_full_retrieval_rate": 0.25,
+            "llm_omission_given_full_retrieval_count": 3,
+            "llm_exact_match_given_full_retrieval": 0.7,
+            "llm_omission_given_full_context_rate": 0.2,
+            "llm_exact_match_given_full_context": 0.75,
+            "full_retrieval_complete_answer_rate": 0.4,
+            "full_retrieval_llm_omission_rate": 0.2,
+            "partial_retrieval_fully_utilized_rate": 0.15,
+            "partial_retrieval_underutilized_rate": 0.1,
+            "no_gold_retrieved_no_gold_answered_rate": 0.1,
+            "correct_without_gold_retrieval_rate": 0.05,
         },
     )
     _write_jsonl(
@@ -198,6 +229,12 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
                 "ndcg_at_10": 1.0,
                 "ndcg_at_candidate_limit": 1.0,
                 "answer_error_message": None,
+                "retrieval_gold_coverage": 1.0,
+                "reasoning_context_gold_coverage": 1.0,
+                "llm_retrieved_gold_utilization": 1.0,
+                "retrieval_generation_outcome": (
+                    "full_retrieval_complete_answer"
+                ),
             }
         ],
     )
@@ -243,19 +280,46 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     )
 
     assert scalars["retrieval_hits_at_1"] == 0.5
+    assert scalars["retrieval_evaluated_instances"] == 1
     assert scalars["retrieval_hits_at_candidate_limit"] == 1.0
     assert scalars["answer_f1"] == 2 / 3
     assert scalars["ranking_ndcg_at_10"] == 0.75
+    assert scalars["retrieval_gold_coverage"] == 0.8
+    assert scalars["conditioned_evaluated_instances"] == 20
+    assert scalars["llm_omission_given_full_retrieval_rate"] == 0.25
+    assert scalars["llm_exact_match_given_full_context"] == 0.75
     assert ["answer", "f1", 2 / 3] in aggregate_rows
     assert ["retrieval", "hits_at_1", 0.5] in aggregate_rows
     assert ["retrieval", "hits_at_candidate_limit", 1.0] in aggregate_rows
     assert summary_plot_metrics["Summary_Plots/answer_f1"] == 2 / 3
     assert summary_plot_metrics["Summary_Plots/retrieval_hits_at_1"] == 0.5
+    assert summary_plot_metrics["Summary_Plots/retrieval_evaluated_instances"] == 1
+    assert summary_plot_metrics["Summary_Plots/retrieval_gold_coverage"] == 0.8
+    assert (
+        summary_plot_metrics[
+            "Summary_Plots/llm_omission_given_full_retrieval_rate"
+        ]
+        == 0.25
+    )
     assert (
         summary_plot_metrics["Summary_Plots/retrieval_hits_at_candidate_limit"]
         == 1.0
     )
     assert run_summary_metrics["Run_Summary/retrieval_hits_at_1"] == 0.5
+    assert run_summary_metrics["Run_Summary/retrieval_evaluated_instances"] == 1
+    assert run_summary_metrics["Run_Summary/retrieval_gold_coverage"] == 0.8
+    assert run_summary_metrics["Run_Summary/conditioned_evaluated_instances"] == 20
+    assert run_summary_metrics["Run_Summary/retrieval_full_gold_coverage_count"] == 12
+    assert (
+        run_summary_metrics[
+            "Run_Summary/llm_omission_given_full_retrieval_rate"
+        ]
+        == 0.25
+    )
+    assert (
+        run_summary_metrics["Run_Summary/llm_exact_match_given_full_context"]
+        == 0.75
+    )
     assert "Run_Summary/retrieval_hits_at_5" not in run_summary_metrics
     assert run_summary_metrics["Run_Summary/retrieval_hits_at_10"] == 1.0
     assert (
@@ -275,6 +339,11 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert table_rows[0][3] == "Earth"
     assert table_rows[0][4] == "Earth"
     assert table_rows[0][5] == "Moon -> orbits -> Earth"
+    assert table_rows[0][-5] == 1.0
+    assert table_rows[0][-4] == 1.0
+    assert table_rows[0][-3] == 1.0
+    assert table_rows[0][-2] == "full_retrieval_complete_answer"
+    assert table_rows[0][-1] == "Earth, Mars"
     assert set(wandb_config) == {
         "configs",
         "dataset_id",
@@ -385,7 +454,7 @@ def test_wandb_logging_success_with_fake_module(
     assert captured["init"]["project"] == "project"
     assert captured["init"]["entity"] == "entity"
     assert captured["init"]["mode"] == "disabled"
-    assert captured["init"]["name"] == "1_test"
+    assert captured["init"]["name"] == "1_test_graphsage"
     assert captured["init"]["config"]["runs"]["model"]["number"] == 7
     assert captured["init"]["config"]["configs"]["model"]["training"]["epochs"] == 3
     assert "model_run_number:7" in captured["init"]["tags"]
@@ -508,12 +577,15 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
     ).execute_default(StepContext(result=final_result))
 
     payload = coordinator.logged[0]
-    assert not any(key.startswith("Run_Summary/retrieval_") for key in payload)
+    assert "Run_Summary/retrieval_hits_at_1" not in payload
+    assert "Run_Summary/retrieval_hits_at_10" not in payload
+    assert payload["Run_Summary/retrieval_gold_coverage"] == 0.8
     assert payload["Run_Summary/answer_hit_rate"] == 0.5
     assert payload["Run_Summary/answer_f1"] == 2 / 3
     assert payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
     assert payload["Run_Summary/grounded_explanation_rate"] == 0.5
-    assert not any(key.startswith("Summary_Plots/retrieval_") for key in payload)
+    assert "Summary_Plots/retrieval_hits_at_1" not in payload
+    assert payload["Summary_Plots/retrieval_gold_coverage"] == 0.8
     assert payload["Summary_Plots/answer_accuracy"] == 0.5
     assert payload["Summary_Plots/answer_f1"] == 2 / 3
     assert payload["Summary_Plots/grounding_fully_grounded_explanation_rate"] == 0.5
