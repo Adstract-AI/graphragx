@@ -74,11 +74,11 @@ def test_pcst_maps_selected_solver_edges_to_original_directed_triples() -> None:
 
     assert captured["edges"].shape == (3, 2)
     assert captured["edges"].tolist() == [[0, 1], [1, 2], [1, 3]]
-    assert captured["root"] == -1
+    assert captured["root"] == 0
     assert captured["clusters"] == 1
     assert captured["pruning"] == "gw"
     assert captured["verbosity"] == 0
-    assert captured["prizes"].tolist() == [7.0, 0.0, 2.0, 1.0]
+    assert captured["prizes"].tolist() == [0.0, 0.0, 2.0, 1.0]
     assert [triple.model_dump() for triple in result.reasoning_subgraph_triples] == [
         {"source": "seed", "relation": "r.parallel", "target": "connector"},
         {"source": "connector", "relation": "r.answer_a", "target": "answer_a"},
@@ -123,7 +123,7 @@ def test_multiple_seeds_use_virtual_root_and_mandatory_seed_prizes() -> None:
         edge_cost_lambda=1.0,
     )
 
-    assert captured["root"] == -1
+    assert captured["root"] == len(instance.nodes)
     assert captured["edges"][-2:].tolist() == [[4, 0], [4, 1]]
     assert captured["costs"][-2:].tolist() == [0.0, 0.0]
     assert captured["prizes"][0] > 3.0
@@ -161,7 +161,7 @@ def test_real_solver_can_drop_candidate_when_path_cost_exceeds_prize() -> None:
     assert result.construction.empty_result_reason == "root_only_solution"
 
 
-def test_forced_root_solution_rejects_missing_root() -> None:
+def test_rooted_solution_rejects_missing_root() -> None:
     def solver(*_):
         return np.array([2]), np.array([])
 
@@ -177,7 +177,7 @@ def test_forced_root_solution_rejects_missing_root() -> None:
         )
 
 
-def test_forced_root_solution_rejects_disconnected_vertices() -> None:
+def test_rooted_solution_rejects_disconnected_vertices() -> None:
     def solver(*_):
         return np.array([0, 1, 2]), np.array([1])
 

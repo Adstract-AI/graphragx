@@ -152,24 +152,12 @@ class PcstEvidenceSubgraphService(AbstractService):
                 solver_edges.append((root, seed))
                 solver_edge_costs.append(0.0)
 
-        # Reduce rooted PCST to a one-cluster unrooted problem. A dominating
-        # root prize makes every better solution contain the requested root,
-        # while avoiding architecture-dependent rooted-mode output observed in
-        # pcst-fast. Multi-seed synthetic links remain zero-cost and mandatory
-        # seed prizes ensure every valid question entity joins the root cluster.
-        root_prize = (
-            float(prizes.sum() - prizes[root])
-            + float(sum(solver_edge_costs))
-            + 1.0
-        )
-        prizes[root] += root_prize
-
         try:
             selected_vertices, selected_edges = self._resolve_solver()(
                 np.asarray(solver_edges, dtype=np.int64),
                 prizes,
                 np.asarray(solver_edge_costs, dtype=np.float64),
-                -1,
+                root,
                 1,
                 "gw",
                 0,
@@ -192,7 +180,7 @@ class PcstEvidenceSubgraphService(AbstractService):
 
         if root not in reported_vertex_ids:
             raise ShortestPathExtractionException(
-                "PCST forced-root solution does not contain its required root."
+                "PCST rooted solution does not contain its required root."
             )
         selected_vertex_ids = set(reported_vertex_ids)
         selected_adjacency: dict[int, set[int]] = {}
@@ -216,7 +204,7 @@ class PcstEvidenceSubgraphService(AbstractService):
 
         if not selected_vertex_ids.issubset(reachable_selected):
             raise ShortestPathExtractionException(
-                "PCST forced-root solution is not a single connected tree."
+                "PCST rooted solution is not a single connected tree."
             )
 
         selected_original_solver_edge_ids = sorted(
