@@ -4,7 +4,7 @@ datasets
 torch
 transformers>=4.57,<5
 langchain-openai
-numpy
+numpy>=1.26,<2
 openai
 pcst-fast==1.0.10
 python-dotenv

@@ -634,6 +634,14 @@ class PcstEvidenceSubgraphService(AbstractService):
     def _resolve_solver(self):
         if self._solver is not None:
             return self._solver
+        numpy_major = int(np.__version__.split(".", maxsplit=1)[0])
+        if numpy_major >= 2:
+            raise ShortestPathExtractionException(
+                "PCST evidence construction requires NumPy >=1.26,<2 because "
+                "pcst-fast 1.0.10 corrupts returned node and edge arrays with "
+                f"NumPy {np.__version__} on Linux AMD64. Reinstall the project "
+                "dependencies before rerunning."
+            )
         try:
             from pcst_fast import pcst_fast
         except ModuleNotFoundError as error:

@@ -249,6 +249,9 @@ The local Conda environment can install the compiled PCST dependency with isolat
 conda run -n data-science python -m pip install --use-pep517 -r requirements.txt
 ```
 
+The requirements intentionally pin `numpy>=1.26,<2`: `pcst-fast==1.0.10`
+returns corrupted node and edge arrays with NumPy 2 on Linux AMD64.
+
 ### LLM Inference And Results
 
 OpenAI is the default LLM provider when `--llm-provider` is omitted. DeepSeek and Vezilka models require an explicit provider selection. Vezilka uses the OpenAI-compatible chat-completions endpoint at `https://vllm.finki.ukim.mk/v1/chat/completions`. Streaming is always disabled. Set `VEZILKA_API_KEY`, then pass any currently hosted model name. `reasoning_effort` is omitted by default; add `--reasoning-effort none` (or another provider-supported value) when desired. The same flag is passed to OpenAI and DeepSeek models:

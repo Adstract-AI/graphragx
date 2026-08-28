@@ -6,6 +6,7 @@ import json
 import numpy as np
 import pytest
 import torch
+from unittest.mock import patch
 
 from pipeline.evaluation.models import CandidateNodeScore, EvaluationSample
 from pipeline.evaluation.exceptions import ShortestPathExtractionException
@@ -228,3 +229,10 @@ def test_debug_profile_saves_replayable_failure_snapshot(tmp_path) -> None:
     assert snapshot["instance"]["collapsed_or_removed_edge_count"] == 1
     assert snapshot["solver_output"]["selected_vertices"] == [2]
     assert snapshot["configuration"]["rooted_solver"] is True
+
+
+def test_native_solver_rejects_numpy_two_before_importing_pcst_fast() -> None:
+    service = PcstEvidenceSubgraphService()
+    with patch.object(np, "__version__", "2.4.6"):
+        with pytest.raises(ShortestPathExtractionException, match="NumPy >=1.26,<2"):
+            service._resolve_solver()
