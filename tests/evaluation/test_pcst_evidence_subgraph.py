@@ -200,3 +200,22 @@ def test_solver_reported_vertices_outside_pruned_tree_are_ignored() -> None:
         "answer_b" not in (triple.source, triple.target)
         for triple in result.reasoning_subgraph_triples
     )
+
+
+def test_solver_edges_outside_rooted_component_are_discarded() -> None:
+    def solver(*_):
+        # The answer_a edge is disconnected because the seed-to-connector edge
+        # is absent from the selected forest.
+        return np.array([0, 1, 2]), np.array([0])
+
+    result = PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
+        instance=_instance(),
+        sample=_sample(),
+        candidates=[CandidateNodeScore(node_id="answer_a", local_node_id=2, score=0.9)],
+        edge_cost_strategy="constant",
+        edge_cost_lambda=1.0,
+    )
+
+    assert result.reasoning_subgraph_triples == []
+    assert result.construction.selected_candidate_count == 0
+    assert result.construction.empty_result_reason == "root_only_solution"

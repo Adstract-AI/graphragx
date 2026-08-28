@@ -176,10 +176,24 @@ class PcstEvidenceSubgraphService(AbstractService):
                 if neighbor not in reachable_selected:
                     reachable_selected.add(neighbor)
                     selected_queue.append(neighbor)
-        if not selected_vertex_ids.issubset(reachable_selected):
-            raise ShortestPathExtractionException(
-                "PCST solver returned edges disconnected from the selected root."
+
+        root_connected_edge_ids = [
+            edge_index
+            for edge_index in selected_edge_ids
+            if all(
+                endpoint in reachable_selected
+                for endpoint in solver_edges[edge_index]
             )
+        ]
+        discarded_edge_count = len(selected_edge_ids) - len(root_connected_edge_ids)
+        if discarded_edge_count:
+            logger.warning(
+                "PCST solver returned disconnected edge components; retaining only "
+                f"the rooted component: discarded_edges={discarded_edge_count} "
+                f"question={sample.question!r}"
+            )
+        selected_edge_ids = root_connected_edge_ids
+        selected_vertex_ids = reachable_selected
 
         selected_original_edge_ids = sorted(
             index for index in selected_edge_ids if index < synthetic_edge_start
