@@ -155,14 +155,13 @@ class PcstEvidenceSubgraphService(AbstractService):
                 "PCST solver returned an edge index outside the input graph."
             )
 
-        # pcst-fast's selected-edge array is authoritative. Some valid rooted
-        # outputs (notably root-only solutions in builds used on remote hosts)
-        # omit the zero-prize root or connector endpoints from selected_vertices.
-        # An endpoint of a selected edge is selected by definition, and the root
-        # is implicit in rooted mode, so canonicalize the vertex set before
-        # validating connectivity.
-        selected_vertex_ids = set(reported_vertex_ids)
-        selected_vertex_ids.add(root)
+        # pcst-fast's selected-edge array is authoritative. Depending on the
+        # native build and pruning result, selected_vertices may omit implicit
+        # root/connectors or retain isolated growth-phase vertices that are not
+        # part of the final pruned tree. Build the evidence vertex set strictly
+        # from the root and selected-edge endpoints. Reported vertices are still
+        # range-checked above, but do not define evidence membership.
+        selected_vertex_ids = {root}
         selected_adjacency: dict[int, set[int]] = {}
         for edge_index in selected_edge_ids:
             source, target = solver_edges[edge_index]
@@ -179,7 +178,7 @@ class PcstEvidenceSubgraphService(AbstractService):
                     selected_queue.append(neighbor)
         if not selected_vertex_ids.issubset(reachable_selected):
             raise ShortestPathExtractionException(
-                "PCST solver returned vertices disconnected from the selected root."
+                "PCST solver returned edges disconnected from the selected root."
             )
 
         selected_original_edge_ids = sorted(

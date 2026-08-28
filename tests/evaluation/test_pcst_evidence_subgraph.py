@@ -178,3 +178,25 @@ def test_solver_may_omit_implicit_root_and_selected_edge_endpoints() -> None:
         {"source": "seed", "relation": "r.seed", "target": "connector"},
     ]
     assert result.construction.selected_candidate_count == 1
+
+
+def test_solver_reported_vertices_outside_pruned_tree_are_ignored() -> None:
+    def solver(*_):
+        # answer_b is reported as selected but has no edge in the final rooted
+        # tree. It is solver bookkeeping, not evidence visible to the LLM.
+        return np.array([0, 1, 2, 3]), np.array([0, 3])
+
+    result = PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
+        instance=_instance(),
+        sample=_sample(),
+        candidates=_candidates(),
+        edge_cost_strategy="constant",
+        edge_cost_lambda=1.0,
+    )
+
+    assert result.construction.selected_candidate_count == 1
+    assert result.construction.selected_candidate_ranks == [1]
+    assert all(
+        "answer_b" not in (triple.source, triple.target)
+        for triple in result.reasoning_subgraph_triples
+    )
