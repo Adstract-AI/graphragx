@@ -307,19 +307,15 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     )
     assert run_summary_metrics["Run_Summary/retrieval_hits_at_1"] == 0.5
     assert run_summary_metrics["Run_Summary/retrieval_evaluated_instances"] == 1
-    assert run_summary_metrics["Run_Summary/retrieval_gold_coverage"] == 0.8
-    assert run_summary_metrics["Run_Summary/conditioned_evaluated_instances"] == 20
-    assert run_summary_metrics["Run_Summary/retrieval_full_gold_coverage_count"] == 12
-    assert (
-        run_summary_metrics[
-            "Run_Summary/llm_omission_given_full_retrieval_rate"
-        ]
-        == 0.25
-    )
-    assert (
-        run_summary_metrics["Run_Summary/llm_exact_match_given_full_context"]
-        == 0.75
-    )
+    assert "Run_Summary/retrieval_gold_coverage" not in run_summary_metrics
+    assert "Run_Summary/conditioned_evaluated_instances" not in run_summary_metrics
+    assert "Run_Summary/llm_omission_given_full_retrieval_rate" not in run_summary_metrics
+    assert run_summary_metrics["Run_Summary/full_retrieval_complete_answer"] == 0.4
+    assert run_summary_metrics["Run_Summary/full_retrieval_llm_omission"] == 0.2
+    assert run_summary_metrics["Run_Summary/partial_retrieval_fully_utilized"] == 0.15
+    assert run_summary_metrics["Run_Summary/partial_retrieval_underutilized"] == 0.1
+    assert run_summary_metrics["Run_Summary/no_gold_retrieved_no_gold_answered"] == 0.1
+    assert run_summary_metrics["Run_Summary/correct_without_gold_retrieval"] == 0.05
     assert "Run_Summary/retrieval_hits_at_5" not in run_summary_metrics
     assert run_summary_metrics["Run_Summary/retrieval_hits_at_10"] == 1.0
     assert (
@@ -579,7 +575,8 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
     payload = coordinator.logged[0]
     assert "Run_Summary/retrieval_hits_at_1" not in payload
     assert "Run_Summary/retrieval_hits_at_10" not in payload
-    assert payload["Run_Summary/retrieval_gold_coverage"] == 0.8
+    assert "Run_Summary/retrieval_gold_coverage" not in payload
+    assert payload["Run_Summary/full_retrieval_complete_answer"] == 0.4
     assert payload["Run_Summary/answer_hit_rate"] == 0.5
     assert payload["Run_Summary/answer_f1"] == 2 / 3
     assert payload["Run_Summary/ranking_ndcg_at_10"] == 0.75

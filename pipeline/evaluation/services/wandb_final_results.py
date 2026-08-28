@@ -317,7 +317,26 @@ class WandbFinalResultsLoggingService(AbstractService):
             "grounding_grounded_explanation_rate": "grounded_explanation_rate",
         }
         run_summary_keys.update(
-            {key: key for key in cls.retrieval_conditioned_metric_keys}
+            {
+                "full_retrieval_complete_answer_rate": (
+                    "full_retrieval_complete_answer"
+                ),
+                "full_retrieval_llm_omission_rate": (
+                    "full_retrieval_llm_omission"
+                ),
+                "partial_retrieval_fully_utilized_rate": (
+                    "partial_retrieval_fully_utilized"
+                ),
+                "partial_retrieval_underutilized_rate": (
+                    "partial_retrieval_underutilized"
+                ),
+                "no_gold_retrieved_no_gold_answered_rate": (
+                    "no_gold_retrieved_no_gold_answered"
+                ),
+                "correct_without_gold_retrieval_rate": (
+                    "correct_without_gold_retrieval"
+                ),
+            }
         )
         return {
             f"{cls.run_summary_prefix}/{target_key}": scalar_metrics[source_key]
