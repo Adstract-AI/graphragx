@@ -1185,11 +1185,28 @@ class PcstCliTests(unittest.TestCase):
                 "semantic",
                 "--pcst-edge-cost",
                 "0.5",
+                "--pcst-debug-profile",
             ]
         )
         self.assertEqual(args.subgraph_algorithm, "pcst")
         self.assertEqual(args.pcst_edge_cost_strategy, "semantic")
         self.assertEqual(args.pcst_edge_cost, 0.5)
+        self.assertTrue(args.pcst_debug_profile)
+
+        pipeline = main.build_pipeline(
+            main.PipelineRuntimeConfig(
+                subgraph_algorithm="pcst",
+                pcst_debug_profile=True,
+                no_wandb=True,
+                use_default_config_values=True,
+            )
+        )
+        evidence_step = next(
+            step
+            for step in pipeline.evaluation_steps
+            if isinstance(step, ExtractShortestPathsBatchStep)
+        )
+        self.assertTrue(evidence_step.pcst_debug_profile)
 
     def test_default_pcst_configuration_uses_constant_cost(self) -> None:
         resolved = main.PipelineRuntimeConfig(

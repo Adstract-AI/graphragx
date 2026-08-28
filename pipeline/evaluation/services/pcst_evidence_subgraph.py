@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from collections import deque
+from importlib import metadata
+import json
 import math
+from pathlib import Path
+import platform
+import sys
 import time
-from typing import Any
+from typing import Any, NoReturn
 
 import numpy as np
 
@@ -47,6 +52,8 @@ class PcstEvidenceSubgraphService(AbstractService):
         semantic_embedding_model: str | None = None,
         question_embedding: np.ndarray | None = None,
         relation_embeddings: dict[str, np.ndarray] | None = None,
+        debug_directory: Path | None = None,
+        instance_index: int | None = None,
     ) -> ExtractedReasoningPaths:
         """Solve rooted PCST and return the common evidence result model."""
         started_at = time.perf_counter()
@@ -170,26 +177,98 @@ class PcstEvidenceSubgraphService(AbstractService):
         reported_vertex_ids = {int(value) for value in selected_vertices}
         selected_edge_ids = [int(value) for value in selected_edges]
         if any(index < 0 or index >= len(prizes) for index in reported_vertex_ids):
-            raise ShortestPathExtractionException(
-                "PCST solver returned a vertex index outside the input graph."
+            self._raise_solver_output_error(
+                "PCST solver returned a vertex index outside the input graph.",
+                debug_directory=debug_directory,
+                instance_index=instance_index,
+                instance=instance,
+                sample=sample,
+                candidates=candidates,
+                valid_candidates=valid_candidates,
+                edge_cost_strategy=edge_cost_strategy,
+                edge_cost_lambda=edge_cost_lambda,
+                records=records,
+                record_edge_costs=edge_costs,
+                solver_edges=solver_edges,
+                solver_edge_costs=solver_edge_costs,
+                solver_record_indices=solver_record_indices,
+                synthetic_edge_start=synthetic_edge_start,
+                prizes=prizes,
+                root=root,
+                selected_vertices=selected_vertices,
+                selected_edges=selected_edges,
             )
         if any(index < 0 or index >= len(solver_edges) for index in selected_edge_ids):
-            raise ShortestPathExtractionException(
-                "PCST solver returned an edge index outside the input graph."
+            self._raise_solver_output_error(
+                "PCST solver returned an edge index outside the input graph.",
+                debug_directory=debug_directory,
+                instance_index=instance_index,
+                instance=instance,
+                sample=sample,
+                candidates=candidates,
+                valid_candidates=valid_candidates,
+                edge_cost_strategy=edge_cost_strategy,
+                edge_cost_lambda=edge_cost_lambda,
+                records=records,
+                record_edge_costs=edge_costs,
+                solver_edges=solver_edges,
+                solver_edge_costs=solver_edge_costs,
+                solver_record_indices=solver_record_indices,
+                synthetic_edge_start=synthetic_edge_start,
+                prizes=prizes,
+                root=root,
+                selected_vertices=selected_vertices,
+                selected_edges=selected_edges,
             )
 
         if root not in reported_vertex_ids:
-            raise ShortestPathExtractionException(
-                "PCST rooted solution does not contain its required root."
+            self._raise_solver_output_error(
+                "PCST rooted solution does not contain its required root.",
+                debug_directory=debug_directory,
+                instance_index=instance_index,
+                instance=instance,
+                sample=sample,
+                candidates=candidates,
+                valid_candidates=valid_candidates,
+                edge_cost_strategy=edge_cost_strategy,
+                edge_cost_lambda=edge_cost_lambda,
+                records=records,
+                record_edge_costs=edge_costs,
+                solver_edges=solver_edges,
+                solver_edge_costs=solver_edge_costs,
+                solver_record_indices=solver_record_indices,
+                synthetic_edge_start=synthetic_edge_start,
+                prizes=prizes,
+                root=root,
+                selected_vertices=selected_vertices,
+                selected_edges=selected_edges,
             )
         selected_vertex_ids = set(reported_vertex_ids)
         selected_adjacency: dict[int, set[int]] = {}
         for edge_index in selected_edge_ids:
             source, target = solver_edges[edge_index]
             if source not in selected_vertex_ids or target not in selected_vertex_ids:
-                raise ShortestPathExtractionException(
+                self._raise_solver_output_error(
                     "PCST solver selected an edge whose endpoint is absent from "
-                    "the selected vertices."
+                    "the selected vertices.",
+                    debug_directory=debug_directory,
+                    instance_index=instance_index,
+                    instance=instance,
+                    sample=sample,
+                    candidates=candidates,
+                    valid_candidates=valid_candidates,
+                    edge_cost_strategy=edge_cost_strategy,
+                    edge_cost_lambda=edge_cost_lambda,
+                    records=records,
+                    record_edge_costs=edge_costs,
+                    solver_edges=solver_edges,
+                    solver_edge_costs=solver_edge_costs,
+                    solver_record_indices=solver_record_indices,
+                    synthetic_edge_start=synthetic_edge_start,
+                    prizes=prizes,
+                    root=root,
+                    selected_vertices=selected_vertices,
+                    selected_edges=selected_edges,
                 )
             selected_adjacency.setdefault(source, set()).add(target)
             selected_adjacency.setdefault(target, set()).add(source)
@@ -203,8 +282,26 @@ class PcstEvidenceSubgraphService(AbstractService):
                     selected_queue.append(neighbor)
 
         if not selected_vertex_ids.issubset(reachable_selected):
-            raise ShortestPathExtractionException(
-                "PCST rooted solution is not a single connected tree."
+            self._raise_solver_output_error(
+                "PCST rooted solution is not a single connected tree.",
+                debug_directory=debug_directory,
+                instance_index=instance_index,
+                instance=instance,
+                sample=sample,
+                candidates=candidates,
+                valid_candidates=valid_candidates,
+                edge_cost_strategy=edge_cost_strategy,
+                edge_cost_lambda=edge_cost_lambda,
+                records=records,
+                record_edge_costs=edge_costs,
+                solver_edges=solver_edges,
+                solver_edge_costs=solver_edge_costs,
+                solver_record_indices=solver_record_indices,
+                synthetic_edge_start=synthetic_edge_start,
+                prizes=prizes,
+                root=root,
+                selected_vertices=selected_vertices,
+                selected_edges=selected_edges,
             )
 
         selected_original_solver_edge_ids = sorted(
@@ -283,6 +380,256 @@ class PcstEvidenceSubgraphService(AbstractService):
             missing_paths=len(candidates) - len(selected_candidates),
             construction=construction,
         )
+
+    def _raise_solver_output_error(
+        self,
+        message: str,
+        *,
+        debug_directory: Path | None,
+        instance_index: int | None,
+        instance: WebQSPProcessedInstance,
+        sample: EvaluationSample,
+        candidates: list[CandidateNodeScore],
+        valid_candidates: list[tuple[int, int, CandidateNodeScore]],
+        edge_cost_strategy: str,
+        edge_cost_lambda: float,
+        records: list[tuple[int, str, int]],
+        record_edge_costs: list[float],
+        solver_edges: list[tuple[int, int]],
+        solver_edge_costs: list[float],
+        solver_record_indices: list[int],
+        synthetic_edge_start: int,
+        prizes: np.ndarray,
+        root: int,
+        selected_vertices: Any,
+        selected_edges: Any,
+    ) -> NoReturn:
+        diagnostic_path = None
+        if debug_directory is not None:
+            try:
+                diagnostic_path = self._write_debug_snapshot(
+                    debug_directory=debug_directory,
+                    instance_index=instance_index,
+                    error_message=message,
+                    instance=instance,
+                    sample=sample,
+                    candidates=candidates,
+                    valid_candidates=valid_candidates,
+                    edge_cost_strategy=edge_cost_strategy,
+                    edge_cost_lambda=edge_cost_lambda,
+                    records=records,
+                    record_edge_costs=record_edge_costs,
+                    solver_edges=solver_edges,
+                    solver_edge_costs=solver_edge_costs,
+                    solver_record_indices=solver_record_indices,
+                    synthetic_edge_start=synthetic_edge_start,
+                    prizes=prizes,
+                    root=root,
+                    selected_vertices=selected_vertices,
+                    selected_edges=selected_edges,
+                )
+            except Exception as diagnostic_error:
+                logger.exception(
+                    "Could not save PCST debug profile: "
+                    f"error={diagnostic_error}"
+                )
+        suffix = (
+            f" Debug profile: {diagnostic_path}." if diagnostic_path else ""
+        )
+        raise ShortestPathExtractionException(f"{message}{suffix}")
+
+    @classmethod
+    def _write_debug_snapshot(
+        cls,
+        *,
+        debug_directory: Path,
+        instance_index: int | None,
+        error_message: str,
+        instance: WebQSPProcessedInstance,
+        sample: EvaluationSample,
+        candidates: list[CandidateNodeScore],
+        valid_candidates: list[tuple[int, int, CandidateNodeScore]],
+        edge_cost_strategy: str,
+        edge_cost_lambda: float,
+        records: list[tuple[int, str, int]],
+        record_edge_costs: list[float],
+        solver_edges: list[tuple[int, int]],
+        solver_edge_costs: list[float],
+        solver_record_indices: list[int],
+        synthetic_edge_start: int,
+        prizes: np.ndarray,
+        root: int,
+        selected_vertices: Any,
+        selected_edges: Any,
+    ) -> Path:
+        """Persist enough state to replay one malformed native solver result."""
+        debug_directory.mkdir(parents=True, exist_ok=True)
+        selected_vertex_ids = [int(value) for value in selected_vertices]
+        selected_edge_ids = [int(value) for value in selected_edges]
+        valid_selected_edges = [
+            index for index in selected_edge_ids if 0 <= index < len(solver_edges)
+        ]
+        components = cls._solver_components(
+            solver_edges=solver_edges,
+            selected_edge_ids=valid_selected_edges,
+            selected_vertex_ids=selected_vertex_ids,
+        )
+
+        def node_name(node_id: int) -> str:
+            if 0 <= node_id < len(instance.nodes):
+                return instance.nodes[node_id]
+            if node_id == len(instance.nodes):
+                return "__synthetic_root__"
+            return "__invalid_node__"
+
+        solver_edge_rows = []
+        for edge_index, ((source, target), cost) in enumerate(
+            zip(solver_edges, solver_edge_costs, strict=True)
+        ):
+            record_index = (
+                solver_record_indices[edge_index]
+                if edge_index < synthetic_edge_start
+                else None
+            )
+            relation = records[record_index][1] if record_index is not None else None
+            solver_edge_rows.append(
+                {
+                    "edge_index": edge_index,
+                    "source_id": source,
+                    "source": node_name(source),
+                    "target_id": target,
+                    "target": node_name(target),
+                    "cost": float(cost),
+                    "record_index": record_index,
+                    "relation": relation,
+                    "selected": edge_index in selected_edge_ids,
+                }
+            )
+
+        try:
+            pcst_fast_version = metadata.version("pcst-fast")
+        except metadata.PackageNotFoundError:
+            pcst_fast_version = "unknown"
+        reverse_edge_count = sum(
+            relation.startswith("reverse__")
+            for relation in instance.edge_relations
+        )
+        self_loop_count = sum(source == target for source, _, target in records)
+        payload = {
+            "schema_version": 1,
+            "error": error_message,
+            "environment": {
+                "platform": platform.platform(),
+                "machine": platform.machine(),
+                "python": sys.version,
+                "numpy": np.__version__,
+                "pcst_fast": pcst_fast_version,
+            },
+            "instance": {
+                "instance_index": instance_index,
+                "question": sample.question,
+                "question_entities": sample.q_entities,
+                "gold_entities": sample.a_entities,
+                "node_count": len(instance.nodes),
+                "raw_edge_count": int(instance.edge_index.shape[1]),
+                "reverse_edge_count": reverse_edge_count,
+                "original_record_count": len(records),
+                "self_loop_count": self_loop_count,
+                "structural_edge_count": synthetic_edge_start,
+                "collapsed_or_removed_edge_count": (
+                    len(records) - self_loop_count - synthetic_edge_start
+                ),
+            },
+            "configuration": {
+                "edge_cost_strategy": edge_cost_strategy,
+                "edge_cost_lambda": edge_cost_lambda,
+                "rooted_solver": True,
+                "num_clusters": 1,
+                "pruning": "gw",
+                "verbosity": 0,
+            },
+            "root": {
+                "node_id": root,
+                "node": node_name(root),
+                "reported_selected": root in selected_vertex_ids,
+            },
+            "nodes": [
+                {
+                    "node_id": node_id,
+                    "node": node_name(node_id),
+                    "prize": float(prize),
+                }
+                for node_id, prize in enumerate(prizes.tolist())
+            ],
+            "candidates": [candidate.model_dump(mode="json") for candidate in candidates],
+            "valid_candidates": [
+                {
+                    "original_rank": rank,
+                    "node_id": node_id,
+                    "node": node_name(node_id),
+                    "candidate": candidate.model_dump(mode="json"),
+                }
+                for rank, node_id, candidate in valid_candidates
+            ],
+            "original_records": [
+                {
+                    "record_index": index,
+                    "source_id": source,
+                    "source": node_name(source),
+                    "relation": relation,
+                    "target_id": target,
+                    "target": node_name(target),
+                    "cost": float(record_edge_costs[index]),
+                }
+                for index, (source, relation, target) in enumerate(records)
+            ],
+            "solver_edges": solver_edge_rows,
+            "solver_output": {
+                "selected_vertices": selected_vertex_ids,
+                "selected_edges": selected_edge_ids,
+                "components": components,
+            },
+        }
+        filename_index = "unknown" if instance_index is None else str(instance_index)
+        destination = debug_directory / f"instance_{filename_index}_failure.json"
+        temporary = destination.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        temporary.replace(destination)
+        logger.error(f"Saved PCST debug profile: path={destination}")
+        return destination
+
+    @staticmethod
+    def _solver_components(
+        *,
+        solver_edges: list[tuple[int, int]],
+        selected_edge_ids: list[int],
+        selected_vertex_ids: list[int],
+    ) -> list[list[int]]:
+        adjacency: dict[int, set[int]] = {
+            node_id: set() for node_id in selected_vertex_ids
+        }
+        for edge_index in selected_edge_ids:
+            source, target = solver_edges[edge_index]
+            adjacency.setdefault(source, set()).add(target)
+            adjacency.setdefault(target, set()).add(source)
+        components = []
+        remaining = set(adjacency)
+        while remaining:
+            start = min(remaining)
+            component = {start}
+            queue = deque([start])
+            while queue:
+                node = queue.popleft()
+                for neighbor in adjacency.get(node, set()):
+                    if neighbor not in component:
+                        component.add(neighbor)
+                        queue.append(neighbor)
+            remaining.difference_update(component)
+            components.append(sorted(component))
+        return components
 
     def _resolve_solver(self):
         if self._solver is not None:

@@ -146,6 +146,7 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | `--llm-provider {openai,deepseek,vezilka}` | LLM provider used for final answer generation. Default: `openai`. |
 | `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. For Vezilka this is free-form and is passed unchanged to the endpoint. |
 | `--subgraph-algorithm {shortest_path,pcst}` | Evidence-subgraph construction algorithm. Default: `shortest_path`. |
+| `--pcst-debug-profile` | Save a replayable JSON diagnostic if PCST returns an invalid rooted solution. |
 | `--pcst-edge-cost-strategy {constant,semantic}` | PCST edge costs: a constant lambda or cosine-derived question/relation distance. Default: `constant`. |
 | `--pcst-edge-cost FLOAT` | Positive PCST lambda used directly for constant costs and as the semantic distance scale. Default: `1.0`. |
 | `--context-strategy CONTEXT_STRATEGY` | How the reasoning subgraph is represented for the LLM. The current supported option is `structured_triples`. |

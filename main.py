@@ -202,6 +202,7 @@ class PipelineRuntimeConfig(BaseModel):
     subgraph_algorithm: str | None = None
     pcst_edge_cost_strategy: str | None = None
     pcst_edge_cost: float | None = None
+    pcst_debug_profile: bool = False
     context_strategy: str | None = None
     gnn_architecture: str | None = None
     gnn_layer_count: int | None = None
@@ -443,9 +444,11 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
     if resolved_subgraph_algorithm != "pcst" and (
         config.pcst_edge_cost_strategy is not None
         or config.pcst_edge_cost is not None
+        or config.pcst_debug_profile
     ):
         raise PipelineException(
-            "--pcst-edge-cost-strategy and --pcst-edge-cost require "
+            "--pcst-edge-cost-strategy, --pcst-edge-cost, and "
+            "--pcst-debug-profile require "
             "--subgraph-algorithm pcst."
         )
     if resolved_subgraph_algorithm == "pcst":
@@ -655,7 +658,9 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         )
     inference_steps = [
         BuildReasoningSamplesFromGnnEvaluationStep(),
-        BuildEvidenceSubgraphsBatchStep(),
+        BuildEvidenceSubgraphsBatchStep(
+            pcst_debug_profile=resolved_config.pcst_debug_profile,
+        ),
         GenerateAndSaveFinalAnswersBatchesStep(
             llm_provider=resolved_config.llm_provider,
             reasoning_effort=resolved_config.reasoning_effort,
@@ -984,6 +989,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Positive PCST edge-cost lambda. Defaults to 1.0.",
     )
     parser.add_argument(
+        "--pcst-debug-profile",
+        action="store_true",
+        default=False,
+        help=(
+            "Save a detailed replayable JSON diagnostic when PCST returns an "
+            "invalid rooted solution."
+        ),
+    )
+    parser.add_argument(
         "--context-strategy",
         default=None,
         help="Optional context construction strategy id for non-interactive configuration.",
@@ -1293,6 +1307,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         subgraph_algorithm=args.subgraph_algorithm,
         pcst_edge_cost_strategy=args.pcst_edge_cost_strategy,
         pcst_edge_cost=args.pcst_edge_cost,
+        pcst_debug_profile=args.pcst_debug_profile,
         context_strategy=args.context_strategy,
         gnn_architecture=args.gnn_architecture,
         gnn_layer_count=args.gnn_layer_count,

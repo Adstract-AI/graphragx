@@ -226,6 +226,7 @@ class BuildEvidenceSubgraphsBatchStep(
         embedding_cache_service: WebQSPEmbeddingCacheService | None = None,
         tensor_cache_service: GnnEmbeddingTensorCacheService | None = None,
         strategy_override: str | None = None,
+        pcst_debug_profile: bool = False,
         force_default: bool = False,
     ):
         super().__init__(force_default=force_default)
@@ -238,6 +239,7 @@ class BuildEvidenceSubgraphsBatchStep(
             self.embedding_cache_service
         )
         self.strategy_override = strategy_override
+        self.pcst_debug_profile = pcst_debug_profile
 
     def execute_default(
         self,
@@ -266,6 +268,17 @@ class BuildEvidenceSubgraphsBatchStep(
             f"evaluation_run={built_samples.evaluation_run_name} "
             f"samples={len(built_samples.samples)}"
         )
+        debug_directory = None
+        if strategy == "pcst" and self.pcst_debug_profile:
+            debug_directory = (
+                built_samples.evaluation_run_directory.parent.parent
+                / "debug"
+                / "pcst"
+                / built_samples.evaluation_run_name
+            )
+            logger.info(
+                f"PCST debug profile enabled: directory={debug_directory}"
+            )
         result = ExtractedReasoningPathsBatch(
             dataset_id=built_samples.dataset_id,
             evaluation_run_name=built_samples.evaluation_run_name,
@@ -278,6 +291,7 @@ class BuildEvidenceSubgraphsBatchStep(
                         strategy=strategy,
                         configuration=configuration,
                         semantic_inputs=semantic_inputs,
+                        debug_directory=debug_directory,
                     ),
                 )
                 for item in built_samples.samples
@@ -300,6 +314,7 @@ class BuildEvidenceSubgraphsBatchStep(
         strategy: str,
         configuration: BuiltPipelineConfiguration | None,
         semantic_inputs: dict[str, Any] | None,
+        debug_directory: Path | None = None,
     ):
         if strategy == "shortest_path":
             if item.graph_instance is not None:
@@ -344,6 +359,8 @@ class BuildEvidenceSubgraphsBatchStep(
             ),
             question_embedding=question_embedding,
             relation_embeddings=relation_embeddings,
+            debug_directory=debug_directory,
+            instance_index=item.instance_index,
         )
 
     def _prepare_semantic_inputs(

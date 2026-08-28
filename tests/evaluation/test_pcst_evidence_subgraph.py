@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import numpy as np
 import pytest
 import torch
@@ -201,3 +202,29 @@ def test_structural_projection_removes_loops_and_keeps_cheapest_parallel_relatio
     assert edges == [(0, 1)]
     assert costs == [0.5]
     assert record_indices == [1]
+
+
+def test_debug_profile_saves_replayable_failure_snapshot(tmp_path) -> None:
+    def solver(*_):
+        return np.array([2]), np.array([], dtype=np.int64)
+
+    with pytest.raises(ShortestPathExtractionException, match="Debug profile"):
+        PcstEvidenceSubgraphService(solver=solver).extract_from_processed_graph(
+            instance=_instance(),
+            sample=_sample(),
+            candidates=_candidates(),
+            edge_cost_strategy="constant",
+            edge_cost_lambda=1.0,
+            debug_directory=tmp_path,
+            instance_index=17,
+        )
+
+    snapshot = json.loads(
+        (tmp_path / "instance_17_failure.json").read_text(encoding="utf-8")
+    )
+    assert snapshot["root"]["node"] == "seed"
+    assert snapshot["root"]["reported_selected"] is False
+    assert snapshot["instance"]["structural_edge_count"] == 3
+    assert snapshot["instance"]["collapsed_or_removed_edge_count"] == 1
+    assert snapshot["solver_output"]["selected_vertices"] == [2]
+    assert snapshot["configuration"]["rooted_solver"] is True
