@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import main
 
 from scripts.run_experiments import (
     ExperimentManifestError,
@@ -13,6 +14,37 @@ from scripts.run_experiments import (
     resolve_execution_order,
     run_experiments,
 )
+
+
+def test_experiment_zero_contains_complete_retriever_matrix() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    manifest = load_manifest(
+        project_root / "experiments" / "experiment_0_gnn_architectures.toml"
+    )
+    parser = main.build_parser()
+
+    observed: set[tuple[str, int]] = set()
+    for run in manifest.runs:
+        parsed = parser.parse_args([*manifest.default_args, *run.args])
+        assert parsed.run_mode == "retriever-only"
+        assert parsed.training_epochs == 32
+        assert parsed.training_batch_size == 1
+        assert parsed.candidate_top_k == 10
+        assert parsed.candidate_limit == 15
+        observed.add((parsed.gnn_architecture, parsed.random_seed))
+
+    assert observed == {
+        (architecture, seed)
+        for architecture in (
+            "graphsage",
+            "aa-graphsage",
+            "rgcn",
+            "hgt",
+            "rearev",
+            "nbfnet",
+        )
+        for seed in (42, 1337, 2026)
+    }
 
 
 def _write_manifest(path: Path, body: str) -> Path:
