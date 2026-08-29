@@ -239,6 +239,66 @@ class WandbExperimentCoordinator:
         self._tags = list(dict.fromkeys([*self._tags, *filter(None, tags)]))
         self._apply_tags()
 
+    def update_inference_run_name(
+        self,
+        *,
+        evidence_algorithm: str | None,
+        model_id: str | None,
+    ) -> None:
+        """Append available inference identity to the active W&B run name."""
+        self.ensure_run()
+        if self._run is None:
+            return
+        current_name = self._metadata.run_name or getattr(self._run, "name", None)
+        if not isinstance(current_name, str) or not current_name:
+            return
+        updated_name = self.build_inference_run_name(
+            current_name,
+            evidence_algorithm=evidence_algorithm,
+            model_id=model_id,
+        )
+        if updated_name == current_name:
+            return
+        try:
+            self._run.name = updated_name
+            save = getattr(self._run, "save", None)
+            if callable(save):
+                save()
+            self._metadata = self._metadata.model_copy(
+                update={"run_name": updated_name}
+            )
+            for path in self._metadata_paths:
+                self._write_metadata(path)
+        except Exception as error:
+            self._record_failure("W&B run-name update failed", error)
+
+    @classmethod
+    def build_inference_run_name(
+        cls,
+        run_name: str,
+        *,
+        evidence_algorithm: str | None,
+        model_id: str | None,
+    ) -> str:
+        """Return a stable title with optional evidence and model suffixes."""
+        algorithm_name = (
+            "sp" if evidence_algorithm == "shortest_path" else evidence_algorithm
+        )
+        components = [
+            cls._run_name_component(algorithm_name),
+            cls._run_name_component(model_id),
+        ]
+        suffix = "_".join(component for component in components if component)
+        if not suffix or run_name.endswith(f"_{suffix}"):
+            return run_name
+        return f"{run_name}_{suffix}"
+
+    @staticmethod
+    def _run_name_component(value: str | None) -> str:
+        if not isinstance(value, str):
+            return ""
+        return re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-_")
+
     def log(
         self,
         payload: dict[str, float | int | str],

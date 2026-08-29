@@ -496,10 +496,25 @@ class LogInferenceToWandbStep(
             source_config_path=source_config_path,
         )
         inference_payload = config.get("inference", {})
+        if not isinstance(inference_payload, dict):
+            inference_payload = {}
+        evidence_configuration = inference_payload.get("evidence_subgraph", {})
+        evidence_algorithm = (
+            evidence_configuration.get("algorithm")
+            if isinstance(evidence_configuration, dict)
+            else None
+        )
+        model_id = inference_payload.get("model_id")
+        self.coordinator.update_inference_run_name(
+            evidence_algorithm=(
+                str(evidence_algorithm)
+                if isinstance(evidence_algorithm, str)
+                else None
+            ),
+            model_id=str(model_id) if isinstance(model_id, str) else None,
+        )
         evidence_metrics = (
             inference_payload.get("evidence_metrics", {})
-            if isinstance(inference_payload, dict)
-            else {}
         )
         if isinstance(evidence_metrics, dict):
             evidence_payload = {

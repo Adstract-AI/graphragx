@@ -17,6 +17,9 @@ from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
 from pipeline.evaluation.services.model_config_normalization import (
     normalize_model_config,
 )
+from pipeline.evaluation.services.wandb_experiment import (
+    WandbExperimentCoordinator,
+)
 from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
@@ -164,6 +167,28 @@ class WandbFinalResultsLoggingService(AbstractService):
                 and not run_name.endswith(f"_{architecture_name}")
             ):
                 run_name = f"{run_name}_{architecture_name}"
+            inference_config = wandb_config.get("configs", {}).get("inference", {})
+            if not isinstance(inference_config, dict):
+                inference_config = {}
+            evidence_configuration = inference_config.get("evidence_subgraph", {})
+            evidence_algorithm = (
+                evidence_configuration.get("algorithm")
+                if isinstance(evidence_configuration, dict)
+                else None
+            )
+            run_name = WandbExperimentCoordinator.build_inference_run_name(
+                run_name,
+                evidence_algorithm=(
+                    str(evidence_algorithm)
+                    if isinstance(evidence_algorithm, str)
+                    else None
+                ),
+                model_id=(
+                    str(inference_config["model_id"])
+                    if isinstance(inference_config.get("model_id"), str)
+                    else None
+                ),
+            )
             tags = self._build_tags(results_config)
 
             with wandb.init(

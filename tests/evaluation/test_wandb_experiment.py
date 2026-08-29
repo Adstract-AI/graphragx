@@ -222,6 +222,19 @@ def test_coordinator_appends_architecture_to_new_run_name(tmp_path) -> None:
     assert (tmp_path / "wandb_runs" / run_name.removesuffix("_aa-graphsage")).is_dir()
 
 
+def test_inference_run_name_appends_available_algorithm_and_model() -> None:
+    assert WandbExperimentCoordinator.build_inference_run_name(
+        "1_20260829_120000_hgt",
+        evidence_algorithm="shortest_path",
+        model_id="provider/model 1",
+    ) == "1_20260829_120000_hgt_sp_provider-model-1"
+    assert WandbExperimentCoordinator.build_inference_run_name(
+        "1_20260829_120000_hgt",
+        evidence_algorithm=None,
+        model_id=None,
+    ) == "1_20260829_120000_hgt"
+
+
 def test_coordinator_preserves_persisted_lineage_run_name(tmp_path) -> None:
     fake_wandb = FakeWandb()
     config_path = tmp_path / "model_config.json"
@@ -438,6 +451,9 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
                         "inference": {
                             "model_id": "gpt-test",
                             "total_tokens": run_number * 10,
+                            "evidence_subgraph": {
+                                "algorithm": "shortest_path",
+                            },
                             "evidence_metrics": {
                                 "candidate_reduction_percentage": (
                                     run_number * 10.0
@@ -499,6 +515,8 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
     assert "WebQSP" in fake_wandb.run.tags
     assert "gpt-test" in fake_wandb.run.tags
     assert "inference_run_number:2" in fake_wandb.run.tags
+    assert fake_wandb.run.name.endswith("_sp_gpt-test")
+    assert coordinator.metadata.run_name == fake_wandb.run.name
 
 
 def test_run_identifier_service_uses_one_global_counter(tmp_path) -> None:
