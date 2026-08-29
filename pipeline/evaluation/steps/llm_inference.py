@@ -512,33 +512,14 @@ class GenerateFinalAnswersBatchStep(
         error_message = None
         started_at = time.monotonic()
         try:
-            generation_kwargs = {
-                "question": extracted_paths.sample.question,
-                "reasoning_paths_text": extracted_paths.reasoning_paths_text,
-                "model_id": self.model_id,
-            }
-            try:
-                result = self.answer_generation_service.generate_answer_with_explanation(
-                    **generation_kwargs,
-                    provider_id=self.llm_provider,
-                    reasoning_effort=self.reasoning_effort,
-                    generate_explanation=self.generate_explanation,
-                )
-            except TypeError as error:
-                if not any(
-                    name in str(error)
-                    for name in (
-                        "provider_id",
-                        "reasoning_effort",
-                        "generate_explanation",
-                    )
-                ):
-                    raise
-                # Keep existing injected/custom services compatible with the
-                # pre-provider method contract.
-                result = self.answer_generation_service.generate_answer_with_explanation(
-                    **generation_kwargs,
-                )
+            result = self.answer_generation_service.generate_answer_with_explanation(
+                question=extracted_paths.sample.question,
+                reasoning_paths_text=extracted_paths.reasoning_paths_text,
+                model_id=self.model_id,
+                provider_id=self.llm_provider,
+                reasoning_effort=self.reasoning_effort,
+                generate_explanation=self.generate_explanation,
+            )
             raw_answers = result.get("answers")
             if not isinstance(raw_answers, list) or any(
                 not isinstance(value, str) for value in raw_answers

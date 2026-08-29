@@ -275,51 +275,7 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
             model_kwargs["base_url"] = base_url
             model_kwargs["use_responses_api"] = False
 
-        try:
-            return chat_openai_type(**model_kwargs)
-        except TypeError:
-            try:
-                fallback_kwargs = dict(model_kwargs)
-                fallback_kwargs.pop("model_kwargs", None)
-                return chat_openai_type(**fallback_kwargs)
-            except TypeError:
-                pass
-            if base_url is not None:
-                try:
-                    fallback_kwargs = dict(model_kwargs)
-                    fallback_kwargs.pop("base_url", None)
-                    fallback_kwargs["openai_api_base"] = base_url
-                    return chat_openai_type(**fallback_kwargs)
-                except TypeError:
-                    pass
-            logger.warning(
-                "Current LangChain ChatOpenAI does not support max_retries=0 "
-                "or custom http_client; OpenAI SDK retries/rate-limit headers may "
-                "remain hidden in logs."
-            )
-            fallback_kwargs = {
-                "model": model_id,
-                "api_key": api_key,
-                "temperature": 0,
-                "timeout": LangChainOpenAiAnswerGenerationService.request_timeout_seconds,
-                "streaming": False,
-            }
-            if base_url is not None:
-                fallback_kwargs["base_url"] = base_url
-                fallback_kwargs["use_responses_api"] = False
-            else:
-                fallback_kwargs["model_kwargs"] = {
-                    "response_format": {"type": "json_object"}
-                }
-            if reasoning_effort is not None:
-                fallback_kwargs["reasoning_effort"] = reasoning_effort
-            try:
-                return chat_openai_type(**fallback_kwargs)
-            except TypeError:
-                legacy_kwargs = dict(fallback_kwargs)
-                legacy_kwargs.pop("timeout", None)
-                legacy_kwargs.pop("model_kwargs", None)
-                return chat_openai_type(**legacy_kwargs)
+        return chat_openai_type(**model_kwargs)
 
     @classmethod
     def _model_api_settings(

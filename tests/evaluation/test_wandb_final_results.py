@@ -555,7 +555,7 @@ def test_wandb_logging_success_with_fake_module(
     assert ["answer", "f1", 2 / 3] in aggregate_table.data
     assert len(captured["logs"]) == 4
     assert any(service_name == "results/results_config.json" for _, service_name in captured["artifact_files"])
-    assert any(service_name == "sources/answers.jsonl" for _, service_name in captured["artifact_files"])
+    assert not any(service_name.startswith("sources/") for _, service_name in captured["artifact_files"])
 
 
 def test_wandb_step_handles_service_failure(tmp_path: Path) -> None:
@@ -606,6 +606,7 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
         def __init__(self) -> None:
             self.logged: list[dict] = []
             self.config_updates: list[dict] = []
+            self.artifact_calls: list[dict] = []
             self.metadata = SimpleNamespace(
                 status="logged",
                 run_id="run-1",
@@ -623,7 +624,7 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
             return None
 
         def log_artifact(self, **kwargs) -> None:
-            return None
+            self.artifact_calls.append(kwargs)
 
     coordinator = CapturingCoordinator()
     result = LogFinalResultsToWandbStep(
@@ -662,4 +663,17 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
         "inference",
         "results",
     }
+    assert coordinator.artifact_calls == [
+        {
+            "name": f"results-{final_result.results_run_name}",
+            "artifact_type": "final-results",
+            "paths": [
+                final_result.results_config_path,
+                final_result.retrieval_metrics_path,
+                final_result.reasoning_metrics_path,
+                final_result.per_instance_results_path,
+            ],
+            "source_config_path": tmp_path / "sources" / "evaluation_config.json",
+        }
+    ]
     assert result.wandb_status == "logged"

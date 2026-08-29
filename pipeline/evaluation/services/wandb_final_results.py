@@ -53,7 +53,7 @@ class WandbFinalResultsLoggingService(AbstractService):
     table_key = "Per_Instance_Metrics/per_instance_results"
     aggregate_table_key = "Summary_Metrics/aggregate_metrics"
     summary_plot_prefix = "Summary_Plots"
-    artifact_type = "evaluation-results"
+    artifact_type = "final-results"
     retrieval_conditioned_metric_keys = (
         "conditioned_evaluated_instances",
         "retrieval_gold_coverage",
@@ -241,7 +241,6 @@ class WandbFinalResultsLoggingService(AbstractService):
                 self._add_artifact_files(
                     artifact=artifact,
                     final_result=final_result,
-                    results_config=results_config,
                 )
                 run.log_artifact(artifact)
                 return WandbFinalResultsLogResult(
@@ -818,16 +817,11 @@ class WandbFinalResultsLoggingService(AbstractService):
         cls,
         artifact: Any,
         final_result: FinalResultsEvaluationResult,
-        results_config: dict[str, Any],
     ) -> None:
+        """Upload only final-result-owned files; upstream artifacts remain references."""
         for path in sorted(final_result.results_run_directory.iterdir()):
             if path.is_file():
                 artifact.add_file(str(path), name=f"results/{path.name}")
-
-        for value in cls._build_source_paths(results_config).values():
-            path = project_absolute_path(value)
-            if path.exists() and path.is_file():
-                artifact.add_file(str(path), name=f"sources/{path.name}")
 
     @staticmethod
     def _artifact_name(results_run_name: str) -> str:

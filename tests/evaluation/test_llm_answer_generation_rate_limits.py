@@ -74,12 +74,21 @@ class AnswerOnlyCapturingChatOpenAI(CapturingChatOpenAI):
         )()
 
 
+class InternallyBrokenChatOpenAI:
+    calls = 0
+
+    def __init__(self, **kwargs):
+        self.__class__.calls += 1
+        raise TypeError("internal constructor bug")
+
+
 class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
     def setUp(self) -> None:
         CapturingChatOpenAI.captured_kwargs = None
         CapturingChatOpenAI.instance_count = 0
         CapturingChatOpenAI.invoke_count = 0
         CapturingChatOpenAI.captured_messages = None
+        InternallyBrokenChatOpenAI.calls = 0
 
     def test_rate_limit_is_logged_and_retried(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()
@@ -161,6 +170,18 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
             CapturingChatOpenAI.captured_kwargs["reasoning_effort"],
             "low",
         )
+
+    def test_chat_model_constructor_type_error_is_not_hidden_by_fallbacks(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+
+        with self.assertRaisesRegex(TypeError, "internal constructor bug"):
+            service._create_chat_model(
+                chat_openai_type=InternallyBrokenChatOpenAI,
+                model_id="gpt-5-mini",
+                api_key="openai-key",
+            )
+
+        self.assertEqual(InternallyBrokenChatOpenAI.calls, 1)
 
     def test_deepseek_missing_api_key_mentions_deepseek_env_name(self) -> None:
         service = LangChainOpenAiAnswerGenerationService()

@@ -519,6 +519,9 @@ class FakeAnswerGenerationService:
         question: str,
         reasoning_paths_text: str,
         model_id: str,
+        provider_id: str = "openai",
+        reasoning_effort: str | None = None,
+        generate_explanation: bool = True,
     ) -> dict[str, str]:
         self.calls.append((question, reasoning_paths_text, model_id))
         return {
@@ -555,6 +558,7 @@ class ConcurrentFakeAnswerGenerationService:
         model_id: str,
         provider_id: str = "openai",
         reasoning_effort: str | None = None,
+        generate_explanation: bool = True,
     ) -> dict[str, str | int | float]:
         with self._lock:
             self.active_calls += 1
@@ -581,6 +585,23 @@ class ConcurrentFakeAnswerGenerationService:
             "total_tokens": 2,
             "estimated_cost_usd": 0.0,
         }
+
+
+class InternallyBrokenAnswerGenerationService:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_answer_with_explanation(
+        self,
+        question: str,
+        reasoning_paths_text: str,
+        model_id: str,
+        provider_id: str = "openai",
+        reasoning_effort: str | None = None,
+        generate_explanation: bool = True,
+    ) -> dict[str, str]:
+        self.calls += 1
+        raise TypeError("internal reasoning_effort handling failed")
 
 
 class LlmAnswerGenerationStepTests(unittest.TestCase):
@@ -610,6 +631,41 @@ class LlmAnswerGenerationStepTests(unittest.TestCase):
 
 
 class LlmInferenceBatchStepTests(unittest.TestCase):
+    def test_internal_type_error_is_recorded_without_retrying_request(self) -> None:
+        extracted_paths = ShortestPathExtractionService().extract_paths(
+            sample=make_sample(),
+            candidates=[CandidateNodeScore(node_id="Jaxon Bieber", score=1.0)],
+        )
+        prediction = EvaluatedAnswerRetrievalInstance(
+            instance_index=0,
+            question=make_sample().question,
+            q_entity=make_sample().q_entities,
+            a_entity=make_sample().a_entities,
+            answer_candidates=[],
+            gold_answer_scores=[],
+            hit_at_1=False,
+            missing_gold_in_graph=False,
+        )
+        item = ReasoningPathsForPrediction(
+            instance_index=0,
+            prediction=prediction,
+            extracted_paths=extracted_paths,
+        )
+        fake_service = InternallyBrokenAnswerGenerationService()
+
+        generated = GenerateFinalAnswersBatchStep(
+            model_id="test-model",
+            reasoning_effort="low",
+            answer_generation_service=fake_service,
+        )._generate_answer(item)
+
+        self.assertEqual(fake_service.calls, 1)
+        self.assertEqual(generated.answers, [])
+        self.assertEqual(
+            generated.error_message,
+            "internal reasoning_effort handling failed",
+        )
+
     def test_candidate_reduction_percentage_uses_global_candidate_counts(self) -> None:
         answers = GeneratedFinalAnswersBatch(
             dataset_id="WebQSP",
