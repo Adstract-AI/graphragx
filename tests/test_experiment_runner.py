@@ -22,15 +22,62 @@ def test_experiment_zero_contains_complete_retriever_matrix() -> None:
         project_root / "experiments" / "experiment_0_gnn_architectures.toml"
     )
     parser = main.build_parser()
+    expected_options = {
+        "graphsage": {
+            "gnn_layer_count": 2,
+            "gnn_hidden_dimension": 256,
+            "node_classifier": "mlp",
+            "dropout": 0.1,
+        },
+        "aa-graphsage": {
+            "gnn_layer_count": 2,
+            "gnn_hidden_dimension": 256,
+            "node_classifier": "mlp",
+            "dropout": 0.1,
+            "use_edge_mlp": True,
+            "use_reverse_edges": True,
+            "question_aware_classifier": True,
+            "add_layer_normalization": True,
+            "edge_mlp_hidden_dim": 256,
+        },
+        "rgcn": {
+            "gnn_layer_count": 2,
+            "gnn_hidden_dimension": 256,
+            "dropout": 0.1,
+            "num_bases": 30,
+        },
+        "hgt": {
+            "gnn_layer_count": 2,
+            "gnn_hidden_dimension": 256,
+            "dropout": 0.1,
+            "attention_heads": 8,
+        },
+        "rearev": {
+            "gnn_hidden_dimension": 50,
+            "dropout": 0.1,
+            "num_instructions": 2,
+            "reasoning_steps": 2,
+            "adaptive_iterations": 3,
+        },
+        "nbfnet": {
+            "gnn_layer_count": 3,
+            "gnn_hidden_dimension": 32,
+        },
+    }
 
     observed: set[tuple[str, int]] = set()
     for run in manifest.runs:
         parsed = parser.parse_args([*manifest.default_args, *run.args])
         assert parsed.run_mode == "retriever-only"
-        assert parsed.training_epochs == 32
+        assert parsed.training_epochs == 10
         assert parsed.training_batch_size == 1
+        assert parsed.answer_threshold == 0.7
         assert parsed.candidate_top_k == 10
         assert parsed.candidate_limit == 15
+        for option_name, expected_value in expected_options[
+            parsed.gnn_architecture
+        ].items():
+            assert getattr(parsed, option_name) == expected_value
         observed.add((parsed.gnn_architecture, parsed.random_seed))
 
     assert observed == {
