@@ -12,6 +12,7 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    MIN_CANDIDATE_TOP_K,
     DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE,
     DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE,
     DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB,
@@ -242,7 +243,10 @@ class PipelineRuntimeConfig(BaseModel):
     evaluation_model_run_name: str | None = None
     evaluation_model_run_number: int | None = None
     answer_threshold: float = DEFAULT_ANSWER_THRESHOLD
-    candidate_top_k: int = DEFAULT_CANDIDATE_TOP_K
+    candidate_top_k: int = Field(
+        default=DEFAULT_CANDIDATE_TOP_K,
+        ge=MIN_CANDIDATE_TOP_K,
+    )
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
     evaluation_run_name: str | None = None
     retriever_run_name: str | None = None
@@ -1160,7 +1164,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--candidate-top-k",
         type=int,
         default=DEFAULT_CANDIDATE_TOP_K,
-        help="Minimum selected candidate count when threshold selection is too small.",
+        help=(
+            "Minimum selected candidate count when threshold selection is too small "
+            f"(must be at least {MIN_CANDIDATE_TOP_K})."
+        ),
     )
     parser.add_argument(
         "--candidate-limit",

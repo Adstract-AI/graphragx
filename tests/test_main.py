@@ -172,6 +172,10 @@ class FakeEvaluateGnnAnswerRetrieverStep(EvaluateGnnAnswerRetrieverStep):
 
 
 class MainEntrypointTests(unittest.TestCase):
+    def test_candidate_top_k_must_be_at_least_ten(self) -> None:
+        with self.assertRaisesRegex(ValueError, "greater than or equal to 10"):
+            main.PipelineRuntimeConfig(candidate_top_k=9)
+
     @staticmethod
     def _patch_dataset_loading_step():
         return patch(

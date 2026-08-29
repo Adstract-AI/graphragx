@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 
 from helpers.logging_config import get_logger
+from helpers.constants import MIN_CANDIDATE_TOP_K
 from pipeline.evaluation.models import (
     AnswerCandidateScore,
     EvaluatedAnswerRetrievalInstance,
@@ -530,9 +531,9 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
     def _validate_candidate_selection_config(
         evaluation_config: GnnAnswerRetrieverEvaluationConfig,
     ) -> None:
-        if evaluation_config.candidate_top_k <= 0:
+        if evaluation_config.candidate_top_k < MIN_CANDIDATE_TOP_K:
             raise GnnAnswerRetrieverEvaluationException(
-                "candidate_top_k must be greater than zero."
+                f"candidate_top_k must be at least {MIN_CANDIDATE_TOP_K}."
             )
 
         if evaluation_config.candidate_limit <= 0:

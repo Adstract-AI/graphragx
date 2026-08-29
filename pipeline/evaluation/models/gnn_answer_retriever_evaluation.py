@@ -11,6 +11,7 @@ from helpers.constants import (
     DEFAULT_ANSWER_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_CANDIDATE_TOP_K,
+    MIN_CANDIDATE_TOP_K,
     DEFAULT_EVALUATION_EMBEDDING_CACHE_DEVICE,
     DEFAULT_EVALUATION_EMBEDDING_CACHE_DTYPE,
     DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB,
@@ -32,7 +33,10 @@ class GnnAnswerRetrieverEvaluationConfig(BaseModel):
     model_run_name: str | None = Field(default=None)
     model_run_number: int | None = Field(default=None)
     answer_threshold: float = Field(default=DEFAULT_ANSWER_THRESHOLD)
-    candidate_top_k: int = Field(default=DEFAULT_CANDIDATE_TOP_K)
+    candidate_top_k: int = Field(
+        default=DEFAULT_CANDIDATE_TOP_K,
+        ge=MIN_CANDIDATE_TOP_K,
+    )
     candidate_limit: int = Field(default=DEFAULT_CANDIDATE_LIMIT)
     run_name: str | None = Field(default=None)
     max_instances: int | None = Field(default=None)

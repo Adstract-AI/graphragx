@@ -219,7 +219,7 @@ The compact matrices are still copied into VRAM at the start of every process be
 | `--evaluation-model-run-name EVALUATION_MODEL_RUN_NAME` | Saved model run folder name or suffix to evaluate. |
 | `--evaluation-model-run-number EVALUATION_MODEL_RUN_NUMBER` | Saved model run numeric prefix to evaluate. |
 | `--answer-threshold ANSWER_THRESHOLD` | Minimum answer-node probability for threshold candidate selection. |
-| `--candidate-top-k CANDIDATE_TOP_K` | Minimum number of selected candidates when threshold selection returns too few. |
+| `--candidate-top-k CANDIDATE_TOP_K` | Minimum number of selected candidates when threshold selection returns too few; must be at least 10. |
 | `--candidate-limit CANDIDATE_LIMIT` | Maximum number of selected answer candidates after threshold and top-k selection. `--limit` is an alias. |
 | `--evaluation-run-name EVALUATION_RUN_NAME` | Optional label for the saved evaluation run folder. |
 | `--retriever-run-name RETRIEVER_RUN_NAME` | Saved retriever evaluation folder name or suffix required by inference-only mode. |
