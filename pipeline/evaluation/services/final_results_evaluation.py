@@ -434,6 +434,23 @@ class FinalResultsEvaluationService(AbstractService):
         full_context_exact_matches = sum(
             item.exact_match for item in full_context_results
         )
+        full_context_complete_answers = (
+            len(full_context_results) - full_context_omissions
+        )
+        partial_context_results = [
+            item
+            for item in eligible_results
+            if item.context_visible_gold_answers and not item.full_gold_context
+        ]
+        partial_context_fully_utilized = sum(
+            set(item.context_visible_gold_answers).issubset(
+                item.normalized_predicted_answers
+            )
+            for item in partial_context_results
+        )
+        partial_context_underutilized = (
+            len(partial_context_results) - partial_context_fully_utilized
+        )
         outcome_names = [
             "full_retrieval_complete_answer",
             "full_retrieval_llm_omission",
@@ -517,6 +534,28 @@ class FinalResultsEvaluationService(AbstractService):
             ],
             partial_retrieval_underutilized_rate=self._safe_divide(
                 outcome_counts["partial_retrieval_underutilized"], eligible_count
+            ),
+            full_context_complete_answer_count=full_context_complete_answers,
+            full_context_complete_answer_rate=self._safe_divide(
+                full_context_complete_answers,
+                eligible_count,
+            ),
+            full_context_llm_omission_count=full_context_omissions,
+            full_context_llm_omission_rate=self._safe_divide(
+                full_context_omissions,
+                eligible_count,
+            ),
+            partial_context_fully_utilized_count=(
+                partial_context_fully_utilized
+            ),
+            partial_context_fully_utilized_rate=self._safe_divide(
+                partial_context_fully_utilized,
+                eligible_count,
+            ),
+            partial_context_underutilized_count=partial_context_underutilized,
+            partial_context_underutilized_rate=self._safe_divide(
+                partial_context_underutilized,
+                eligible_count,
             ),
             no_gold_retrieved_no_gold_answered_count=outcome_counts[
                 "no_gold_retrieved_no_gold_answered"

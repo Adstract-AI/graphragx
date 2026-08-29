@@ -202,6 +202,10 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             "full_retrieval_llm_omission_rate": 0.2,
             "partial_retrieval_fully_utilized_rate": 0.15,
             "partial_retrieval_underutilized_rate": 0.1,
+            "full_context_complete_answer_rate": 0.35,
+            "full_context_llm_omission_rate": 0.15,
+            "partial_context_fully_utilized_rate": 0.2,
+            "partial_context_underutilized_rate": 0.1,
             "no_gold_retrieved_no_gold_answered_rate": 0.1,
             "correct_without_gold_retrieval_rate": 0.05,
         },
@@ -331,6 +335,26 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     assert run_summary_metrics["Run_Summary/full_retrieval_llm_omission"] == 0.2
     assert run_summary_metrics["Run_Summary/partial_retrieval_fully_utilized"] == 0.15
     assert run_summary_metrics["Run_Summary/partial_retrieval_underutilized"] == 0.1
+    assert run_summary_metrics["Run_Summary/full_context_complete_answer"] == 0.35
+    assert run_summary_metrics["Run_Summary/full_context_llm_omission"] == 0.15
+    assert run_summary_metrics["Run_Summary/partial_context_fully_utilized"] == 0.2
+    assert run_summary_metrics["Run_Summary/partial_context_underutilized"] == 0.1
+    assert (
+        summary_plot_metrics["Summary_Plots/full_context_complete_answer_rate"]
+        == 0.35
+    )
+    assert (
+        summary_plot_metrics["Summary_Plots/full_context_llm_omission_rate"]
+        == 0.15
+    )
+    assert (
+        summary_plot_metrics["Summary_Plots/partial_context_fully_utilized_rate"]
+        == 0.2
+    )
+    assert (
+        summary_plot_metrics["Summary_Plots/partial_context_underutilized_rate"]
+        == 0.1
+    )
     assert run_summary_metrics["Run_Summary/no_gold_retrieved_no_gold_answered"] == 0.1
     assert run_summary_metrics["Run_Summary/correct_without_gold_retrieval"] == 0.05
     assert "Run_Summary/retrieval_hits_at_5" not in run_summary_metrics

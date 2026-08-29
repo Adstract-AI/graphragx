@@ -81,6 +81,14 @@ class WandbFinalResultsLoggingService(AbstractService):
         "partial_retrieval_fully_utilized_rate",
         "partial_retrieval_underutilized_count",
         "partial_retrieval_underutilized_rate",
+        "full_context_complete_answer_count",
+        "full_context_complete_answer_rate",
+        "full_context_llm_omission_count",
+        "full_context_llm_omission_rate",
+        "partial_context_fully_utilized_count",
+        "partial_context_fully_utilized_rate",
+        "partial_context_underutilized_count",
+        "partial_context_underutilized_rate",
         "no_gold_retrieved_no_gold_answered_count",
         "no_gold_retrieved_no_gold_answered_rate",
         "correct_without_gold_retrieval_count",
@@ -376,6 +384,18 @@ class WandbFinalResultsLoggingService(AbstractService):
                 ),
                 "partial_retrieval_underutilized_rate": (
                     "partial_retrieval_underutilized"
+                ),
+                "full_context_complete_answer_rate": (
+                    "full_context_complete_answer"
+                ),
+                "full_context_llm_omission_rate": (
+                    "full_context_llm_omission"
+                ),
+                "partial_context_fully_utilized_rate": (
+                    "partial_context_fully_utilized"
+                ),
+                "partial_context_underutilized_rate": (
+                    "partial_context_underutilized"
                 ),
                 "no_gold_retrieved_no_gold_answered_rate": (
                     "no_gold_retrieved_no_gold_answered"
