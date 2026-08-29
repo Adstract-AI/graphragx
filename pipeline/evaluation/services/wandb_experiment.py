@@ -261,9 +261,6 @@ class WandbExperimentCoordinator:
             return
         try:
             self._run.name = updated_name
-            save = getattr(self._run, "save", None)
-            if callable(save):
-                save()
             self._metadata = self._metadata.model_copy(
                 update={"run_name": updated_name}
             )

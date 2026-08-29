@@ -65,6 +65,9 @@ class FakeRun:
         self.config = FakeConfig()
         self.tags: tuple[str, ...] = ()
 
+    def save(self, glob_str) -> None:
+        raise AssertionError("Renaming a W&B run must not call Run.save().")
+
     def define_metric(self, name, **kwargs) -> None:
         self.defined_metrics.append((name, kwargs))
 
