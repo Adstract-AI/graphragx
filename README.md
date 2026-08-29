@@ -61,7 +61,15 @@ or set `WANDB_API_KEY` in your shell environment. If you do not want W&B for a r
 Run the main entrypoint:
 
 ```bash
-uv run python main.py
+uv run graphragx
+```
+
+The equivalent source-file command remains available as
+`uv run python main.py`. To run an experiment manifest through its installed
+entry point, use:
+
+```bash
+uv run graphragx-experiments experiments/example.toml
 ```
 
 With no arguments, the pipeline runs in full mode, but it still asks you to select configurable project options interactively. Full mode includes training, evaluation, LLM inference, final result computation, and W&B logging.
@@ -131,8 +139,8 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 For a sequence of predefined runs, use the lightweight TOML experiment runner:
 
 ```bash
-uv run python scripts/run_experiments.py experiments/example.toml --dry-run
-uv run python scripts/run_experiments.py experiments/example.toml
+uv run graphragx-experiments experiments/example.toml --dry-run
+uv run graphragx-experiments experiments/example.toml
 ```
 
 The same runner uses the active interpreter and therefore also works in the

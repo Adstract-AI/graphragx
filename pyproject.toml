@@ -23,6 +23,14 @@ dependencies = [
     "wandb",
 ]
 
+[project.scripts]
+graphragx = "main:main"
+graphragx-experiments = "scripts.run_experiments:main"
+
+[build-system]
+requires = ["setuptools>=77,<85"]
+build-backend = "setuptools.build_meta"
+
 [dependency-groups]
 dev = [
     "pytest",
@@ -30,4 +38,11 @@ dev = [
 ]
 
 [tool.uv]
-package = false
+package = true
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["helpers*", "pipeline*", "scripts*"]
