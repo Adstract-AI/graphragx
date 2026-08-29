@@ -58,18 +58,16 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
 
     explanation_system_prompt = (
         "You answer questions using only the provided reasoning paths. "
-        "Return only valid JSON with the keys answer and explanation. "
-        "If the paths do not support an answer, set answer to Unknown."
+        "Return only valid JSON with the keys answers and explanation. "
+        "The answers value must be a JSON array of complete entity names. "
+        "If the paths do not support an answer, return an empty answers array."
     )
     answer_only_system_prompt = (
         "You answer questions using only the provided reasoning paths. "
-        "Return only valid JSON with the key answer. Do not generate an "
-        "explanation. If the paths do not support an answer, set answer to "
-        "Unknown."
+        "Return only valid JSON with the key answers. The answers value must be "
+        "a JSON array of complete entity names. Do not generate an explanation. "
+        "If the paths do not support an answer, return an empty answers array."
     )
-    # Backward-compatible public attribute for callers that inspected it.
-    system_prompt = explanation_system_prompt
-
     def __init__(self) -> None:
         self._chat_models: dict[tuple[str, str, str | None, str | None], Any] = {}
         self._chat_models_lock = threading.Lock()
@@ -81,8 +79,8 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         model_id: str,
         provider_id: str = "openai",
         reasoning_effort: str | None = None,
-    ) -> tuple[str, str]:
-        """Call the LLM and return the generated answer with the prompt."""
+    ) -> tuple[list[str], str]:
+        """Call the LLM and return atomic answer entities with the prompt."""
         result = self.generate_answer_with_explanation(
             question=question,
             reasoning_paths_text=reasoning_paths_text,
@@ -91,7 +89,7 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
             reasoning_effort=reasoning_effort,
             generate_explanation=False,
         )
-        return result["answer"], result["prompt"]
+        return result["answers"], result["prompt"]
 
     def generate_answer_with_explanation(
         self,
@@ -101,7 +99,7 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         provider_id: str = "openai",
         reasoning_effort: str | None = None,
         generate_explanation: bool = True,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """Call the LLM and optionally request an explanation."""
         api_key, api_key_env_name, base_url = self._model_api_settings(
             model_id,
@@ -169,7 +167,7 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
             completion_tokens=usage["completion_tokens"],
         )
         return {
-            "answer": parsed_response["answer"],
+            "answers": parsed_response["answers"],
             "explanation": parsed_response["explanation"],
             "raw_response": raw_response,
             "prompt": prompt,
@@ -411,17 +409,19 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         """Build the final-answer prompt."""
         answer_instructions = (
             "Return only valid JSON in this exact shape:\n"
-            "{\"answer\": \"...\", \"explanation\": \"...\"}\n"
-            "The answer must be only the answer entity or entities. "
-            "If multiple answers are supported, use a comma-separated string. "
+            "{\"answers\": [\"complete entity name\"], \"explanation\": \"...\"}\n"
+            "Each answer must be one complete entity name in its own array item. "
+            "Do not split an entity name that contains commas. "
+            "Return an empty answers array when no answer is supported. "
             "The explanation must briefly name the reasoning path triples used. "
             "Use only the reasoning paths."
             if generate_explanation
             else (
                 "Return only valid JSON in this exact shape:\n"
-                "{\"answer\": \"...\"}\n"
-                "The answer must be only the answer entity or entities. "
-                "If multiple answers are supported, use a comma-separated string. "
+                "{\"answers\": [\"complete entity name\"]}\n"
+                "Each answer must be one complete entity name in its own array item. "
+                "Do not split an entity name that contains commas. "
+                "Return an empty answers array when no answer is supported. "
                 "Do not include an explanation. Use only the reasoning paths."
             )
         )
@@ -438,8 +438,8 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         cls,
         response_text: str,
         generate_explanation: bool = True,
-    ) -> dict[str, str]:
-        """Parse an answer-only or answer-with-explanation JSON response."""
+    ) -> dict[str, Any]:
+        """Parse a response containing atomic answer entities."""
         cleaned_response = cls._strip_json_code_fence(response_text)
         try:
             parsed_response = json.loads(cleaned_response)
@@ -451,22 +451,30 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
         if not isinstance(parsed_response, dict):
             raise LlmAnswerGenerationException("LLM response JSON must be an object.")
 
-        answer = parsed_response.get("answer")
+        raw_answers = parsed_response.get("answers")
         explanation = parsed_response.get("explanation", "")
-        if not isinstance(answer, str) or (
-            generate_explanation and not isinstance(explanation, str)
+        if not isinstance(raw_answers, list) or any(
+            not isinstance(answer, str) for answer in raw_answers
         ):
             raise LlmAnswerGenerationException(
-                "LLM response JSON must contain a string field 'answer'"
-                + (
-                    " and a string field 'explanation'."
-                    if generate_explanation
-                    else "."
-                )
+                "LLM response JSON field 'answers' must be an array of strings."
+            )
+        if generate_explanation and not isinstance(explanation, str):
+            raise LlmAnswerGenerationException(
+                "LLM response JSON must contain a string field 'explanation'."
             )
 
+        answers: list[str] = []
+        seen: set[str] = set()
+        for answer in raw_answers:
+            stripped = answer.strip()
+            if not stripped or stripped in seen:
+                continue
+            answers.append(stripped)
+            seen.add(stripped)
+
         return {
-            "answer": answer.strip(),
+            "answers": answers,
             "explanation": (
                 explanation.strip()
                 if generate_explanation and isinstance(explanation, str)

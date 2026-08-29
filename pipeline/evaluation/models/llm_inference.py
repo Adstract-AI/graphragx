@@ -90,7 +90,10 @@ class GeneratedAnswerForPrediction(BaseModel):
     )
     model_id: str = Field(..., description="LLM model used for answer generation.")
     llm_provider: str = Field(default="openai", description="LLM provider used.")
-    answer: str = Field(default="", description="Generated final answer.")
+    answers: list[str] = Field(
+        default_factory=list,
+        description="Generated answer entities with atomic entity boundaries.",
+    )
     explanation: str = Field(
         default="",
         description="Explanation of which reasoning paths supported the answer.",

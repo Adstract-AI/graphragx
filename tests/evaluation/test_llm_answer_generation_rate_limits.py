@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import patch
 
+from pipeline.evaluation.exceptions import LlmAnswerGenerationException
 from pipeline.evaluation.services.llm_answer_generation import (
     LangChainOpenAiAnswerGenerationService,
 )
@@ -45,7 +46,7 @@ class CapturingChatOpenAI:
             "LangChainResponse",
             (),
             {
-                "content": '{"answer":"A","explanation":"B"}',
+                "content": '{"answers":["A"],"explanation":"B"}',
                 "usage_metadata": {
                     "input_tokens": 12,
                     "output_tokens": 8,
@@ -63,7 +64,7 @@ class AnswerOnlyCapturingChatOpenAI(CapturingChatOpenAI):
             "LangChainResponse",
             (),
             {
-                "content": '{"answer":"A"}',
+                "content": '{"answers":["A"]}',
                 "usage_metadata": {
                     "input_tokens": 10,
                     "output_tokens": 3,
@@ -197,7 +198,7 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
                 reasoning_effort="none",
             )
 
-        self.assertEqual(result["answer"], "A")
+        self.assertEqual(result["answers"], ["A"])
         self.assertEqual(result["total_tokens"], 20)
         self.assertEqual(result["estimated_cost_usd"], 0.0)
         self.assertEqual(
@@ -257,14 +258,28 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
                 generate_explanation=False,
             )
 
-        self.assertEqual(result["answer"], "A")
+        self.assertEqual(result["answers"], ["A"])
         self.assertEqual(result["explanation"], "")
         self.assertNotIn('"explanation"', result["prompt"])
-        self.assertIn('"answer": "..."', result["prompt"])
+        self.assertIn('"answers": ["complete entity name"]', result["prompt"])
         self.assertIn(
             "Do not generate an explanation",
             AnswerOnlyCapturingChatOpenAI.captured_messages[0].content,
         )
+
+    def test_atomic_answer_array_preserves_commas_inside_entity_names(self) -> None:
+        result = LangChainOpenAiAnswerGenerationService.parse_json_response(
+            '{"answers":["Washington, D.C.","Paris, Texas"],'
+            '"explanation":"supported"}'
+        )
+
+        self.assertEqual(result["answers"], ["Washington, D.C.", "Paris, Texas"])
+
+    def test_singular_answer_response_is_rejected(self) -> None:
+        with self.assertRaisesRegex(LlmAnswerGenerationException, "answers"):
+            LangChainOpenAiAnswerGenerationService.parse_json_response(
+                '{"answer":"Alpha, Beta","explanation":"supported"}'
+            )
 
 
 if __name__ == "__main__":

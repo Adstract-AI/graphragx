@@ -747,14 +747,19 @@ class FinalResultsEvaluationService(AbstractService):
         if answer_row.get("error_message") is not None:
             return []
 
-        raw_answer = str(answer_row.get("answer", ""))
-        if self._normalize_text(raw_answer) in self.unknown_answer_values:
-            return []
-
+        structured_answers = answer_row.get("answers")
+        if not isinstance(structured_answers, list) or any(
+            not isinstance(item, str) for item in structured_answers
+        ):
+            raise FinalResultsEvaluationException(
+                "Inference answer row must contain an 'answers' array of strings. "
+                "Rerun inference for artifacts created with the old string format."
+            )
+        answers = [item.strip() for item in structured_answers if item.strip()]
         return [
-            item.strip()
-            for item in raw_answer.split(",")
-            if item.strip()
+            answer
+            for answer in answers
+            if self._normalize_text(answer) not in self.unknown_answer_values
         ]
 
     def _normalize_answer_set(self, answers: list[str]) -> list[str]:
@@ -763,22 +768,13 @@ class FinalResultsEvaluationService(AbstractService):
     def _normalize_answer_list(self, answers: list[str]) -> list[str]:
         normalized_answers: list[str] = []
         seen_answers: set[str] = set()
-        for answer in self._split_answer_values(answers):
+        for answer in answers:
             normalized_answer = self._normalize_answer(answer)
             if not normalized_answer or normalized_answer in seen_answers:
                 continue
             normalized_answers.append(normalized_answer)
             seen_answers.add(normalized_answer)
         return normalized_answers
-
-    @staticmethod
-    def _split_answer_values(answers: list[str]) -> list[str]:
-        return [
-            part.strip()
-            for answer in answers
-            for part in answer.split(",")
-            if part.strip()
-        ]
 
     def _normalize_answer(self, answer: str) -> str:
         normalized = answer.lower().strip()

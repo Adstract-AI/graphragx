@@ -503,7 +503,7 @@ class FakeAnswerGenerationService:
         question: str,
         reasoning_paths_text: str,
         model_id: str,
-    ) -> tuple[str, str]:
+    ) -> tuple[list[str], str]:
         self.calls.append((question, reasoning_paths_text, model_id))
         prompt = (
             "Question:\n"
@@ -512,7 +512,7 @@ class FakeAnswerGenerationService:
             f"{reasoning_paths_text}\n\n"
             "Answer the question using only the reasoning paths."
         )
-        return "Jaxon Bieber", prompt
+        return ["Jaxon Bieber"], prompt
 
     def generate_answer_with_explanation(
         self,
@@ -522,14 +522,14 @@ class FakeAnswerGenerationService:
     ) -> dict[str, str]:
         self.calls.append((question, reasoning_paths_text, model_id))
         return {
-            "answer": "Jaxon Bieber",
+            "answers": ["Jaxon Bieber"],
             "explanation": (
                 "Used Justin Bieber -> people.person.sibling_s -> m.0gxnnwp "
                 "and m.0gxnnwp -> people.sibling_relationship.sibling -> Jaxon Bieber."
             ),
             "raw_response": json.dumps(
                 {
-                    "answer": "Jaxon Bieber",
+                    "answers": ["Jaxon Bieber"],
                     "explanation": (
                         "Used Justin Bieber -> people.person.sibling_s -> m.0gxnnwp "
                         "and m.0gxnnwp -> people.sibling_relationship.sibling -> Jaxon Bieber."
@@ -572,9 +572,9 @@ class ConcurrentFakeAnswerGenerationService:
             raise AssertionError("Expected concurrent LLM calls did not start.")
 
         return {
-            "answer": "Answer",
+            "answers": ["Answer"],
             "explanation": "Explanation",
-            "raw_response": '{"answer":"Answer","explanation":"Explanation"}',
+            "raw_response": '{"answers":["Answer"],"explanation":"Explanation"}',
             "prompt": question,
             "prompt_tokens": 1,
             "completion_tokens": 1,
@@ -598,7 +598,7 @@ class LlmAnswerGenerationStepTests(unittest.TestCase):
 
         result = step.execute(StepContext(result=extracted_paths))
 
-        self.assertEqual(result.answer, "Jaxon Bieber")
+        self.assertEqual(result.answers, ["Jaxon Bieber"])
         self.assertEqual(result.model_id, "test-model")
         self.assertEqual(result.extracted_paths, extracted_paths)
         self.assertIn("Question:", result.prompt)
@@ -887,6 +887,7 @@ class LlmInferenceBatchStepTests(unittest.TestCase):
             reasoning_rows = saved_run.reasoning_path.read_text(encoding="utf-8").splitlines()
             summary = json.loads(saved_run.inference_config_path.read_text(encoding="utf-8"))
             self.assertEqual(len(answer_lines), 2)
+            self.assertEqual(json.loads(answer_lines[0])["answers"], ["Jaxon Bieber"])
             self.assertEqual(len(reasoning_rows), 2)
             self.assertEqual(len(fake_service.calls), 2)
             self.assertEqual(saved_run.total_instances, 2)

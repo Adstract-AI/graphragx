@@ -506,7 +506,7 @@ class GenerateFinalAnswersBatchStep(
         item: ReasoningPathsForPrediction,
     ) -> GeneratedAnswerForPrediction:
         extracted_paths = item.extracted_paths
-        answer = ""
+        answers: list[str] = []
         explanation = ""
         raw_response = ""
         error_message = None
@@ -539,7 +539,14 @@ class GenerateFinalAnswersBatchStep(
                 result = self.answer_generation_service.generate_answer_with_explanation(
                     **generation_kwargs,
                 )
-            answer = result["answer"]
+            raw_answers = result.get("answers")
+            if not isinstance(raw_answers, list) or any(
+                not isinstance(value, str) for value in raw_answers
+            ):
+                raise ValueError(
+                    "Answer generation service must return an 'answers' array of strings."
+                )
+            answers = [value.strip() for value in raw_answers if value.strip()]
             explanation = (
                 result.get("explanation", "")
                 if self.generate_explanation
@@ -595,7 +602,7 @@ class GenerateFinalAnswersBatchStep(
             evidence_construction=extracted_paths.construction,
             model_id=self.model_id,
             llm_provider=self.llm_provider,
-            answer=answer,
+            answers=answers,
             explanation=explanation,
             raw_response=raw_response,
             prompt_tokens=prompt_tokens,
