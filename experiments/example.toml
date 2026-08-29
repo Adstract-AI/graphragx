@@ -10,9 +10,11 @@ args = [
   "--gnn-architecture", "graphsage",
   "--gnn-layers", "3",
   "--gnn-hidden-dim", "256",
-  "--training-epochs", "32",
+  "--training-epochs", "2",
   "--training-run-name", "graphsage_model_01",
   "--evaluation-run-name", "graphsage_retriever_01",
+  "--training-max-instances", "100",
+  "--evaluation-max-instances", "100",
 ]
 
 [[runs]]
