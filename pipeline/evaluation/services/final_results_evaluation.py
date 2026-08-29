@@ -251,6 +251,7 @@ class FinalResultsEvaluationService(AbstractService):
             explanation=str(answer_row.get("explanation", "")),
             reasoning_row=reasoning_row,
         )
+        answer_failed = answer_row.get("error_message") is not None
         return PerInstanceFinalResult(
             instance_index=instance_index,
             question=str(answer_row.get("question", "")),
@@ -259,7 +260,7 @@ class FinalResultsEvaluationService(AbstractService):
             predicted_answers=predicted_answers,
             normalized_gold_answers=normalized_gold_answers,
             normalized_predicted_answers=normalized_predicted_answers,
-            exact_match=gold_set == predicted_set,
+            exact_match=not answer_failed and gold_set == predicted_set,
             hit=true_positive_count > 0,
             hits_at_1=(
                 bool(normalized_predicted_answers)
@@ -301,34 +302,32 @@ class FinalResultsEvaluationService(AbstractService):
         per_instance_results: list[PerInstanceFinalResult],
         candidate_limit: int,
     ) -> FinalReasoningMetrics:
-        successful_results = [
-            item for item in per_instance_results if item.answer_error_message is None
-        ]
         evaluated_instances = len(per_instance_results)
-        successful_instance_count = len(successful_results)
-        exact_match_count = sum(1 for item in successful_results if item.exact_match)
-        hit_count = sum(1 for item in successful_results if item.hit)
-        hits_at_1_count = sum(1 for item in successful_results if item.hits_at_1)
+        exact_match_count = sum(1 for item in per_instance_results if item.exact_match)
+        hit_count = sum(1 for item in per_instance_results if item.hit)
+        hits_at_1_count = sum(1 for item in per_instance_results if item.hits_at_1)
         true_positive_count = sum(
-            item.true_positive_count for item in successful_results
+            item.true_positive_count for item in per_instance_results
         )
         false_positive_count = sum(
-            item.false_positive_count for item in successful_results
+            item.false_positive_count for item in per_instance_results
         )
         false_negative_count = sum(
-            item.false_negative_count for item in successful_results
+            item.false_negative_count for item in per_instance_results
         )
         precision = self._safe_divide(true_positive_count, true_positive_count + false_positive_count)
         recall = self._safe_divide(true_positive_count, true_positive_count + false_negative_count)
-        grounded_count = sum(1 for item in successful_results if item.grounded_explanation)
+        grounded_count = sum(
+            1 for item in per_instance_results if item.grounded_explanation
+        )
         fully_grounded_count = sum(
-            1 for item in successful_results if item.fully_grounded_explanation
+            1 for item in per_instance_results if item.fully_grounded_explanation
         )
         mentioned_triple_count = sum(
-            item.mentioned_triple_count for item in successful_results
+            item.mentioned_triple_count for item in per_instance_results
         )
         grounded_mentioned_triple_count = sum(
-            item.grounded_mentioned_triple_count for item in successful_results
+            item.grounded_mentioned_triple_count for item in per_instance_results
         )
         return FinalReasoningMetrics(
             dataset_id=llm_inference_run.dataset_id,
@@ -346,13 +345,13 @@ class FinalResultsEvaluationService(AbstractService):
                     1 for item in per_instance_results if item.answer_error_message is not None
                 ),
                 exact_match_count=exact_match_count,
-                accuracy=self._safe_divide(exact_match_count, successful_instance_count),
+                accuracy=self._safe_divide(exact_match_count, evaluated_instances),
                 hit_count=hit_count,
-                hit_rate=self._safe_divide(hit_count, successful_instance_count),
+                hit_rate=self._safe_divide(hit_count, evaluated_instances),
                 hits_at_1_count=hits_at_1_count,
                 hits_at_1=self._safe_divide(
                     hits_at_1_count,
-                    successful_instance_count,
+                    evaluated_instances,
                 ),
                 true_positive_count=true_positive_count,
                 false_positive_count=false_positive_count,
@@ -366,11 +365,11 @@ class FinalResultsEvaluationService(AbstractService):
                 fully_grounded_explanation_count=fully_grounded_count,
                 grounded_explanation_rate=self._safe_divide(
                     grounded_count,
-                    successful_instance_count,
+                    evaluated_instances,
                 ),
                 fully_grounded_explanation_rate=self._safe_divide(
                     fully_grounded_count,
-                    successful_instance_count,
+                    evaluated_instances,
                 ),
                 mentioned_triple_count=mentioned_triple_count,
                 grounded_mentioned_triple_count=grounded_mentioned_triple_count,
@@ -744,9 +743,6 @@ class FinalResultsEvaluationService(AbstractService):
         return " ".join(triple)
 
     def _prediction_answers(self, answer_row: dict[str, Any]) -> list[str]:
-        if answer_row.get("error_message") is not None:
-            return []
-
         structured_answers = answer_row.get("answers")
         if not isinstance(structured_answers, list) or any(
             not isinstance(item, str) for item in structured_answers
@@ -755,6 +751,8 @@ class FinalResultsEvaluationService(AbstractService):
                 "Inference answer row must contain an 'answers' array of strings. "
                 "Rerun inference for artifacts created with the old string format."
             )
+        if answer_row.get("error_message") is not None:
+            return []
         answers = [item.strip() for item in structured_answers if item.strip()]
         return [
             answer

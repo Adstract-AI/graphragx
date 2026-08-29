@@ -124,6 +124,9 @@ def test_answer_normalization_and_set_metrics() -> None:
         candidate_limit=10,
     )
     assert failed_result.predicted_answers == []
+    assert failed_result.exact_match is False
+    assert failed_result.hit is False
+    assert failed_result.false_negative_count == 2
 
 
 def test_comma_bearing_entities_remain_atomic_across_all_metrics() -> None:
@@ -566,15 +569,15 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     assert metrics["evaluated_instances"] == 2
     assert metrics["successful_answers"] == 1
     assert metrics["failed_answers"] == 1
-    assert metrics["accuracy"] == 1.0
+    assert metrics["accuracy"] == 0.5
     assert metrics["hit_count"] == 1
-    assert metrics["hit_rate"] == 1.0
+    assert metrics["hit_rate"] == 0.5
     assert metrics["hits_at_1_count"] == 1
-    assert metrics["hits_at_1"] == 1.0
+    assert metrics["hits_at_1"] == 0.5
     assert metrics["precision"] == 1.0
-    assert metrics["recall"] == 1.0
-    assert metrics["f1"] == 1.0
-    assert metrics["grounded_explanation_rate"] == 1.0
+    assert metrics["recall"] == 0.5
+    assert math.isclose(metrics["f1"], 2 / 3)
+    assert metrics["grounded_explanation_rate"] == 0.5
     assert metrics["candidate_limit"] == 5
     assert math.isclose(metrics["ndcg_at_5"], (1.0 + 1 / math.log2(3)) / 2)
     assert metrics["retrieval_gold_coverage"] == 1.0
