@@ -580,6 +580,7 @@ def test_batched_rgcn_training_smoke_saves_vocabulary_and_model(tmp_path) -> Non
     assert epoch_events == [
         {
             "epoch": 1,
+            "gnn_architecture": "rgcn",
             "average_loss": outcome.final_loss,
         }
     ]
