@@ -18,6 +18,7 @@ from helpers.constants import (
     DEFAULT_EVALUATION_GPU_CACHE_RESERVE_GB,
     DEFAULT_EVALUATION_LOG_EVERY,
     DEFAULT_EVALUATION_PROFILE,
+    DEFAULT_RANDOM_SEED,
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_TRAINING_LEARNING_RATE,
@@ -31,6 +32,7 @@ from helpers.constants import (
     DEFAULT_WANDB_TRAINING_LOG_EVERY,
 )
 from helpers.logging_config import get_logger, setup_logger
+from helpers.reproducibility import configure_random_seed
 from pipeline import (
     BuildGnnAnswerRetrieverStep,
     BuildPipelineConfigurationStep,
@@ -195,6 +197,7 @@ class PipelineRuntimeConfig(BaseModel):
         "evaluation-only",
         "inference-only",
     ] = "full"
+    random_seed: int = Field(default=DEFAULT_RANDOM_SEED, ge=0)
     dataset: str | None = None
     local_graph_profile: bool = False
     llm_provider: str | None = None
@@ -604,6 +607,7 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             training_batch_size=resolved_config.training_batch_size,
             training_device=resolved_config.training_device,
             training_profile=resolved_config.training_profile,
+            random_seed=resolved_config.random_seed,
             training_run_name=resolved_config.training_run_name,
             continue_training_model_run_name=(
                 resolved_config.continue_training_model_run_name
@@ -758,6 +762,7 @@ def run_pipeline(config: PipelineRuntimeConfig) -> PipelineExecutionResult:
             "--retriever-run-number."
         )
 
+    configure_random_seed(config.random_seed)
     pipeline = build_pipeline(config=config)
     initial_context = StepContext(result=InitialStepResult())
     if config.run_mode == "train-only":
@@ -901,6 +906,14 @@ def _add_gnn_architecture_option_arguments(parser: argparse.ArgumentParser) -> N
         parser.add_argument(option.cli_flag, **kwargs)
 
 
+def _non_negative_integer(value: str) -> int:
+    """Parse a non-negative integer for reproducible random seeds."""
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be greater than or equal to zero")
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the framework entry point."""
     parser = argparse.ArgumentParser(description="Run graphragX.")
@@ -940,6 +953,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_const",
         const="inference-only",
         help="Run LLM inference and final results from a saved retriever run.",
+    )
+    parser.add_argument(
+        "--seed",
+        dest="random_seed",
+        type=_non_negative_integer,
+        default=DEFAULT_RANDOM_SEED,
+        help=(
+            "Seed Python, NumPy, and PyTorch before model construction. "
+            f"Default: {DEFAULT_RANDOM_SEED}."
+        ),
     )
     parser.add_argument(
         "--dataset",
@@ -1317,6 +1340,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     runtime_config = PipelineRuntimeConfig(
         run_mode=args.run_mode,
+        random_seed=args.random_seed,
         dataset=args.dataset,
         local_graph_profile=args.local_graph_profile,
         llm_provider=args.llm_provider,

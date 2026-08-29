@@ -172,6 +172,14 @@ class FakeEvaluateGnnAnswerRetrieverStep(EvaluateGnnAnswerRetrieverStep):
 
 
 class MainEntrypointTests(unittest.TestCase):
+    def test_seed_defaults_and_accepts_non_negative_override(self) -> None:
+        parser = main.build_parser()
+
+        self.assertEqual(parser.parse_args([]).random_seed, 42)
+        self.assertEqual(parser.parse_args(["--seed", "7"]).random_seed, 7)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--seed", "-1"])
+
     def test_candidate_top_k_must_be_at_least_ten(self) -> None:
         with self.assertRaisesRegex(ValueError, "greater than or equal to 10"):
             main.PipelineRuntimeConfig(candidate_top_k=9)

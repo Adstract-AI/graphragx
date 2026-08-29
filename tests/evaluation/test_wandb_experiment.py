@@ -549,7 +549,7 @@ def test_training_epoch_average_uses_legacy_metric_name(tmp_path) -> None:
                 "hidden_dimension": 256,
                 "entity_embedding_model": "text-embedding-3-small",
                 "trained_instances": 10,
-                "training": {"epochs": 1},
+                "training": {"epochs": 1, "random_seed": 42},
             }
         ),
         encoding="utf-8",
@@ -575,6 +575,7 @@ def test_training_epoch_average_uses_legacy_metric_name(tmp_path) -> None:
     model_config = coordinator.config_updates[0]["configs"]["model"]
     assert "dataset_id" not in model_config
     assert model_config["training"]["epochs"] == 1
+    assert model_config["training"]["random_seed"] == 42
     assert model_config["training"]["trained_instances"] == {
         "start": 0,
         "end": 10,

@@ -126,6 +126,50 @@ To run LLM inference from an existing retriever evaluation:
 uv run python main.py --inference-only --retriever-run-number 7 --default
 ```
 
+### Running An Experiment Manifest
+
+For a sequence of predefined runs, use the lightweight TOML experiment runner:
+
+```bash
+uv run python scripts/run_experiments.py experiments/example.toml --dry-run
+uv run python scripts/run_experiments.py experiments/example.toml
+```
+
+The same runner uses the active interpreter and therefore also works in the
+local Conda environment:
+
+```bash
+conda run -n data-science python scripts/run_experiments.py experiments/example.toml
+```
+
+Each `[[runs]]` entry contains an `id`, its ordinary `main.py` `args`, and an
+optional `after` dependency list. `[defaults].args` is prepended to every run.
+Runs execute sequentially, so only one training process occupies the GPU. The
+runner streams output to the console, stores one log per run, and records
+resumable status under `.experiment-runs/<manifest-name>/`. A successful run
+with an unchanged command is skipped on restart.
+
+Useful runner options are:
+
+- `--run RUN_ID` to execute one run and its dependencies; repeat it to select
+  several runs.
+- `--dry-run` to validate and print the execution order without launching the
+  pipeline.
+- `--continue-on-error` to continue with independent runs after a failure;
+  dependent runs are marked blocked.
+- `--force` to rerun commands already recorded as successful.
+
+Use unique `--training-run-name`, `--evaluation-run-name`, and
+`--inference-run-name` labels in a manifest. Inference runs can then reference
+their retriever dependency through `--retriever-run-name`, avoiding repeated
+GNN training.
+
+All pipeline runs accept `--seed`; its default is `42`. The seed initializes
+Python, NumPy, and PyTorch before model construction and is persisted under the
+saved model's `training.random_seed` configuration. It controls model
+initialization and dropout without forcing slower deterministic CUDA scatter
+kernels.
+
 ## CLI Flags
 
 ### Run Mode
@@ -143,6 +187,7 @@ uv run python main.py --inference-only --retriever-run-number 7 --default
 | Flag | Description |
 | --- | --- |
 | `--dataset DATASET` | Dataset id to use. The current supported dataset is `WebQSP`. |
+| `--seed SEED` | Non-negative Python, NumPy, and PyTorch random seed. Default: `42`. |
 | `--llm-provider {openai,deepseek,vezilka}` | LLM provider used for final answer generation. Default: `openai`. |
 | `--main-llm-model MAIN_LLM_MODEL` | LLM model id used for final answer generation. For Vezilka this is free-form and is passed unchanged to the endpoint. |
 | `--generate-explanation` | Ask the LLM to generate explanations. Without this flag, only answers are requested and explanation metrics are saved as zero. |
