@@ -42,6 +42,8 @@ from pipeline.evaluation.exceptions import (
 _LAZY_EXPORT_MODULES: dict[str, str] = {
     "BuildReasoningSamplesFromGnnEvaluationContext": "pipeline.evaluation.steps.llm_inference",
     "BuildReasoningSamplesFromGnnEvaluationStep": "pipeline.evaluation.steps.llm_inference",
+    "BuildEvidenceSubgraphsBatchStep": "pipeline.evaluation.steps.llm_inference",
+    "BuildEvidenceSubgraphsContext": "pipeline.evaluation.steps.llm_inference",
     "ComputeFinalResultsContext": "pipeline.evaluation.steps.final_results_evaluation",
     "ComputeFinalResultsStep": "pipeline.evaluation.steps.final_results_evaluation",
     "EvaluateGnnAnswerRetrieverContext": "pipeline.evaluation.steps.gnn_answer_retriever_evaluation",
@@ -92,6 +94,8 @@ __all__ = [
     "AnswerCandidateScore",
     "BuildReasoningSamplesFromGnnEvaluationContext",
     "BuildReasoningSamplesFromGnnEvaluationStep",
+    "BuildEvidenceSubgraphsBatchStep",
+    "BuildEvidenceSubgraphsContext",
     "BuiltReasoningSamples",
     "CandidateNodeScore",
     "CandidateNodeScores",

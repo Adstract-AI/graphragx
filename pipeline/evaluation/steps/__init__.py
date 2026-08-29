@@ -13,6 +13,8 @@ from pipeline.evaluation.steps.gnn_prediction_candidate_scoring import (
 )
 from pipeline.evaluation.steps.llm_answer_generation import GenerateFinalAnswerStep
 from pipeline.evaluation.steps.llm_inference import (
+    BuildEvidenceSubgraphsBatchStep,
+    BuildEvidenceSubgraphsContext,
     BuildReasoningSamplesFromGnnEvaluationContext,
     BuildReasoningSamplesFromGnnEvaluationStep,
     GenerateAndSaveFinalAnswersBatchesContext,
@@ -28,6 +30,8 @@ from pipeline.evaluation.steps.wandb_final_results import LogFinalResultsToWandb
 __all__ = [
     "BuildReasoningSamplesFromGnnEvaluationContext",
     "BuildReasoningSamplesFromGnnEvaluationStep",
+    "BuildEvidenceSubgraphsBatchStep",
+    "BuildEvidenceSubgraphsContext",
     "ComputeFinalResultsContext",
     "ComputeFinalResultsStep",
     "GenerateAndSaveFinalAnswersBatchesContext",

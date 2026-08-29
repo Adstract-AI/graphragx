@@ -17,6 +17,9 @@ from pipeline.preparation.helpers.gnn_architecture import infer_gnn_architecture
 from pipeline.evaluation.services.model_config_normalization import (
     normalize_model_config,
 )
+from pipeline.evaluation.services.wandb_experiment import (
+    WandbExperimentCoordinator,
+)
 from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
@@ -78,6 +81,14 @@ class WandbFinalResultsLoggingService(AbstractService):
         "partial_retrieval_fully_utilized_rate",
         "partial_retrieval_underutilized_count",
         "partial_retrieval_underutilized_rate",
+        "full_context_complete_answer_count",
+        "full_context_complete_answer_rate",
+        "full_context_llm_omission_count",
+        "full_context_llm_omission_rate",
+        "partial_context_fully_utilized_count",
+        "partial_context_fully_utilized_rate",
+        "partial_context_underutilized_count",
+        "partial_context_underutilized_rate",
         "no_gold_retrieved_no_gold_answered_count",
         "no_gold_retrieved_no_gold_answered_rate",
         "correct_without_gold_retrieval_count",
@@ -164,6 +175,28 @@ class WandbFinalResultsLoggingService(AbstractService):
                 and not run_name.endswith(f"_{architecture_name}")
             ):
                 run_name = f"{run_name}_{architecture_name}"
+            inference_config = wandb_config.get("configs", {}).get("inference", {})
+            if not isinstance(inference_config, dict):
+                inference_config = {}
+            evidence_configuration = inference_config.get("evidence_subgraph", {})
+            evidence_algorithm = (
+                evidence_configuration.get("algorithm")
+                if isinstance(evidence_configuration, dict)
+                else None
+            )
+            run_name = WandbExperimentCoordinator.build_inference_run_name(
+                run_name,
+                evidence_algorithm=(
+                    str(evidence_algorithm)
+                    if isinstance(evidence_algorithm, str)
+                    else None
+                ),
+                model_id=(
+                    str(inference_config["model_id"])
+                    if isinstance(inference_config.get("model_id"), str)
+                    else None
+                ),
+            )
             tags = self._build_tags(results_config)
 
             with wandb.init(
@@ -318,6 +351,28 @@ class WandbFinalResultsLoggingService(AbstractService):
         }
         run_summary_keys.update(
             {
+                "retrieval_gold_coverage": "retrieval_gold_coverage",
+                "retrieval_full_gold_coverage_rate": (
+                    "retrieval_full_gold_coverage"
+                ),
+                "reasoning_context_gold_coverage": (
+                    "reasoning_context_gold_coverage"
+                ),
+                "reasoning_context_full_gold_coverage_rate": (
+                    "reasoning_context_full_gold_coverage"
+                ),
+                "llm_exact_match_given_full_context": (
+                    "llm_exact_match_given_full_context"
+                ),
+                "llm_omission_given_full_context_rate": (
+                    "llm_omission_given_full_context"
+                ),
+                "llm_exact_match_given_full_retrieval": (
+                    "llm_exact_match_given_full_retrieval"
+                ),
+                "llm_omission_given_full_retrieval_rate": (
+                    "llm_omission_given_full_retrieval"
+                ),
                 "full_retrieval_complete_answer_rate": (
                     "full_retrieval_complete_answer"
                 ),
@@ -329,6 +384,18 @@ class WandbFinalResultsLoggingService(AbstractService):
                 ),
                 "partial_retrieval_underutilized_rate": (
                     "partial_retrieval_underutilized"
+                ),
+                "full_context_complete_answer_rate": (
+                    "full_context_complete_answer"
+                ),
+                "full_context_llm_omission_rate": (
+                    "full_context_llm_omission"
+                ),
+                "partial_context_fully_utilized_rate": (
+                    "partial_context_fully_utilized"
+                ),
+                "partial_context_underutilized_rate": (
+                    "partial_context_underutilized"
                 ),
                 "no_gold_retrieved_no_gold_answered_rate": (
                     "no_gold_retrieved_no_gold_answered"
@@ -491,6 +558,11 @@ class WandbFinalResultsLoggingService(AbstractService):
                 **inference_payload,
                 "total_instances": inference_config["total_instances"],
             }
+        inference_payload = {
+            key: value
+            for key, value in inference_payload.items()
+            if key != "evidence_metrics"
+        }
 
         model_run_name = model_ref.get("model_run_name") or results_config.get("model_run_name")
         model_run_number = self._int_or_none(model_ref.get("model_run_number")) or self._extract_run_number(model_run_name)

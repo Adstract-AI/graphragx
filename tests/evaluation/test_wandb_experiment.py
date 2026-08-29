@@ -11,6 +11,27 @@ from pipeline.evaluation.services.wandb_experiment import (
     WandbExperimentCoordinator,
     WandbRunIdentifierService,
 )
+
+
+def test_wandb_tags_include_pcst_strategy_and_semantic_embedding() -> None:
+    tags = WandbExperimentCoordinator._build_tags_from_config(
+        {
+            "configs": {
+                "inference": {
+                    "evidence_subgraph": {
+                        "algorithm": "pcst",
+                        "pcst": {
+                            "edge_cost_strategy": "semantic",
+                            "semantic_embedding_model": "text-embedding-3-small",
+                        },
+                    }
+                }
+            }
+        }
+    )
+    assert "pcst" in tags
+    assert "pcst-semantic" in tags
+    assert "text-embedding-3-small" in tags
 from pipeline.exceptions import PipelineException
 from pipeline.abstract import StepContext
 from pipeline.evaluation.models import (
@@ -43,6 +64,9 @@ class FakeRun:
         self.defined_metrics: list[tuple[str, dict]] = []
         self.config = FakeConfig()
         self.tags: tuple[str, ...] = ()
+
+    def save(self, glob_str) -> None:
+        raise AssertionError("Renaming a W&B run must not call Run.save().")
 
     def define_metric(self, name, **kwargs) -> None:
         self.defined_metrics.append((name, kwargs))
@@ -199,6 +223,19 @@ def test_coordinator_appends_architecture_to_new_run_name(tmp_path) -> None:
     assert run_name.startswith("1_")
     assert run_name.endswith("_aa-graphsage")
     assert (tmp_path / "wandb_runs" / run_name.removesuffix("_aa-graphsage")).is_dir()
+
+
+def test_inference_run_name_appends_available_algorithm_and_model() -> None:
+    assert WandbExperimentCoordinator.build_inference_run_name(
+        "1_20260829_120000_hgt",
+        evidence_algorithm="shortest_path",
+        model_id="provider/model 1",
+    ) == "1_20260829_120000_hgt_sp_provider-model-1"
+    assert WandbExperimentCoordinator.build_inference_run_name(
+        "1_20260829_120000_hgt",
+        evidence_algorithm=None,
+        model_id=None,
+    ) == "1_20260829_120000_hgt"
 
 
 def test_coordinator_preserves_persisted_lineage_run_name(tmp_path) -> None:
@@ -417,6 +454,14 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
                         "inference": {
                             "model_id": "gpt-test",
                             "total_tokens": run_number * 10,
+                            "evidence_subgraph": {
+                                "algorithm": "shortest_path",
+                            },
+                            "evidence_metrics": {
+                                "candidate_reduction_percentage": (
+                                    run_number * 10.0
+                                ),
+                            },
                         },
                     }
                 ),
@@ -450,6 +495,19 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
         key for payload, _ in fake_wandb.run.logged for key in payload
     }
     assert not any(key.startswith("Inference/") for key in logged_keys)
+    assert (
+        "Summary_Plots/evidence_candidate_reduction_percentage"
+        in logged_keys
+    )
+    assert (
+        "Run_Summary/evidence_candidate_reduction_percentage"
+        in logged_keys
+    )
+    assert any(
+        payload.get("Run_Summary/evidence_candidate_reduction_percentage")
+        == 20.0
+        for payload, _ in fake_wandb.run.logged
+    )
     assert fake_wandb.run.config["dataset_id"] == "WebQSP"
     assert fake_wandb.run.config["model_id"] == "gpt-test"
     assert fake_wandb.run.config["runs"]["inference"] == {
@@ -460,6 +518,8 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
     assert "WebQSP" in fake_wandb.run.tags
     assert "gpt-test" in fake_wandb.run.tags
     assert "inference_run_number:2" in fake_wandb.run.tags
+    assert fake_wandb.run.name.endswith("_sp_gpt-test")
+    assert coordinator.metadata.run_name == fake_wandb.run.name
 
 
 def test_run_identifier_service_uses_one_global_counter(tmp_path) -> None:

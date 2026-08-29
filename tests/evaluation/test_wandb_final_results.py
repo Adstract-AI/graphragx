@@ -93,6 +93,7 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             },
             "inference": {
                 "model_id": "test-model",
+                "evidence_subgraph": {"algorithm": "pcst"},
                 "total_requests": 1,
                 "total_tokens": 0,
                 "total_cost_usd": 0.0,
@@ -201,6 +202,10 @@ def _fake_final_result(tmp_path: Path) -> FinalResultsEvaluationResult:
             "full_retrieval_llm_omission_rate": 0.2,
             "partial_retrieval_fully_utilized_rate": 0.15,
             "partial_retrieval_underutilized_rate": 0.1,
+            "full_context_complete_answer_rate": 0.35,
+            "full_context_llm_omission_rate": 0.15,
+            "partial_context_fully_utilized_rate": 0.2,
+            "partial_context_underutilized_rate": 0.1,
             "no_gold_retrieved_no_gold_answered_rate": 0.1,
             "correct_without_gold_retrieval_rate": 0.05,
         },
@@ -307,13 +312,49 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     )
     assert run_summary_metrics["Run_Summary/retrieval_hits_at_1"] == 0.5
     assert run_summary_metrics["Run_Summary/retrieval_evaluated_instances"] == 1
-    assert "Run_Summary/retrieval_gold_coverage" not in run_summary_metrics
+    assert run_summary_metrics["Run_Summary/retrieval_gold_coverage"] == 0.8
+    assert run_summary_metrics["Run_Summary/retrieval_full_gold_coverage"] == 0.6
+    assert run_summary_metrics["Run_Summary/reasoning_context_gold_coverage"] == 0.7
+    assert (
+        run_summary_metrics["Run_Summary/reasoning_context_full_gold_coverage"]
+        == 0.5
+    )
+    assert run_summary_metrics["Run_Summary/llm_exact_match_given_full_context"] == 0.75
+    assert run_summary_metrics["Run_Summary/llm_omission_given_full_context"] == 0.2
+    assert (
+        run_summary_metrics["Run_Summary/llm_exact_match_given_full_retrieval"]
+        == 0.7
+    )
+    assert (
+        run_summary_metrics["Run_Summary/llm_omission_given_full_retrieval"]
+        == 0.25
+    )
     assert "Run_Summary/conditioned_evaluated_instances" not in run_summary_metrics
     assert "Run_Summary/llm_omission_given_full_retrieval_rate" not in run_summary_metrics
     assert run_summary_metrics["Run_Summary/full_retrieval_complete_answer"] == 0.4
     assert run_summary_metrics["Run_Summary/full_retrieval_llm_omission"] == 0.2
     assert run_summary_metrics["Run_Summary/partial_retrieval_fully_utilized"] == 0.15
     assert run_summary_metrics["Run_Summary/partial_retrieval_underutilized"] == 0.1
+    assert run_summary_metrics["Run_Summary/full_context_complete_answer"] == 0.35
+    assert run_summary_metrics["Run_Summary/full_context_llm_omission"] == 0.15
+    assert run_summary_metrics["Run_Summary/partial_context_fully_utilized"] == 0.2
+    assert run_summary_metrics["Run_Summary/partial_context_underutilized"] == 0.1
+    assert (
+        summary_plot_metrics["Summary_Plots/full_context_complete_answer_rate"]
+        == 0.35
+    )
+    assert (
+        summary_plot_metrics["Summary_Plots/full_context_llm_omission_rate"]
+        == 0.15
+    )
+    assert (
+        summary_plot_metrics["Summary_Plots/partial_context_fully_utilized_rate"]
+        == 0.2
+    )
+    assert (
+        summary_plot_metrics["Summary_Plots/partial_context_underutilized_rate"]
+        == 0.1
+    )
     assert run_summary_metrics["Run_Summary/no_gold_retrieved_no_gold_answered"] == 0.1
     assert run_summary_metrics["Run_Summary/correct_without_gold_retrieval"] == 0.05
     assert "Run_Summary/retrieval_hits_at_5" not in run_summary_metrics
@@ -450,7 +491,7 @@ def test_wandb_logging_success_with_fake_module(
     assert captured["init"]["project"] == "project"
     assert captured["init"]["entity"] == "entity"
     assert captured["init"]["mode"] == "disabled"
-    assert captured["init"]["name"] == "1_test_graphsage"
+    assert captured["init"]["name"] == "1_test_graphsage_pcst_test-model"
     assert captured["init"]["config"]["runs"]["model"]["number"] == 7
     assert captured["init"]["config"]["configs"]["model"]["training"]["epochs"] == 3
     assert "model_run_number:7" in captured["init"]["tags"]
@@ -466,6 +507,23 @@ def test_wandb_logging_success_with_fake_module(
     assert "1_inference" not in captured["init"]["tags"]
     run_summary_payload = captured["logs"][0]["payload"]
     assert run_summary_payload["Run_Summary/retrieval_hits_at_1"] == 0.5
+    assert run_summary_payload["Run_Summary/retrieval_gold_coverage"] == 0.8
+    assert run_summary_payload["Run_Summary/retrieval_full_gold_coverage"] == 0.6
+    assert run_summary_payload["Run_Summary/reasoning_context_gold_coverage"] == 0.7
+    assert (
+        run_summary_payload["Run_Summary/reasoning_context_full_gold_coverage"]
+        == 0.5
+    )
+    assert run_summary_payload["Run_Summary/llm_exact_match_given_full_context"] == 0.75
+    assert run_summary_payload["Run_Summary/llm_omission_given_full_context"] == 0.2
+    assert (
+        run_summary_payload["Run_Summary/llm_exact_match_given_full_retrieval"]
+        == 0.7
+    )
+    assert (
+        run_summary_payload["Run_Summary/llm_omission_given_full_retrieval"]
+        == 0.25
+    )
     assert "Run_Summary/retrieval_hits_at_5" not in run_summary_payload
     assert run_summary_payload["Run_Summary/retrieval_hits_at_10"] == 1.0
     assert (
@@ -575,7 +633,14 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
     payload = coordinator.logged[0]
     assert "Run_Summary/retrieval_hits_at_1" not in payload
     assert "Run_Summary/retrieval_hits_at_10" not in payload
-    assert "Run_Summary/retrieval_gold_coverage" not in payload
+    assert payload["Run_Summary/retrieval_gold_coverage"] == 0.8
+    assert payload["Run_Summary/retrieval_full_gold_coverage"] == 0.6
+    assert payload["Run_Summary/reasoning_context_gold_coverage"] == 0.7
+    assert payload["Run_Summary/reasoning_context_full_gold_coverage"] == 0.5
+    assert payload["Run_Summary/llm_exact_match_given_full_context"] == 0.75
+    assert payload["Run_Summary/llm_omission_given_full_context"] == 0.2
+    assert payload["Run_Summary/llm_exact_match_given_full_retrieval"] == 0.7
+    assert payload["Run_Summary/llm_omission_given_full_retrieval"] == 0.25
     assert payload["Run_Summary/full_retrieval_complete_answer"] == 0.4
     assert payload["Run_Summary/answer_hit_rate"] == 0.5
     assert payload["Run_Summary/answer_f1"] == 2 / 3

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from pydantic import Field, BaseModel
@@ -29,6 +30,9 @@ from pipeline.preparation.helpers.configuration_definitions import (
     GRAPH_SAGE_ARCHITECTURE_ID,
     LLM_PROVIDERS,
     OPENAI_EMBEDDING_MODELS,
+    PCST_EDGE_COST_STRATEGIES,
+    RECOMMENDED_PCST_EDGE_COST_STRATEGY_ID,
+    DEFAULT_PCST_EDGE_COST,
     RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
     RECOMMENDED_GNN_ARCHITECTURE_ID,
     RECOMMENDED_MAIN_LLM_MODEL_ID,
@@ -54,6 +58,8 @@ class PipelineConfigurationInput(BaseModel):
     reasoning_effort: str | None = Field(default=None)
     main_llm_model: str | None = Field(default=None)
     subgraph_construction_algorithm: str | None = Field(default=None)
+    pcst_edge_cost_strategy: str | None = Field(default=None)
+    pcst_edge_cost: float | None = Field(default=None)
     context_construction_strategy: str | None = Field(default=None)
     gnn_architecture: str | None = Field(default=None)
     gnn_layer_count: int | None = Field(default=None)
@@ -89,6 +95,8 @@ class BuiltPipelineConfiguration(StepResult):
     subgraph_construction_algorithm: str = Field(
         ..., description="Selected subgraph construction algorithm id."
     )
+    pcst_edge_cost_strategy: str | None = Field(default=None)
+    pcst_edge_cost: float | None = Field(default=None)
     context_construction_strategy: str = Field(
         ..., description="Selected context construction strategy id."
     )
@@ -131,6 +139,8 @@ class BuildPipelineConfigurationStep(
         reasoning_effort: str | None = None,
         main_llm_model: str | None = None,
         subgraph_algorithm: str | None = None,
+        pcst_edge_cost_strategy: str | None = None,
+        pcst_edge_cost: float | None = None,
         context_strategy: str | None = None,
         gnn_architecture: str | None = None,
         gnn_layer_count: int | None = None,
@@ -156,6 +166,8 @@ class BuildPipelineConfigurationStep(
             reasoning_effort=reasoning_effort,
             main_llm_model=main_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
+            pcst_edge_cost_strategy=pcst_edge_cost_strategy,
+            pcst_edge_cost=pcst_edge_cost,
             context_construction_strategy=context_strategy,
             gnn_architecture=gnn_architecture,
             gnn_layer_count=gnn_layer_count,
@@ -325,6 +337,22 @@ class BuildPipelineConfigurationStep(
             value_getter=lambda item: item.algorithm_id,
             label_getter=lambda item: item.display_name,
         )
+        pcst_edge_cost_strategy = None
+        pcst_edge_cost = None
+        if subgraph_algorithm == "pcst":
+            pcst_edge_cost_strategy = self.selection_service.resolve_choice(
+                provided_value=self.configuration_input.pcst_edge_cost_strategy,
+                options=PCST_EDGE_COST_STRATEGIES,
+                prompt_title="PCST Edge Cost Strategy",
+                prompt_help="Select how PCST assigns costs to graph relations.",
+                recommended_id=RECOMMENDED_PCST_EDGE_COST_STRATEGY_ID,
+                invalid_exception_type=InvalidSubgraphConstructionSelectionException,
+                value_getter=lambda item: item.strategy_id,
+                label_getter=lambda item: item.display_name,
+            )
+            pcst_edge_cost = self._resolve_pcst_edge_cost(
+                self.configuration_input.pcst_edge_cost
+            )
         context_strategy = self.selection_service.resolve_choice(
             provided_value=self.configuration_input.context_construction_strategy,
             options=CONTEXT_CONSTRUCTION_STRATEGIES,
@@ -341,6 +369,8 @@ class BuildPipelineConfigurationStep(
                 architecture.data_requirements.uses_entity_embeddings,
                 architecture.data_requirements.uses_question_embeddings,
                 architecture.data_requirements.uses_relation_embeddings,
+                subgraph_algorithm == "pcst"
+                and pcst_edge_cost_strategy == "semantic",
             )
         ):
             embedding_model = self.selection_service.resolve_choice(
@@ -372,6 +402,8 @@ class BuildPipelineConfigurationStep(
             gnn_architecture_options=resolved_gnn_options,
             main_llm_model=main_llm_model,
             subgraph_construction_algorithm=subgraph_algorithm,
+            pcst_edge_cost_strategy=pcst_edge_cost_strategy,
+            pcst_edge_cost=pcst_edge_cost,
             context_construction_strategy=context_strategy,
             gnn_layer_count=resolved_gnn_options.get("gnn_layer_count"),
             gnn_hidden_dimension=resolved_gnn_options.get("gnn_hidden_dimension"),
@@ -394,6 +426,37 @@ class BuildPipelineConfigurationStep(
             edge_mlp_hidden_dim=resolved_gnn_options.get("edge_mlp_hidden_dim"),
             dropout=float(resolved_gnn_options.get("dropout", 0.0)),
         )
+
+    def _resolve_pcst_edge_cost(self, provided_value: float | None) -> float:
+        """Resolve a positive finite PCST lambda from CLI or interactive input."""
+        if provided_value is not None:
+            value = float(provided_value)
+            if math.isfinite(value) and value > 0:
+                return value
+            raise InvalidSubgraphConstructionSelectionException(
+                "PCST edge cost must be a finite value greater than zero."
+            )
+        while True:
+            try:
+                raw_value = self.selection_service.input_func(
+                    f"Enter PCST edge cost lambda [{DEFAULT_PCST_EDGE_COST}]: "
+                ).strip()
+            except (EOFError, KeyboardInterrupt) as error:
+                raise InvalidSubgraphConstructionSelectionException(
+                    "Unable to read the PCST edge cost."
+                ) from error
+            try:
+                value = DEFAULT_PCST_EDGE_COST if not raw_value else float(raw_value)
+            except ValueError:
+                self.selection_service.output_func(
+                    "Invalid value. Enter a finite number greater than zero."
+                )
+                continue
+            if math.isfinite(value) and value > 0:
+                return value
+            self.selection_service.output_func(
+                "Invalid value. Enter a finite number greater than zero."
+            )
 
     @staticmethod
     def _infer_llm_provider(model_id: str | None) -> str | None:

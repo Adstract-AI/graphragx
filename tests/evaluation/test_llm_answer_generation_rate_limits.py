@@ -55,6 +55,24 @@ class CapturingChatOpenAI:
         )()
 
 
+class AnswerOnlyCapturingChatOpenAI(CapturingChatOpenAI):
+    def invoke(self, messages):
+        self.__class__.invoke_count += 1
+        self.__class__.captured_messages = messages
+        return type(
+            "LangChainResponse",
+            (),
+            {
+                "content": '{"answer":"A"}',
+                "usage_metadata": {
+                    "input_tokens": 10,
+                    "output_tokens": 3,
+                    "total_tokens": 13,
+                },
+            },
+        )()
+
+
 class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
     def setUp(self) -> None:
         CapturingChatOpenAI.captured_kwargs = None
@@ -225,6 +243,28 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
         self.assertEqual(CapturingChatOpenAI.invoke_count, 2)
         self.assertNotIn("reasoning_effort", CapturingChatOpenAI.captured_kwargs)
         self.assertFalse(CapturingChatOpenAI.captured_kwargs["streaming"])
+
+    def test_answer_only_generation_omits_explanation_from_prompt_and_result(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+        with patch(
+            "pipeline.evaluation.services.llm_answer_generation.OPENAI_API_KEY",
+            "openai-key",
+        ), patch("langchain_openai.ChatOpenAI", AnswerOnlyCapturingChatOpenAI):
+            result = service.generate_answer_with_explanation(
+                question="Question?",
+                reasoning_paths_text="<A, relation, B>",
+                model_id="gpt-4.1-nano",
+                generate_explanation=False,
+            )
+
+        self.assertEqual(result["answer"], "A")
+        self.assertEqual(result["explanation"], "")
+        self.assertNotIn('"explanation"', result["prompt"])
+        self.assertIn('"answer": "..."', result["prompt"])
+        self.assertIn(
+            "Do not generate an explanation",
+            AnswerOnlyCapturingChatOpenAI.captured_messages[0].content,
+        )
 
 
 if __name__ == "__main__":

@@ -210,6 +210,14 @@ def test_retrieval_conditioned_answer_metrics_cover_all_outcomes() -> None:
     assert metrics.full_retrieval_llm_omission_count == 1
     assert metrics.partial_retrieval_fully_utilized_count == 1
     assert metrics.partial_retrieval_underutilized_count == 1
+    assert metrics.full_context_complete_answer_count == 1
+    assert metrics.full_context_llm_omission_count == 1
+    assert metrics.partial_context_fully_utilized_count == 1
+    assert metrics.partial_context_underutilized_count == 1
+    assert math.isclose(metrics.full_context_complete_answer_rate, 1 / 6)
+    assert math.isclose(metrics.full_context_llm_omission_rate, 1 / 6)
+    assert math.isclose(metrics.partial_context_fully_utilized_rate, 1 / 6)
+    assert math.isclose(metrics.partial_context_underutilized_rate, 1 / 6)
     assert metrics.no_gold_retrieved_no_gold_answered_count == 1
     assert metrics.correct_without_gold_retrieval_count == 1
     assert math.isclose(metrics.correct_without_gold_retrieval_rate, 1 / 6)
@@ -501,6 +509,7 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     assert metrics["llm_omission_given_full_context_rate"] == 0.5
     assert metrics["llm_exact_match_given_full_context"] == 0.5
     assert metrics["full_retrieval_complete_answer_rate"] == 0.5
+    assert metrics["full_context_complete_answer_rate"] == 0.5
     assert metrics["full_retrieval_llm_omission_rate"] == 0.5
 
     rows = outcome.storage_result.per_instance_results_path.read_text().splitlines()

@@ -20,6 +20,9 @@ from pipeline.evaluation.services.llm_inference_storage import (
 from pipeline.evaluation.services.shortest_path_extraction import (
     ShortestPathExtractionService,
 )
+from pipeline.evaluation.services.pcst_evidence_subgraph import (
+    PcstEvidenceSubgraphService,
+)
 from pipeline.evaluation.services.wandb_final_results import (
     WandbFinalResultsConfig,
     WandbFinalResultsLoggingService,
@@ -42,6 +45,7 @@ __all__ = [
     "LlmInferenceStorageResult",
     "LlmInferenceStorageService",
     "ShortestPathExtractionService",
+    "PcstEvidenceSubgraphService",
     "WandbFinalResultsConfig",
     "WandbFinalResultsLoggingService",
     "WandbFinalResultsLogResult",

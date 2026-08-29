@@ -487,6 +487,24 @@ class MainEntrypointTests(unittest.TestCase):
         self.assertEqual(args.main_llm_model, "qwen3-4b-new")
         self.assertEqual(args.reasoning_effort, "none")
 
+    def test_explanation_generation_is_opt_in(self) -> None:
+        parser = main.build_parser()
+
+        self.assertFalse(parser.parse_args([]).generate_explanation)
+        self.assertTrue(
+            parser.parse_args(["--generate-explanation"]).generate_explanation
+        )
+
+        pipeline = main.build_pipeline(
+            config=main.PipelineRuntimeConfig(generate_explanation=True),
+        )
+        generation_step = next(
+            step
+            for step in pipeline.evaluation_steps
+            if isinstance(step, GenerateAndSaveFinalAnswersBatchesStep)
+        )
+        self.assertTrue(generation_step.generate_explanation)
+
     def test_deepseek_model_requires_explicit_provider(self) -> None:
         with self.assertRaisesRegex(main.PipelineException, "llm-provider deepseek"):
             main.build_pipeline(
@@ -1173,6 +1191,70 @@ class MainEntrypointTests(unittest.TestCase):
         retriever_wandb_step = pipeline.evaluation_steps[1]
         self.assertIsInstance(retriever_wandb_step, LogRetrieverToWandbStep)
         self.assertTrue(retriever_wandb_step.copy_to_new_experiment)
+
+
+class PcstCliTests(unittest.TestCase):
+    def test_pcst_cli_options_parse(self) -> None:
+        args = main.build_parser().parse_args(
+            [
+                "--subgraph-algorithm",
+                "pcst",
+                "--pcst-edge-cost-strategy",
+                "semantic",
+                "--pcst-edge-cost",
+                "0.5",
+                "--pcst-debug-profile",
+            ]
+        )
+        self.assertEqual(args.subgraph_algorithm, "pcst")
+        self.assertEqual(args.pcst_edge_cost_strategy, "semantic")
+        self.assertEqual(args.pcst_edge_cost, 0.5)
+        self.assertTrue(args.pcst_debug_profile)
+
+        pipeline = main.build_pipeline(
+            main.PipelineRuntimeConfig(
+                subgraph_algorithm="pcst",
+                pcst_debug_profile=True,
+                no_wandb=True,
+                use_default_config_values=True,
+            )
+        )
+        evidence_step = next(
+            step
+            for step in pipeline.evaluation_steps
+            if isinstance(step, ExtractShortestPathsBatchStep)
+        )
+        self.assertTrue(evidence_step.pcst_debug_profile)
+
+    def test_default_pcst_configuration_uses_constant_cost(self) -> None:
+        resolved = main.PipelineRuntimeConfig(
+            subgraph_algorithm="pcst",
+            use_default_config_values=True,
+        ).with_defaulted_user_inputs()
+        self.assertEqual(resolved.pcst_edge_cost_strategy, "constant")
+        self.assertEqual(resolved.pcst_edge_cost, 1.0)
+
+    def test_pcst_flags_are_rejected_for_shortest_path(self) -> None:
+        with self.assertRaisesRegex(
+            main.PipelineException,
+            "require --subgraph-algorithm pcst",
+        ):
+            main.build_pipeline(
+                main.PipelineRuntimeConfig(
+                    subgraph_algorithm="shortest_path",
+                    pcst_edge_cost=1.0,
+                    use_default_config_values=True,
+                )
+            )
+
+    def test_semantic_pcst_resolves_embedding_for_rearev(self) -> None:
+        resolved = main.PipelineRuntimeConfig(
+            gnn_architecture="rearev",
+            subgraph_algorithm="pcst",
+            pcst_edge_cost_strategy="semantic",
+            use_default_config_values=True,
+        ).with_defaulted_user_inputs()
+        self.assertEqual(resolved.embedding_model, "text-embedding-3-small")
 
 
 if __name__ == "__main__":

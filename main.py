@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, Field
@@ -43,8 +44,8 @@ from pipeline import (
     TrainGnnAnswerRetrieverStep,
     EvaluateGnnAnswerRetrieverStep,
     BuildReasoningSamplesFromGnnEvaluationStep,
+    BuildEvidenceSubgraphsBatchStep,
     ComputeFinalResultsStep,
-    ExtractShortestPathsBatchStep,
     GenerateAndSaveFinalAnswersBatchesStep,
     LogFinalResultsToWandbStep,
     LogRetrieverToWandbStep,
@@ -63,6 +64,7 @@ from pipeline.preparation.helpers.configuration_definitions import (
     RECOMMENDED_QUESTION_EMBEDDING_MODEL_ID,
     RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
     SHARED_LLM_MODELS,
+    SUBGRAPH_CONSTRUCTION_ALGORITHMS,
 )
 from pipeline.preparation.helpers.gnn_architecture import (
     architecture_defaults,
@@ -114,7 +116,9 @@ def _saved_model_conflicts(
     conflicts = {
         name
         for name, (requested_value, saved_value) in comparisons.items()
-        if requested_value is not None and requested_value != saved_value
+        if requested_value is not None
+        and requested_value != saved_value
+        and not (name == "embedding_model" and saved_value is None)
     }
     return sorted(conflicts)
 
@@ -163,11 +167,19 @@ def _apply_saved_model_config(
             "add_layer_normalization": options.get("add_layer_normalization"),
             "edge_mlp_hidden_dim": options.get("edge_mlp_hidden_dim"),
             "dropout": options.get("dropout"),
-            "embedding_model": saved.resolved_embedding_model,
+            "embedding_model": (
+                saved.resolved_embedding_model or resolved.embedding_model
+            ),
             # Compatibility aliases for existing preparation services.
-            "question_embedding_model": saved.resolved_embedding_model,
-            "relation_embedding_model": saved.resolved_embedding_model,
-            "entity_embedding_model": saved.resolved_embedding_model,
+            "question_embedding_model": (
+                saved.resolved_embedding_model or resolved.embedding_model
+            ),
+            "relation_embedding_model": (
+                saved.resolved_embedding_model or resolved.embedding_model
+            ),
+            "entity_embedding_model": (
+                saved.resolved_embedding_model or resolved.embedding_model
+            ),
         }
     )
 
@@ -186,8 +198,12 @@ class PipelineRuntimeConfig(BaseModel):
     local_graph_profile: bool = False
     llm_provider: str | None = None
     reasoning_effort: str | None = None
+    generate_explanation: bool = False
     main_llm_model: str | None = None
     subgraph_algorithm: str | None = None
+    pcst_edge_cost_strategy: str | None = None
+    pcst_edge_cost: float | None = None
+    pcst_debug_profile: bool = False
     context_strategy: str | None = None
     gnn_architecture: str | None = None
     gnn_layer_count: int | None = None
@@ -269,6 +285,9 @@ class PipelineRuntimeConfig(BaseModel):
                 architecture.data_requirements.uses_entity_embeddings,
                 architecture.data_requirements.uses_question_embeddings,
                 architecture.data_requirements.uses_relation_embeddings,
+                (self.subgraph_algorithm or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID)
+                == "pcst"
+                and (self.pcst_edge_cost_strategy or "constant") == "semantic",
             )
         )
         resolved_embedding_model = (
@@ -318,6 +337,18 @@ class PipelineRuntimeConfig(BaseModel):
                 "main_llm_model": main_llm_model,
                 "subgraph_algorithm": self.subgraph_algorithm
                 or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID,
+                "pcst_edge_cost_strategy": (
+                    self.pcst_edge_cost_strategy or "constant"
+                    if (self.subgraph_algorithm or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID)
+                    == "pcst"
+                    else None
+                ),
+                "pcst_edge_cost": (
+                    self.pcst_edge_cost if self.pcst_edge_cost is not None else 1.0
+                    if (self.subgraph_algorithm or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID)
+                    == "pcst"
+                    else None
+                ),
                 "context_strategy": self.context_strategy
                 or RECOMMENDED_CONTEXT_CONSTRUCTION_STRATEGY_ID,
                 **architecture_updates,
@@ -407,6 +438,30 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         )
 
     resolved_config = config.with_defaulted_user_inputs()
+    resolved_subgraph_algorithm = (
+        resolved_config.subgraph_algorithm
+        or RECOMMENDED_SUBGRAPH_CONSTRUCTION_ALGORITHM_ID
+    )
+    if resolved_subgraph_algorithm != "pcst" and (
+        config.pcst_edge_cost_strategy is not None
+        or config.pcst_edge_cost is not None
+        or config.pcst_debug_profile
+    ):
+        raise PipelineException(
+            "--pcst-edge-cost-strategy, --pcst-edge-cost, and "
+            "--pcst-debug-profile require "
+            "--subgraph-algorithm pcst."
+        )
+    if resolved_subgraph_algorithm == "pcst":
+        edge_cost = (
+            resolved_config.pcst_edge_cost
+            if resolved_config.pcst_edge_cost is not None
+            else 1.0
+        )
+        if not math.isfinite(edge_cost) or edge_cost <= 0:
+            raise PipelineException(
+                "--pcst-edge-cost must be a finite value greater than zero."
+            )
     dataset_id = resolved_config.dataset or WEBQSP_DATASET_ID
     loader_definition = DATASET_LOADERS.get(dataset_id)
     if loader_definition is None:
@@ -480,6 +535,8 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
             reasoning_effort=resolved_config.reasoning_effort,
             main_llm_model=resolved_config.main_llm_model,
             subgraph_algorithm=resolved_config.subgraph_algorithm,
+            pcst_edge_cost_strategy=resolved_config.pcst_edge_cost_strategy,
+            pcst_edge_cost=resolved_config.pcst_edge_cost,
             context_strategy=resolved_config.context_strategy,
             gnn_architecture=resolved_config.gnn_architecture,
             gnn_options=resolved_config.gnn_options,
@@ -602,10 +659,13 @@ def build_pipeline(config: PipelineRuntimeConfig) -> Pipeline:
         )
     inference_steps = [
         BuildReasoningSamplesFromGnnEvaluationStep(),
-        ExtractShortestPathsBatchStep(),
+        BuildEvidenceSubgraphsBatchStep(
+            pcst_debug_profile=resolved_config.pcst_debug_profile,
+        ),
         GenerateAndSaveFinalAnswersBatchesStep(
             llm_provider=resolved_config.llm_provider,
             reasoning_effort=resolved_config.reasoning_effort,
+            generate_explanation=resolved_config.generate_explanation,
             model_id=resolved_config.main_llm_model,
             inference_run_name=resolved_config.inference_run_name,
             inference_batch_size=resolved_config.llm_inference_batch_size,
@@ -746,6 +806,7 @@ def _build_success_summary_lines(result: PipelineExecutionResult) -> list[str]:
 
     summary_fields = [
         "gnn_architecture",
+        "subgraph_algorithm",
         "model_run_name",
         "evaluation_run_name",
         "inference_run_name",
@@ -912,9 +973,40 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--generate-explanation",
+        action="store_true",
+        default=False,
+        help=(
+            "Ask the LLM to generate and save an explanation. By default only "
+            "the answer is generated and explanation metrics remain zero."
+        ),
+    )
+    parser.add_argument(
         "--subgraph-algorithm",
+        choices=tuple(SUBGRAPH_CONSTRUCTION_ALGORITHMS),
         default=None,
         help="Optional subgraph construction algorithm id for non-interactive configuration.",
+    )
+    parser.add_argument(
+        "--pcst-edge-cost-strategy",
+        choices=("constant", "semantic"),
+        default=None,
+        help="PCST edge-cost strategy. Defaults to constant when PCST is selected.",
+    )
+    parser.add_argument(
+        "--pcst-edge-cost",
+        type=float,
+        default=None,
+        help="Positive PCST edge-cost lambda. Defaults to 1.0.",
+    )
+    parser.add_argument(
+        "--pcst-debug-profile",
+        action="store_true",
+        default=False,
+        help=(
+            "Save a detailed replayable JSON diagnostic when PCST returns an "
+            "invalid rooted solution."
+        ),
     )
     parser.add_argument(
         "--context-strategy",
@@ -1222,8 +1314,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         local_graph_profile=args.local_graph_profile,
         llm_provider=args.llm_provider,
         reasoning_effort=args.reasoning_effort,
+        generate_explanation=args.generate_explanation,
         main_llm_model=args.main_llm_model,
         subgraph_algorithm=args.subgraph_algorithm,
+        pcst_edge_cost_strategy=args.pcst_edge_cost_strategy,
+        pcst_edge_cost=args.pcst_edge_cost,
+        pcst_debug_profile=args.pcst_debug_profile,
         context_strategy=args.context_strategy,
         gnn_architecture=args.gnn_architecture,
         gnn_layer_count=args.gnn_layer_count,
