@@ -269,6 +269,7 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
                 seed_distribution, seed_mask = self._seed_metadata(instance, torch)
                 common = dict(
                     source_instance_index=source_instance_index,
+                    gold_answer_count=len(set(instance.a_entity)),
                     edge_index=edge_index,
                     edge_type=edge_type,
                     question_input_ids=question_input_ids[offset],

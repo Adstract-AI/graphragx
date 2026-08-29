@@ -1206,8 +1206,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         default=True,
         help=(
-            "Include training/evaluation graphs that contain none of their gold "
-            "answer entities. By default these unusable graphs are skipped."
+            "Include training/evaluation graphs with one or more gold answer "
+            "entities absent. By default these incomplete graphs are skipped."
         ),
     )
     parser.add_argument(

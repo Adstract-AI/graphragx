@@ -346,13 +346,16 @@ class GnnEvaluationDataPreparationService(AbstractService):
         kept_instances = [
             prepared_instance
             for prepared_instance in prepared_data.instances
-            if float(prepared_instance.instance.node_labels.sum().item()) > 0
+            if bool(set(prepared_instance.instance.a_entity))
+            and set(prepared_instance.instance.a_entity).issubset(
+                prepared_instance.instance.node2id
+            )
         ]
         skipped_count = len(prepared_data.instances) - len(kept_instances)
         if skipped_count:
             logger.warning(
-                f"Skipped {skipped_count} evaluation graphs because none of their "
-                "gold answer entities are present in the graph."
+                f"Skipped {skipped_count} evaluation graphs because at least one "
+                "gold answer entity is absent from the graph."
             )
         return prepared_data.model_copy(
             update={

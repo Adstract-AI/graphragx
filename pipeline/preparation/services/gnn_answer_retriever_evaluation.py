@@ -217,7 +217,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         if prepared_instance_count == 0:
             raise GnnAnswerRetrieverEvaluationException(
                 "GNN evaluation has no usable graphs after skipping instances "
-                "without an in-graph gold answer. Use "
+                "without their complete in-graph gold-answer set. Use "
                 "--no-skip-missing-gold-in-graph to restore the previous behavior."
             )
 
@@ -709,7 +709,9 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
         hit_at_candidate_limit = any(
             candidate.is_gold_answer for candidate in answer_candidates
         )
-        missing_gold_in_graph = not any(score.present_in_graph for score in gold_answer_scores)
+        missing_gold_in_graph = any(
+            not score.present_in_graph for score in gold_answer_scores
+        )
 
         return EvaluatedAnswerRetrievalInstance(
             instance_index=instance_index,
@@ -755,8 +757,8 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             hit_at_5=False,
             hit_at_10=False,
             hit_at_candidate_limit=False,
-            missing_gold_in_graph=not any(
-                score.present_in_graph for score in gold_answer_scores
+            missing_gold_in_graph=any(
+                not score.present_in_graph for score in gold_answer_scores
             ),
         )
 

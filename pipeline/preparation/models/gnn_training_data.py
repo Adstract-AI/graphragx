@@ -32,6 +32,10 @@ class PreparedGnnTrainingInstance(BaseModel):
     edge_relation_index: TorchTensor | None = Field(default=None)
     active_relation_offsets: TorchTensor | None = Field(default=None)
     node_labels: TorchTensor = Field(...)
+    gold_answer_count: int | None = Field(
+        default=None,
+        description="Number of unique gold answers used by preparation filtering.",
+    )
     question_input_ids: TorchTensor | None = Field(default=None)
     question_attention_mask: TorchTensor | None = Field(default=None)
     seed_distribution: TorchTensor | None = Field(default=None)

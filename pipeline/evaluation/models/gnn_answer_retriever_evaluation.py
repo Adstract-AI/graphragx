@@ -163,7 +163,7 @@ class EvaluatedAnswerRetrievalInstance(BaseModel):
     )
     missing_gold_in_graph: bool = Field(
         ...,
-        description="Whether no gold answer appears in the local graph.",
+        description="Whether at least one gold answer is absent from the local graph.",
     )
 
 
