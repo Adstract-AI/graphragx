@@ -793,18 +793,16 @@ class FinalResultsEvaluationService(AbstractService):
         if k <= 0 or not prediction.answer_candidates:
             return 0.0
 
-        candidates = sorted(
-            prediction.answer_candidates,
-            key=lambda candidate: candidate.probability,
-            reverse=True,
-        )[:k]
+        # answer_candidates is persisted in retriever rank order. Preserve that
+        # order so equal/quantized probabilities cannot be reordered here.
+        candidates = prediction.answer_candidates[:k]
         relevances = [1.0 if candidate.is_gold_answer else 0.0 for candidate in candidates]
         dcg = sum(
             relevance / math.log2(rank + 2)
             for rank, relevance in enumerate(relevances)
         )
         ideal_relevant_count = min(
-            sum(1 for candidate in prediction.answer_candidates if candidate.is_gold_answer),
+            len(set(prediction.a_entity)),
             k,
         )
         if ideal_relevant_count <= 0:

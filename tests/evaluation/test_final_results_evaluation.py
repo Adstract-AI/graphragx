@@ -45,12 +45,16 @@ def _candidate(node: str, probability: float, is_gold: bool) -> AnswerCandidateS
     )
 
 
-def _prediction(candidates: list[AnswerCandidateScore]) -> EvaluatedAnswerRetrievalInstance:
+def _prediction(
+    candidates: list[AnswerCandidateScore],
+    gold_answers: list[str] | None = None,
+) -> EvaluatedAnswerRetrievalInstance:
+    resolved_gold_answers = ["gold"] if gold_answers is None else gold_answers
     return EvaluatedAnswerRetrievalInstance(
         instance_index=0,
         question="question?",
         q_entity=["topic"],
-        a_entity=["gold"],
+        a_entity=resolved_gold_answers,
         answer_candidates=candidates,
         gold_answer_scores=[],
         hit_at_1=bool(candidates and candidates[0].is_gold_answer),
@@ -376,6 +380,25 @@ def test_ndcg_variants() -> None:
     empty = _prediction([])
     assert service._ndcg_at_k(no_gold, 10) == 0.0
     assert service._ndcg_at_k(empty, 10) == 0.0
+
+    incomplete_retrieval = _prediction(
+        [_candidate("gold-1", 0.9, True)],
+        gold_answers=["gold-1", "gold-2", "gold-3"],
+    )
+    ideal_three = 1.0 + 1 / math.log2(3) + 1 / math.log2(4)
+    assert math.isclose(
+        service._ndcg_at_k(incomplete_retrieval, 5),
+        1.0 / ideal_three,
+    )
+
+    persisted_order = _prediction([
+        _candidate("wrong", 0.1, False),
+        _candidate("gold", 0.9, True),
+    ])
+    assert math.isclose(
+        service._ndcg_at_k(persisted_order, 5),
+        1 / math.log2(3),
+    )
 
 
 def test_mismatched_source_rows_raise_domain_exception() -> None:
