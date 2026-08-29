@@ -69,6 +69,7 @@ class PreparedGnnEvaluationInstance(BaseModel):
     question_input_ids: TorchTensor | None = Field(default=None)
     question_attention_mask: TorchTensor | None = Field(default=None)
     seed_distribution: TorchTensor | None = Field(default=None)
+    seed_mask: TorchTensor | None = Field(default=None)
     initialization_edge_index: TorchTensor | None = Field(default=None)
     initialization_edge_type: TorchTensor | None = Field(default=None)
     seed_node_indices: TorchTensor | None = Field(default=None)
