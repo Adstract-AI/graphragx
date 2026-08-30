@@ -267,16 +267,25 @@ class WandbFinalResultsLoggingService(AbstractService):
                 "evaluated_instances"
             ),
             "retrieval_hits_at_1": retrieval_metrics.get("hits_at_1"),
+            "retrieval_hits_at_1_count": retrieval_metrics.get("hits_at_1_count"),
             "retrieval_hits_at_5": retrieval_metrics.get("hits_at_5"),
+            "retrieval_hits_at_5_count": retrieval_metrics.get("hits_at_5_count"),
             "retrieval_hits_at_10": retrieval_metrics.get("hits_at_10"),
+            "retrieval_hits_at_10_count": retrieval_metrics.get("hits_at_10_count"),
             "retrieval_hits_at_candidate_limit": retrieval_metrics.get(
                 "hits_at_candidate_limit"
+            ),
+            "retrieval_hits_at_candidate_limit_count": retrieval_metrics.get(
+                "hits_at_candidate_limit_count"
             ),
             "retrieval_average_candidate_count": retrieval_metrics.get(
                 "average_candidate_count"
             ),
             "retrieval_missing_gold_in_graph_count": retrieval_metrics.get(
                 "missing_gold_in_graph_count"
+            ),
+            "retrieval_skipped_missing_gold_in_graph_count": retrieval_metrics.get(
+                "skipped_missing_gold_in_graph_count"
             ),
             "answer_accuracy": reasoning_metrics.get("accuracy"),
             "answer_hit_rate": reasoning_metrics.get("hit_rate"),
@@ -304,12 +313,11 @@ class WandbFinalResultsLoggingService(AbstractService):
                 reasoning_metrics.get("ndcg_at_candidate_limit"),
             ),
         }
-        mappings.update(
-            {
-                key: reasoning_metrics.get(key)
-                for key in cls.retrieval_conditioned_metric_keys
-            }
-        )
+        for key in cls.retrieval_conditioned_metric_keys:
+            value = reasoning_metrics.get(key)
+            if not isinstance(value, int | float):
+                value = retrieval_metrics.get(key)
+            mappings[key] = value
         return {
             key: value
             for key, value in mappings.items()

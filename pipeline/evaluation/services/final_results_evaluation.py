@@ -125,6 +125,12 @@ class FinalResultsEvaluationService(AbstractService):
             model_run_number=gnn_evaluation_result.model_run_number,
             predictions=predictions,
             candidate_limit=candidate_limit,
+            missing_gold_in_graph_count=(
+                gnn_evaluation_result.missing_gold_in_graph_count
+            ),
+            skipped_missing_gold_in_graph_count=(
+                gnn_evaluation_result.skipped_missing_gold_in_graph_count
+            ),
             evaluation_run_name=gnn_evaluation_result.evaluation_run_name,
             evaluation_run_number=gnn_evaluation_result.evaluation_run_number,
         ).model_dump(mode="json")

@@ -324,16 +324,38 @@ class LogRetrieverToWandbStep(
                 retrieval_metrics={
                     "evaluated_instances": result.evaluated_instances,
                     "hits_at_1": result.hits_at_1,
+                    "hits_at_1_count": result.hits_at_1_count,
                     "hits_at_5": result.hits_at_5,
+                    "hits_at_5_count": result.hits_at_5_count,
                     "hits_at_10": result.hits_at_10,
+                    "hits_at_10_count": result.hits_at_10_count,
                     "hits_at_candidate_limit": result.hits_at_candidate_limit,
+                    "hits_at_candidate_limit_count": (
+                        result.hits_at_candidate_limit_count
+                    ),
                     "ndcg_at_1": result.ndcg_at_1,
                     "ndcg_at_5": result.ndcg_at_5,
                     "ndcg_at_10": result.ndcg_at_10,
                     "ndcg_at_candidate_limit": result.ndcg_at_candidate_limit,
+                    "conditioned_evaluated_instances": (
+                        result.conditioned_evaluated_instances
+                    ),
+                    "retrieval_gold_coverage": result.retrieval_gold_coverage,
+                    "retrieval_full_gold_coverage_count": (
+                        result.retrieval_full_gold_coverage_count
+                    ),
+                    "retrieval_full_gold_coverage_rate": (
+                        result.retrieval_full_gold_coverage_rate
+                    ),
+                    "retrieved_gold_answer_count": (
+                        result.retrieved_gold_answer_count
+                    ),
                     "average_candidate_count": result.average_candidate_count,
                     "missing_gold_in_graph_count": (
                         result.missing_gold_in_graph_count
+                    ),
+                    "skipped_missing_gold_in_graph_count": (
+                        result.skipped_missing_gold_in_graph_count
                     ),
                 },
                 reasoning_metrics={},

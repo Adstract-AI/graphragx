@@ -97,6 +97,11 @@ class GnnAnswerRetrieverEvaluationOutcome(BaseModel):
         default=0.0,
         description="Mean retrieval nDCG at the configured candidate limit.",
     )
+    conditioned_evaluated_instances: int = Field(default=0)
+    retrieval_gold_coverage: float = Field(default=0.0)
+    retrieval_full_gold_coverage_count: int = Field(default=0)
+    retrieval_full_gold_coverage_rate: float = Field(default=0.0)
+    retrieved_gold_answer_count: int = Field(default=0)
     average_candidate_count: float = Field(
         ...,
         description="Average number of selected candidate nodes.",
@@ -105,6 +110,7 @@ class GnnAnswerRetrieverEvaluationOutcome(BaseModel):
         ...,
         description="Instances where no gold answer appears in the local graph.",
     )
+    skipped_missing_gold_in_graph_count: int = Field(default=0)
 
 
 class GnnAnswerRetrieverEvaluationService(AbstractService):
@@ -474,6 +480,9 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             predictions=predictions,
             candidate_limit=evaluation_config.candidate_limit,
             missing_gold_in_graph_count=missing_gold_in_graph_count,
+            skipped_missing_gold_in_graph_count=(
+                prepared_evaluation_data.skipped_missing_gold_in_graph_count
+            ),
         )
         storage_result = self.storage_service.save_evaluation_run(
             evaluation_root=cache_root / "evaluations",
@@ -505,6 +514,10 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             f"hits_at_1={hits_at_1:.4f} hits_at_5={hits_at_5:.4f} "
             f"hits_at_10={hits_at_10:.4f} "
             f"hits_at_candidate_limit={hits_at_candidate_limit:.4f} "
+            f"retrieval_gold_coverage="
+            f"{retrieval_metrics.retrieval_gold_coverage:.4f} "
+            f"retrieval_full_gold_coverage="
+            f"{retrieval_metrics.retrieval_full_gold_coverage_rate:.4f} "
             f"average_candidate_count={average_candidate_count:.2f} "
             f"skipped_missing_gold="
             f"{prepared_evaluation_data.skipped_missing_gold_in_graph_count}"
@@ -525,8 +538,24 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             ndcg_at_5=retrieval_metrics.ndcg_at_5,
             ndcg_at_10=retrieval_metrics.ndcg_at_10,
             ndcg_at_candidate_limit=retrieval_metrics.ndcg_at_candidate_limit,
+            conditioned_evaluated_instances=(
+                retrieval_metrics.conditioned_evaluated_instances
+            ),
+            retrieval_gold_coverage=retrieval_metrics.retrieval_gold_coverage,
+            retrieval_full_gold_coverage_count=(
+                retrieval_metrics.retrieval_full_gold_coverage_count
+            ),
+            retrieval_full_gold_coverage_rate=(
+                retrieval_metrics.retrieval_full_gold_coverage_rate
+            ),
+            retrieved_gold_answer_count=(
+                retrieval_metrics.retrieved_gold_answer_count
+            ),
             average_candidate_count=average_candidate_count,
             missing_gold_in_graph_count=missing_gold_in_graph_count,
+            skipped_missing_gold_in_graph_count=(
+                prepared_evaluation_data.skipped_missing_gold_in_graph_count
+            ),
         )
 
     @staticmethod

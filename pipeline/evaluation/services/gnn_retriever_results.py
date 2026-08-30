@@ -6,6 +6,7 @@ import json
 import math
 import re
 from pathlib import Path
+from string import punctuation
 from typing import Any
 
 from helpers.constants import (
@@ -31,6 +32,9 @@ from pipeline.services import AbstractService
 class GnnRetrieverResultsService(AbstractService):
     """Compute metrics and resolve persisted GNN retriever evaluation runs."""
 
+    whitespace_pattern = re.compile(r"\s+")
+    article_pattern = re.compile(r"\b(a|an|the)\b")
+
     def build_metrics(
         self,
         *,
@@ -40,6 +44,7 @@ class GnnRetrieverResultsService(AbstractService):
         predictions: list[EvaluatedAnswerRetrievalInstance],
         candidate_limit: int,
         missing_gold_in_graph_count: int | None = None,
+        skipped_missing_gold_in_graph_count: int = 0,
         evaluation_run_name: str | None = None,
         evaluation_run_number: int | None = None,
     ) -> GnnAnswerRetrieverMetrics:
@@ -74,6 +79,21 @@ class GnnRetrieverResultsService(AbstractService):
         ndcg_at_5 = self._mean_ndcg(predictions, 5)
         ndcg_at_10 = self._mean_ndcg(predictions, 10)
         ndcg_at_candidate_limit = self._mean_ndcg(predictions, candidate_limit)
+        coverage_values: list[float] = []
+        full_gold_coverage_count = 0
+        retrieved_gold_answer_count = 0
+        for prediction in predictions:
+            gold_answers = self._normalize_answer_set(prediction.a_entity)
+            if not gold_answers:
+                continue
+            retrieved_candidates = self._normalize_answer_set(
+                [candidate.node for candidate in prediction.answer_candidates]
+            )
+            retrieved_gold = gold_answers & retrieved_candidates
+            coverage_values.append(len(retrieved_gold) / len(gold_answers))
+            full_gold_coverage_count += int(retrieved_gold == gold_answers)
+            retrieved_gold_answer_count += len(retrieved_gold)
+        conditioned_evaluated_instances = len(coverage_values)
         return GnnAnswerRetrieverMetrics(
             dataset_id=dataset_id,
             model_run_name=model_run_name,
@@ -95,10 +115,39 @@ class GnnRetrieverResultsService(AbstractService):
             ndcg_at_5=ndcg_at_5,
             ndcg_at_10=ndcg_at_10,
             ndcg_at_candidate_limit=ndcg_at_candidate_limit,
+            conditioned_evaluated_instances=conditioned_evaluated_instances,
+            retrieval_gold_coverage=(
+                sum(coverage_values) / conditioned_evaluated_instances
+                if conditioned_evaluated_instances
+                else 0.0
+            ),
+            retrieval_full_gold_coverage_count=full_gold_coverage_count,
+            retrieval_full_gold_coverage_rate=(
+                full_gold_coverage_count / conditioned_evaluated_instances
+                if conditioned_evaluated_instances
+                else 0.0
+            ),
+            retrieved_gold_answer_count=retrieved_gold_answer_count,
             candidate_limit=candidate_limit,
             average_candidate_count=total_candidates / evaluated_instances,
             missing_gold_in_graph_count=missing_gold_count,
+            skipped_missing_gold_in_graph_count=(
+                skipped_missing_gold_in_graph_count
+            ),
         )
+
+    @classmethod
+    def _normalize_answer_set(cls, answers: list[str]) -> set[str]:
+        """Normalize answer identities exactly like final-results evaluation."""
+        normalized: set[str] = set()
+        for answer in answers:
+            value = answer.lower().strip()
+            value = value.translate(str.maketrans("", "", punctuation))
+            value = cls.article_pattern.sub(" ", value)
+            value = cls.whitespace_pattern.sub(" ", value).strip()
+            if value:
+                normalized.add(value)
+        return normalized
 
     @classmethod
     def ndcg_at_k(
@@ -203,10 +252,13 @@ class GnnRetrieverResultsService(AbstractService):
             ) from error
         if metrics_path.exists():
             try:
-                metrics = GnnAnswerRetrieverMetrics.model_validate_json(
+                persisted_metrics_payload = json.loads(
                     metrics_path.read_text(encoding="utf-8")
                 )
-            except (OSError, ValueError) as error:
+                metrics = GnnAnswerRetrieverMetrics.model_validate(
+                    persisted_metrics_payload
+                )
+            except (OSError, ValueError, json.JSONDecodeError) as error:
                 raise GnnAnswerRetrieverEvaluationException(
                     f"Retriever metrics are invalid: {metrics_path}"
                 ) from error
@@ -225,6 +277,16 @@ class GnnRetrieverResultsService(AbstractService):
                 predictions=predictions,
                 candidate_limit=candidate_limit,
                 missing_gold_in_graph_count=metrics.missing_gold_in_graph_count,
+                skipped_missing_gold_in_graph_count=(
+                    metrics.skipped_missing_gold_in_graph_count
+                    if "skipped_missing_gold_in_graph_count"
+                    in persisted_metrics_payload
+                    else (
+                        metrics.missing_gold_in_graph_count
+                        if bool(evaluation.get("skip_missing_gold_in_graph", True))
+                        else 0
+                    )
+                ),
                 evaluation_run_name=run_directory.name,
                 evaluation_run_number=self._extract_run_number(run_directory.name),
             )
@@ -279,8 +341,22 @@ class GnnRetrieverResultsService(AbstractService):
             ndcg_at_5=metrics.ndcg_at_5,
             ndcg_at_10=metrics.ndcg_at_10,
             ndcg_at_candidate_limit=metrics.ndcg_at_candidate_limit,
+            conditioned_evaluated_instances=(
+                metrics.conditioned_evaluated_instances
+            ),
+            retrieval_gold_coverage=metrics.retrieval_gold_coverage,
+            retrieval_full_gold_coverage_count=(
+                metrics.retrieval_full_gold_coverage_count
+            ),
+            retrieval_full_gold_coverage_rate=(
+                metrics.retrieval_full_gold_coverage_rate
+            ),
+            retrieved_gold_answer_count=metrics.retrieved_gold_answer_count,
             average_candidate_count=metrics.average_candidate_count,
             missing_gold_in_graph_count=metrics.missing_gold_in_graph_count,
+            skipped_missing_gold_in_graph_count=(
+                metrics.skipped_missing_gold_in_graph_count
+            ),
             predictions_path=predictions_path,
             evaluation_config_path=config_path,
             retrieval_metrics_path=persisted_metrics_path,

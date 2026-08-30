@@ -188,9 +188,15 @@ class GnnAnswerRetrieverMetrics(BaseModel):
     ndcg_at_5: float = 0.0
     ndcg_at_10: float = 0.0
     ndcg_at_candidate_limit: float = 0.0
+    conditioned_evaluated_instances: int = 0
+    retrieval_gold_coverage: float = 0.0
+    retrieval_full_gold_coverage_count: int = 0
+    retrieval_full_gold_coverage_rate: float = 0.0
+    retrieved_gold_answer_count: int = 0
     candidate_limit: int
     average_candidate_count: float
     missing_gold_in_graph_count: int
+    skipped_missing_gold_in_graph_count: int = 0
 
 
 class GnnAnswerRetrieverEvaluationResult(StepResult):
@@ -231,6 +237,17 @@ class GnnAnswerRetrieverEvaluationResult(StepResult):
         default=0.0,
         description="Mean retrieval nDCG at the configured candidate limit.",
     )
+    conditioned_evaluated_instances: int = Field(
+        default=0,
+        description="Evaluated predictions containing normalized gold answers.",
+    )
+    retrieval_gold_coverage: float = Field(
+        default=0.0,
+        description="Macro mean share of gold answers among retrieved candidates.",
+    )
+    retrieval_full_gold_coverage_count: int = Field(default=0)
+    retrieval_full_gold_coverage_rate: float = Field(default=0.0)
+    retrieved_gold_answer_count: int = Field(default=0)
     average_candidate_count: float = Field(
         ...,
         description="Average number of selected candidates.",
@@ -238,6 +255,10 @@ class GnnAnswerRetrieverEvaluationResult(StepResult):
     missing_gold_in_graph_count: int = Field(
         ...,
         description="Instances where no gold answer appears in the local graph.",
+    )
+    skipped_missing_gold_in_graph_count: int = Field(
+        default=0,
+        description="Instances excluded before evaluation for incomplete gold coverage.",
     )
     predictions_path: Path = Field(..., description="Saved JSONL predictions path.")
     evaluation_config_path: Path = Field(..., description="Saved evaluation config path.")

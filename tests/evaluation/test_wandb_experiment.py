@@ -666,8 +666,14 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
         ndcg_at_5=0.7,
         ndcg_at_10=0.75,
         ndcg_at_candidate_limit=0.8,
+        conditioned_evaluated_instances=10,
+        retrieval_gold_coverage=0.65,
+        retrieval_full_gold_coverage_count=5,
+        retrieval_full_gold_coverage_rate=0.5,
+        retrieved_gold_answer_count=8,
         average_candidate_count=12.0,
-        missing_gold_in_graph_count=0,
+        missing_gold_in_graph_count=2,
+        skipped_missing_gold_in_graph_count=2,
         predictions_path=predictions_path,
         evaluation_config_path=evaluation_config_path,
         retrieval_metrics_path=retrieval_metrics_path,
@@ -688,11 +694,23 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     assert payload["Summary_Plots/retrieval_hits_at_10"] == 0.9
     assert payload["Summary_Plots/retrieval_hits_at_candidate_limit"] == 1.0
     assert payload["Summary_Plots/retrieval_average_candidate_count"] == 12.0
-    assert payload["Summary_Plots/retrieval_missing_gold_in_graph_count"] == 0
+    assert payload["Summary_Plots/retrieval_missing_gold_in_graph_count"] == 2
+    assert payload["Summary_Plots/retrieval_skipped_missing_gold_in_graph_count"] == 2
+    assert payload["Summary_Plots/retrieval_hits_at_1_count"] == 4
+    assert payload["Summary_Plots/retrieval_hits_at_5_count"] == 8
+    assert payload["Summary_Plots/retrieval_hits_at_10_count"] == 9
+    assert payload["Summary_Plots/retrieval_hits_at_candidate_limit_count"] == 10
     assert payload["Summary_Plots/ranking_ndcg_at_1"] == 0.4
     assert payload["Summary_Plots/ranking_ndcg_at_5"] == 0.7
     assert payload["Summary_Plots/ranking_ndcg_at_10"] == 0.75
     assert payload["Summary_Plots/ranking_ndcg_at_candidate_limit"] == 0.8
+    assert payload["Summary_Plots/conditioned_evaluated_instances"] == 10
+    assert payload["Summary_Plots/retrieval_gold_coverage"] == 0.65
+    assert payload["Summary_Plots/retrieval_full_gold_coverage_count"] == 5
+    assert payload["Summary_Plots/retrieval_full_gold_coverage_rate"] == 0.5
+    assert payload["Summary_Plots/retrieved_gold_answer_count"] == 8
+    assert payload["Run_Summary/retrieval_gold_coverage"] == 0.65
+    assert payload["Run_Summary/retrieval_full_gold_coverage"] == 0.5
     assert payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
     assert not any(key.startswith("Retriever/") for key in payload)
     config_payload = coordinator.config_updates[0]

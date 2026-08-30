@@ -358,6 +358,15 @@ uv run python main.py --inference-only \
 
 New W&B runs use a dataset-wide sequential identifier in the form `run_number_YYYYMMDD_HHMMSS`, independent of which pipeline mode creates them. Full, training, and retriever stages reuse their logical experiment within the command. Every evaluation-only command creates a new W&B run and copies the selected model's training metrics, configuration, tags, and available artifact metadata before adding retrieval and optional inference results. Every inference-only command creates a new W&B run and copies the selected retriever metrics and configuration into it. Evidence-only behaves the same way but stops after evidence construction; its title ends in `_sp` or `_pcst`. Evidence metrics are logged under `Summary_Plots`, while candidate reduction, context gold coverage, full context-gold coverage, and empty-context rate are also available under `Run_Summary`. This keeps repeated evidence and LLM inference runs independently comparable without modifying their upstream W&B runs. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts. Large retriever weight files are excluded from W&B by default; use `--wandb-upload-retriever` to include them.
 
+Retriever metrics are logged immediately after retriever evaluation in every mode
+that reaches that stage. This includes Hits rates and counts, nDCG, candidate and
+evaluated-instance statistics, missing/skipped-gold counts, gold-answer coverage,
+full-gold coverage, and retrieved-gold counts. Consequently, `--retriever-only`
+contains the complete retrieval metric set without requiring evidence construction
+or LLM inference. All retriever scalars are available under `Summary_Plots`; the
+established curated comparison metrics are additionally available under
+`Run_Summary`.
+
 W&B tags are populated incrementally from the stages available in each mode. Depending on the completed stages, tags include the dataset, selected GNN architecture, LLM id, embedding models, trained/evaluated instance counts, and model, evaluation, and inference run numbers. Resumed runs preserve their existing tags, and duplicate values are removed.
 
 ### Execution Helpers
