@@ -78,6 +78,56 @@ def test_experiment_zero_contains_complete_retriever_matrix() -> None:
     }
 
 
+def test_experiment_one_a_contains_bounded_nbfnet_evidence_matrix() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    manifest = load_manifest(
+        project_root / "experiments" / "experiment_1a_evidence_subgraphs.toml"
+    )
+    parser = main.build_parser()
+    expected_retrievers = {
+        "exp0_nbfnet_seed42_retriever",
+        "exp0_nbfnet_seed1337_retriever",
+        "exp0_nbfnet_seed2026_retriever",
+    }
+    lambdas_by_mode: dict[str, set[float]] = {
+        "constant": set(),
+        "semantic": set(),
+    }
+    counts_by_retriever: dict[str, int] = {
+        retriever: 0 for retriever in expected_retrievers
+    }
+    shortest_path_count = 0
+
+    assert len(manifest.runs) == 21
+    for run in manifest.runs:
+        parsed = parser.parse_args([*manifest.default_args, *run.args])
+        assert parsed.run_mode == "evidence-only"
+        assert parsed.retriever_run_name in expected_retrievers
+        assert parsed.main_llm_model is None
+        assert parsed.llm_provider is None
+        assert "--inference-run-name" not in run.args
+        counts_by_retriever[parsed.retriever_run_name] += 1
+        if parsed.subgraph_algorithm == "shortest_path":
+            shortest_path_count += 1
+            assert parsed.pcst_edge_cost_strategy is None
+            assert parsed.pcst_edge_cost is None
+            continue
+        assert parsed.subgraph_algorithm == "pcst"
+        assert parsed.pcst_edge_cost_strategy in lambdas_by_mode
+        lambdas_by_mode[parsed.pcst_edge_cost_strategy].add(
+            parsed.pcst_edge_cost
+        )
+
+    assert shortest_path_count == 3
+    assert counts_by_retriever == {
+        retriever: 7 for retriever in expected_retrievers
+    }
+    assert lambdas_by_mode == {
+        "constant": {0.25, 0.5, 1.0},
+        "semantic": {0.25, 0.5, 1.0},
+    }
+
+
 def _write_manifest(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
