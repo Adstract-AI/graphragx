@@ -290,11 +290,18 @@ class WandbFinalResultsLoggingService(AbstractService):
             "grounding_fully_grounded_explanation_rate": reasoning_metrics.get(
                 "fully_grounded_explanation_rate"
             ),
-            "ranking_ndcg_at_1": reasoning_metrics.get("ndcg_at_1"),
-            "ranking_ndcg_at_5": reasoning_metrics.get("ndcg_at_5"),
-            "ranking_ndcg_at_10": reasoning_metrics.get("ndcg_at_10"),
-            "ranking_ndcg_at_candidate_limit": reasoning_metrics.get(
-                "ndcg_at_candidate_limit"
+            "ranking_ndcg_at_1": retrieval_metrics.get(
+                "ndcg_at_1", reasoning_metrics.get("ndcg_at_1")
+            ),
+            "ranking_ndcg_at_5": retrieval_metrics.get(
+                "ndcg_at_5", reasoning_metrics.get("ndcg_at_5")
+            ),
+            "ranking_ndcg_at_10": retrieval_metrics.get(
+                "ndcg_at_10", reasoning_metrics.get("ndcg_at_10")
+            ),
+            "ranking_ndcg_at_candidate_limit": retrieval_metrics.get(
+                "ndcg_at_candidate_limit",
+                reasoning_metrics.get("ndcg_at_candidate_limit"),
             ),
         }
         mappings.update(

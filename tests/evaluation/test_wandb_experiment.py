@@ -657,6 +657,10 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
         hits_at_10_count=9,
         hits_at_candidate_limit=1.0,
         hits_at_candidate_limit_count=10,
+        ndcg_at_1=0.4,
+        ndcg_at_5=0.7,
+        ndcg_at_10=0.75,
+        ndcg_at_candidate_limit=0.8,
         average_candidate_count=12.0,
         missing_gold_in_graph_count=0,
         predictions_path=predictions_path,
@@ -680,6 +684,11 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     assert payload["Summary_Plots/retrieval_hits_at_candidate_limit"] == 1.0
     assert payload["Summary_Plots/retrieval_average_candidate_count"] == 12.0
     assert payload["Summary_Plots/retrieval_missing_gold_in_graph_count"] == 0
+    assert payload["Summary_Plots/ranking_ndcg_at_1"] == 0.4
+    assert payload["Summary_Plots/ranking_ndcg_at_5"] == 0.7
+    assert payload["Summary_Plots/ranking_ndcg_at_10"] == 0.75
+    assert payload["Summary_Plots/ranking_ndcg_at_candidate_limit"] == 0.8
+    assert payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
     assert not any(key.startswith("Retriever/") for key in payload)
     config_payload = coordinator.config_updates[0]
     assert config_payload["runs"]["model"] == {"name": "1_model", "number": 1}

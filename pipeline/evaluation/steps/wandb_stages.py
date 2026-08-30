@@ -326,6 +326,10 @@ class LogRetrieverToWandbStep(
                     "hits_at_5": result.hits_at_5,
                     "hits_at_10": result.hits_at_10,
                     "hits_at_candidate_limit": result.hits_at_candidate_limit,
+                    "ndcg_at_1": result.ndcg_at_1,
+                    "ndcg_at_5": result.ndcg_at_5,
+                    "ndcg_at_10": result.ndcg_at_10,
+                    "ndcg_at_candidate_limit": result.ndcg_at_candidate_limit,
                     "average_candidate_count": result.average_candidate_count,
                     "missing_gold_in_graph_count": (
                         result.missing_gold_in_graph_count

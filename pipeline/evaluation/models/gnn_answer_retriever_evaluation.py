@@ -184,6 +184,10 @@ class GnnAnswerRetrieverMetrics(BaseModel):
     hits_at_10_count: int
     hits_at_candidate_limit: float
     hits_at_candidate_limit_count: int
+    ndcg_at_1: float = 0.0
+    ndcg_at_5: float = 0.0
+    ndcg_at_10: float = 0.0
+    ndcg_at_candidate_limit: float = 0.0
     candidate_limit: int
     average_candidate_count: float
     missing_gold_in_graph_count: int
@@ -219,6 +223,13 @@ class GnnAnswerRetrieverEvaluationResult(StepResult):
     hits_at_candidate_limit_count: int = Field(
         default=0,
         description="Hits at configured candidate limit count.",
+    )
+    ndcg_at_1: float = Field(default=0.0, description="Mean retrieval nDCG@1.")
+    ndcg_at_5: float = Field(default=0.0, description="Mean retrieval nDCG@5.")
+    ndcg_at_10: float = Field(default=0.0, description="Mean retrieval nDCG@10.")
+    ndcg_at_candidate_limit: float = Field(
+        default=0.0,
+        description="Mean retrieval nDCG at the configured candidate limit.",
     )
     average_candidate_count: float = Field(
         ...,

@@ -90,6 +90,13 @@ class GnnAnswerRetrieverEvaluationOutcome(BaseModel):
         ...,
         description="Hits at configured candidate limit count.",
     )
+    ndcg_at_1: float = Field(default=0.0, description="Mean retrieval nDCG@1.")
+    ndcg_at_5: float = Field(default=0.0, description="Mean retrieval nDCG@5.")
+    ndcg_at_10: float = Field(default=0.0, description="Mean retrieval nDCG@10.")
+    ndcg_at_candidate_limit: float = Field(
+        default=0.0,
+        description="Mean retrieval nDCG at the configured candidate limit.",
+    )
     average_candidate_count: float = Field(
         ...,
         description="Average number of selected candidate nodes.",
@@ -460,6 +467,14 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             device=device,
             enabled=evaluation_config.profile,
         )
+        retrieval_metrics = self.results_service.build_metrics(
+            dataset_id=prepared_dataset.dataset_id,
+            model_run_name=loaded_model_run.run_name,
+            model_run_number=loaded_model_run.run_number,
+            predictions=predictions,
+            candidate_limit=evaluation_config.candidate_limit,
+            missing_gold_in_graph_count=missing_gold_in_graph_count,
+        )
         storage_result = self.storage_service.save_evaluation_run(
             evaluation_root=cache_root / "evaluations",
             run_name=evaluation_config.run_name,
@@ -472,14 +487,7 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
                     prepared_evaluation_data=prepared_evaluation_data,
                 ),
                 predictions=predictions,
-                metrics=self.results_service.build_metrics(
-                    dataset_id=prepared_dataset.dataset_id,
-                    model_run_name=loaded_model_run.run_name,
-                    model_run_number=loaded_model_run.run_number,
-                    predictions=predictions,
-                    candidate_limit=evaluation_config.candidate_limit,
-                    missing_gold_in_graph_count=missing_gold_in_graph_count,
-                ),
+                metrics=retrieval_metrics,
             ),
         )
         _, elapsed_seconds = self._finish_profiled_phase(
@@ -513,6 +521,10 @@ class GnnAnswerRetrieverEvaluationService(AbstractService):
             hits_at_10_count=hits_at_10_count,
             hits_at_candidate_limit=hits_at_candidate_limit,
             hits_at_candidate_limit_count=hits_at_candidate_limit_count,
+            ndcg_at_1=retrieval_metrics.ndcg_at_1,
+            ndcg_at_5=retrieval_metrics.ndcg_at_5,
+            ndcg_at_10=retrieval_metrics.ndcg_at_10,
+            ndcg_at_candidate_limit=retrieval_metrics.ndcg_at_candidate_limit,
             average_candidate_count=average_candidate_count,
             missing_gold_in_graph_count=missing_gold_in_graph_count,
         )

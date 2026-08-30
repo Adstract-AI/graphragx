@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -133,6 +132,7 @@ class FinalResultsEvaluationService(AbstractService):
             gnn_evaluation_result=gnn_evaluation_result,
             llm_inference_run=llm_inference_run,
             per_instance_results=per_instance_results,
+            retrieval_metrics=retrieval_metrics,
             candidate_limit=candidate_limit,
         )
         model_config_path = (
@@ -277,10 +277,13 @@ class FinalResultsEvaluationService(AbstractService):
             grounded_mentioned_triple_count=grounding["grounded_mentioned_triple_count"],
             grounded_explanation=grounding["grounded_explanation"],
             fully_grounded_explanation=grounding["fully_grounded_explanation"],
-            ndcg_at_1=self._ndcg_at_k(prediction, 1),
-            ndcg_at_5=self._ndcg_at_k(prediction, 5),
-            ndcg_at_10=self._ndcg_at_k(prediction, 10),
-            ndcg_at_candidate_limit=self._ndcg_at_k(prediction, candidate_limit),
+            ndcg_at_1=self.retriever_results_service.ndcg_at_k(prediction, 1),
+            ndcg_at_5=self.retriever_results_service.ndcg_at_k(prediction, 5),
+            ndcg_at_10=self.retriever_results_service.ndcg_at_k(prediction, 10),
+            ndcg_at_candidate_limit=self.retriever_results_service.ndcg_at_k(
+                prediction,
+                candidate_limit,
+            ),
             retrieved_gold_answers=sorted(retrieved_gold_set),
             context_visible_gold_answers=sorted(context_visible_gold_set),
             retrieval_gold_coverage=retrieval_gold_coverage,
@@ -300,6 +303,7 @@ class FinalResultsEvaluationService(AbstractService):
         gnn_evaluation_result: GnnAnswerRetrieverEvaluationResult,
         llm_inference_run: SavedLlmInferenceRun,
         per_instance_results: list[PerInstanceFinalResult],
+        retrieval_metrics: dict[str, Any],
         candidate_limit: int,
     ) -> FinalReasoningMetrics:
         evaluated_instances = len(per_instance_results)
@@ -375,11 +379,11 @@ class FinalResultsEvaluationService(AbstractService):
                 grounded_mentioned_triple_count=grounded_mentioned_triple_count,
             ),
             ranking_metrics=RankingMetrics(
-                ndcg_at_1=self._mean([item.ndcg_at_1 for item in per_instance_results]),
-                ndcg_at_5=self._mean([item.ndcg_at_5 for item in per_instance_results]),
-                ndcg_at_10=self._mean([item.ndcg_at_10 for item in per_instance_results]),
-                ndcg_at_candidate_limit=self._mean(
-                    [item.ndcg_at_candidate_limit for item in per_instance_results]
+                ndcg_at_1=float(retrieval_metrics["ndcg_at_1"]),
+                ndcg_at_5=float(retrieval_metrics["ndcg_at_5"]),
+                ndcg_at_10=float(retrieval_metrics["ndcg_at_10"]),
+                ndcg_at_candidate_limit=float(
+                    retrieval_metrics["ndcg_at_candidate_limit"]
                 ),
                 candidate_limit=candidate_limit,
             ),
@@ -790,29 +794,7 @@ class FinalResultsEvaluationService(AbstractService):
         prediction: EvaluatedAnswerRetrievalInstance,
         k: int,
     ) -> float:
-        if k <= 0 or not prediction.answer_candidates:
-            return 0.0
-
-        # answer_candidates is persisted in retriever rank order. Preserve that
-        # order so equal/quantized probabilities cannot be reordered here.
-        candidates = prediction.answer_candidates[:k]
-        relevances = [1.0 if candidate.is_gold_answer else 0.0 for candidate in candidates]
-        dcg = sum(
-            relevance / math.log2(rank + 2)
-            for rank, relevance in enumerate(relevances)
-        )
-        ideal_relevant_count = min(
-            len(set(prediction.a_entity)),
-            k,
-        )
-        if ideal_relevant_count <= 0:
-            return 0.0
-
-        idcg = sum(
-            1.0 / math.log2(rank + 2)
-            for rank in range(ideal_relevant_count)
-        )
-        return dcg / idcg
+        return GnnRetrieverResultsService.ndcg_at_k(prediction, k)
 
     @staticmethod
     def _safe_divide(numerator: int | float, denominator: int | float) -> float:

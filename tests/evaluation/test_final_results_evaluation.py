@@ -587,6 +587,11 @@ def test_final_results_storage_integration(tmp_path: Path) -> None:
     assert retrieval_metrics["hits_at_candidate_limit"] == 1.0
     assert retrieval_metrics["candidate_limit"] == 5
     assert retrieval_metrics["average_candidate_count"] == 2.0
+    assert retrieval_metrics["ndcg_at_1"] == 0.5
+    assert math.isclose(
+        retrieval_metrics["ndcg_at_5"],
+        (1.0 + 1 / math.log2(3)) / 2,
+    )
 
     metrics = json.loads(outcome.storage_result.reasoning_metrics_path.read_text())
     assert metrics["evaluated_instances"] == 2

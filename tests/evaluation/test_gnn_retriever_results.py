@@ -120,6 +120,7 @@ def test_load_legacy_retriever_run_computes_metrics_without_mutating(tmp_path) -
 
     assert result.evaluation_run_name == "7_eval"
     assert result.hits_at_1 == 1.0
+    assert result.ndcg_at_10 == 1.0
     assert result.retrieval_metrics_path is None
     assert not (run_dir / "retrieval_metrics.json").exists()
 
@@ -138,6 +139,48 @@ def test_metrics_retain_missing_gold_count_for_skipped_predictions() -> None:
     assert metrics.missing_gold_in_graph_count == 4
 
 
+def test_retriever_metrics_include_ndcg_from_persisted_candidate_order() -> None:
+    prediction = _prediction(hit=False).model_copy(
+        update={
+            "a_entity": ["answer"],
+            "answer_candidates": [
+                AnswerCandidateScore(
+                    node="wrong",
+                    local_node_id=0,
+                    global_node_id=0,
+                    logit=2.0,
+                    probability=0.9,
+                    is_gold_answer=False,
+                    selection_reason="threshold",
+                ),
+                AnswerCandidateScore(
+                    node="answer",
+                    local_node_id=1,
+                    global_node_id=1,
+                    logit=1.0,
+                    probability=0.8,
+                    is_gold_answer=True,
+                    selection_reason="threshold",
+                ),
+            ],
+        }
+    )
+
+    metrics = GnnRetrieverResultsService().build_metrics(
+        dataset_id="WebQSP",
+        model_run_name="3_model",
+        model_run_number=3,
+        predictions=[prediction],
+        candidate_limit=5,
+    )
+
+    expected = 1 / 1.584962500721156
+    assert metrics.ndcg_at_1 == 0.0
+    assert metrics.ndcg_at_5 == pytest.approx(expected)
+    assert metrics.ndcg_at_10 == pytest.approx(expected)
+    assert metrics.ndcg_at_candidate_limit == pytest.approx(expected)
+
+
 def test_load_retriever_run_uses_persisted_metrics(tmp_path) -> None:
     run_dir = _write_run(tmp_path, with_metrics=True)
 
@@ -150,6 +193,7 @@ def test_load_retriever_run_uses_persisted_metrics(tmp_path) -> None:
 
     assert result.retrieval_metrics_path == run_dir / "retrieval_metrics.json"
     assert result.model_run_name == "3_model"
+    assert result.ndcg_at_10 == 1.0
 
 
 def test_load_retriever_run_rejects_dataset_mismatch(tmp_path) -> None:
