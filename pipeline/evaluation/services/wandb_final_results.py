@@ -227,10 +227,12 @@ class WandbFinalResultsLoggingService(AbstractService):
                 loss_points = self.build_training_loss_points(
                     wandb_config.get("configs", {}).get("model", {})
                 )
-                if run_summary_plot_metrics:
-                    run.summary.update(run_summary_plot_metrics)
-                if summary_metrics:
-                    run.summary.update(summary_metrics)
+                aggregate_metrics = {
+                    **run_summary_plot_metrics,
+                    **summary_metrics,
+                }
+                if aggregate_metrics:
+                    run.log(aggregate_metrics)
                 if loss_points:
                     for point in loss_points:
                         run.log(

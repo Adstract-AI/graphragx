@@ -128,7 +128,7 @@ class CapturingCoordinator:
     def log(self, payload, **kwargs) -> None:
         self.logged.append(payload)
 
-    def set_summary(self, payload, **kwargs) -> None:
+    def log_aggregate_metrics(self, payload, **kwargs) -> None:
         self.summaries.append(payload)
 
     def update_config(self, payload, **kwargs) -> None:
@@ -167,7 +167,12 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
         coordinator.update_config(
             {"configs": {"evaluation": {"candidate_limit": 10}}}
         )
-        coordinator.set_summary({"Run_Summary/retrieval_hits_at_1": 0.8})
+        coordinator.log_aggregate_metrics(
+            {"Run_Summary/retrieval_hits_at_1": 0.8}
+        )
+        coordinator.log_aggregate_metrics(
+            {"Run_Summary/retrieval_hits_at_1": 0.8}
+        )
         coordinator.persist_metadata(config_path)
         coordinator.finish()
 
@@ -190,11 +195,12 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
         "model": {"epochs": 2},
         "evaluation": {"candidate_limit": 10},
     }
-    assert fake_wandb.run.summary["Run_Summary/retrieval_hits_at_1"] == 0.8
-    assert not any(
-        "Run_Summary/retrieval_hits_at_1" in payload
+    aggregate_events = [
+        payload
         for payload, _ in fake_wandb.run.logged
-    )
+        if "Run_Summary/retrieval_hits_at_1" in payload
+    ]
+    assert aggregate_events == [{"Run_Summary/retrieval_hits_at_1": 0.8}]
     assert "graphragx" in fake_wandb.run.tags
     assert ("Training/global_step", {}) in fake_wandb.run.defined_metrics
     assert (
@@ -508,20 +514,26 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
         key for payload, _ in fake_wandb.run.logged for key in payload
     }
     assert not any(key.startswith("Inference/") for key in logged_keys)
-    assert "Summary_Plots/evidence_candidate_reduction_percentage" not in logged_keys
-    assert "Run_Summary/evidence_candidate_reduction_percentage" not in logged_keys
-    assert (
-        fake_wandb.run.summary[
-            "Summary_Plots/evidence_candidate_reduction_percentage"
-        ]
-        == 20.0
-    )
-    assert (
-        fake_wandb.run.summary[
-            "Run_Summary/evidence_candidate_reduction_percentage"
-        ]
-        == 20.0
-    )
+    assert "Summary_Plots/evidence_candidate_reduction_percentage" in logged_keys
+    assert "Run_Summary/evidence_candidate_reduction_percentage" in logged_keys
+    aggregate_events = [
+        payload
+        for payload, _ in fake_wandb.run.logged
+        if "Summary_Plots/evidence_candidate_reduction_percentage" in payload
+    ]
+    assert len(aggregate_events) == 1
+    assert aggregate_events[0][
+        "Summary_Plots/evidence_candidate_reduction_percentage"
+    ] == 10.0
+    assert aggregate_events[0][
+        "Run_Summary/evidence_candidate_reduction_percentage"
+    ] == 10.0
+    assert fake_wandb.run.summary[
+        "Summary_Plots/evidence_candidate_reduction_percentage"
+    ] == 20.0
+    assert fake_wandb.run.summary[
+        "Run_Summary/evidence_candidate_reduction_percentage"
+    ] == 20.0
     assert fake_wandb.run.config["dataset_id"] == "WebQSP"
     assert fake_wandb.run.config["model_id"] == "gpt-test"
     assert fake_wandb.run.config["runs"]["inference"] == {

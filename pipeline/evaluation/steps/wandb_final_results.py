@@ -144,7 +144,7 @@ class LogFinalResultsToWandbStep(
         payload.update(
             self.logging_service.build_summary_plot_metrics(scalar_metrics)
         )
-        self.coordinator.set_summary(
+        self.coordinator.log_aggregate_metrics(
             payload,
             source_config_path=source_config_path,
         )

@@ -453,6 +453,13 @@ def test_wandb_logging_success_with_fake_module(
                     "step": step,
                 }
             )
+            self.summary.update(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if isinstance(value, int | float | str)
+                }
+            )
 
         def log_artifact(self, artifact):
             captured["artifact_files"] = artifact.files
@@ -541,15 +548,19 @@ def test_wandb_logging_success_with_fake_module(
     assert run_summary_payload["Run_Summary/answer_f1"] == 2 / 3
     assert run_summary_payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
     assert run_summary_payload["Run_Summary/grounded_explanation_rate"] == 0.5
-    assert captured["logs"][0] == {
+    aggregate_log = captured["logs"][0]
+    assert aggregate_log["step"] is None
+    assert aggregate_log["payload"]["Run_Summary/retrieval_hits_at_1"] == 0.5
+    assert aggregate_log["payload"]["Summary_Plots/answer_f1"] == 2 / 3
+    assert captured["logs"][1] == {
         "payload": {"Training/gnn_training_loss": 0.8},
         "step": 1,
     }
-    assert captured["logs"][1] == {
+    assert captured["logs"][2] == {
         "payload": {"Training/gnn_training_loss": 0.4},
         "step": 2,
     }
-    logged_payload = captured["logs"][2]["payload"]
+    logged_payload = captured["logs"][3]["payload"]
     assert "answer_f1" not in logged_payload
     assert "Summary_Metrics/aggregate_metrics" in logged_payload
     assert "Per_Instance_Metrics/per_instance_results" in logged_payload
@@ -560,7 +571,7 @@ def test_wandb_logging_success_with_fake_module(
     aggregate_table = logged_payload["Summary_Metrics/aggregate_metrics"]
     assert aggregate_table.columns == ["group", "metric", "value"]
     assert ["answer", "f1", 2 / 3] in aggregate_table.data
-    assert len(captured["logs"]) == 3
+    assert len(captured["logs"]) == 4
     assert any(service_name == "results/results_config.json" for _, service_name in captured["artifact_files"])
     assert not any(service_name.startswith("sources/") for _, service_name in captured["artifact_files"])
 
@@ -625,7 +636,7 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
         def log(self, payload, **kwargs) -> None:
             self.logged.append(payload)
 
-        def set_summary(self, payload, **kwargs) -> None:
+        def log_aggregate_metrics(self, payload, **kwargs) -> None:
             self.summaries.append(payload)
 
         def update_config(self, payload, **kwargs) -> None:

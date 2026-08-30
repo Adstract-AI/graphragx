@@ -94,6 +94,7 @@ class WandbExperimentCoordinator:
         self._config_payload: dict[str, Any] = {}
         self._tags: list[str] = ["graphragx"]
         self._logged_training_epochs: set[int] = set()
+        self._logged_aggregate_metrics: dict[str, float | int | str] = {}
 
     @property
     def metadata(self) -> WandbTrackingMetadata:
@@ -319,31 +320,45 @@ class WandbExperimentCoordinator:
         except Exception as error:
             self._record_failure("WandB metric logging failed", error)
 
-    def set_summary(
+    def log_aggregate_metrics(
         self,
         payload: dict[str, float | int | str],
         *,
         source_config_path: Path | None = None,
         architecture_name: str | None = None,
     ) -> None:
-        """Store aggregate scalars without creating misleading history steps."""
+        """History-log each aggregate scalar once so W&B creates bar panels."""
         self.ensure_run(
             source_config_path=source_config_path,
             architecture_name=architecture_name,
         )
         if self._run is None:
             return
-        summary = getattr(self._run, "summary", None)
-        if summary is None or not hasattr(summary, "update"):
-            self._record_failure(
-                "WandB summary update failed",
-                TypeError("Active W&B run has no mutable summary."),
-            )
+        updated_payload = {
+            key: value
+            for key, value in payload.items()
+            if key in self._logged_aggregate_metrics
+            and self._logged_aggregate_metrics[key] != value
+        }
+        new_payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in self._logged_aggregate_metrics
+        }
+        if not new_payload and not updated_payload:
             return
         try:
-            summary.update(payload)
+            if new_payload:
+                self._run.log(new_payload)
+                self._logged_aggregate_metrics.update(new_payload)
+            if updated_payload:
+                summary = getattr(self._run, "summary", None)
+                if summary is None or not hasattr(summary, "update"):
+                    raise TypeError("Active W&B run has no mutable summary.")
+                summary.update(updated_payload)
+                self._logged_aggregate_metrics.update(updated_payload)
         except Exception as error:
-            self._record_failure("WandB summary update failed", error)
+            self._record_failure("WandB aggregate metric logging failed", error)
 
     def log_training_progress(self, payload: dict[str, float | int | str]) -> None:
         """Log one live training progress event using optimizer progress as step."""

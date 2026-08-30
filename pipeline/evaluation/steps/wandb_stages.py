@@ -372,7 +372,7 @@ class LogRetrieverToWandbStep(
                     scalar_metrics
                 )
             )
-            self.coordinator.set_summary(metrics)
+            self.coordinator.log_aggregate_metrics(metrics)
         if not self.copy_to_new_experiment:
             self.coordinator.persist_metadata(result.evaluation_config_path)
         if not is_logged_continuation:
@@ -559,7 +559,7 @@ class LogInferenceToWandbStep(
                 evidence_payload[
                     "Run_Summary/evidence_candidate_reduction_percentage"
                 ] = candidate_reduction_percentage
-            self.coordinator.set_summary(
+            self.coordinator.log_aggregate_metrics(
                 evidence_payload,
                 source_config_path=source_config_path,
                 architecture_name=(
@@ -694,7 +694,7 @@ class LogEvidenceToWandbStep(
                 "empty_subgraph_rate", 0.0
             ),
         }
-        self.coordinator.set_summary(
+        self.coordinator.log_aggregate_metrics(
             payload,
             source_config_path=evaluation_config_path,
             architecture_name=result.gnn_architecture,
