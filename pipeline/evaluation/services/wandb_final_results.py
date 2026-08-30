@@ -178,7 +178,9 @@ class WandbFinalResultsLoggingService(AbstractService):
             inference_config = wandb_config.get("configs", {}).get("inference", {})
             if not isinstance(inference_config, dict):
                 inference_config = {}
-            evidence_configuration = inference_config.get("evidence_subgraph", {})
+            evidence_configuration = wandb_config.get("configs", {}).get(
+                "evidence", {}
+            )
             evidence_algorithm = (
                 evidence_configuration.get("algorithm")
                 if isinstance(evidence_configuration, dict)
@@ -572,10 +574,11 @@ class WandbFinalResultsLoggingService(AbstractService):
                 **inference_payload,
                 "total_instances": inference_config["total_instances"],
             }
+        evidence_payload = inference_payload.get("evidence_subgraph")
         inference_payload = {
             key: value
             for key, value in inference_payload.items()
-            if key != "evidence_metrics"
+            if key not in {"evidence_metrics", "evidence_subgraph"}
         }
 
         model_run_name = model_ref.get("model_run_name") or results_config.get("model_run_name")
@@ -615,6 +618,11 @@ class WandbFinalResultsLoggingService(AbstractService):
                 "configs": {
                     "model": model_config,
                     "evaluation": evaluation_config.get("evaluation", {}),
+                    **(
+                        {"evidence": evidence_payload}
+                        if isinstance(evidence_payload, dict)
+                        else {}
+                    ),
                     "inference": inference_payload,
                 },
                 "source_paths": source_paths,

@@ -17,14 +17,12 @@ def test_wandb_tags_include_pcst_strategy_and_semantic_embedding() -> None:
     tags = WandbExperimentCoordinator._build_tags_from_config(
         {
             "configs": {
-                "inference": {
-                    "evidence_subgraph": {
-                        "algorithm": "pcst",
-                        "pcst": {
-                            "edge_cost_strategy": "semantic",
-                            "semantic_embedding_model": "text-embedding-3-small",
-                        },
-                    }
+                "evidence": {
+                    "algorithm": "pcst",
+                    "pcst": {
+                        "edge_cost_strategy": "semantic",
+                        "semantic_embedding_model": "text-embedding-3-small",
+                    },
                 }
             }
         }
@@ -520,6 +518,10 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
         "number": 2,
     }
     assert fake_wandb.run.config["configs"]["inference"]["total_tokens"] == 20
+    assert fake_wandb.run.config["configs"]["evidence"] == {
+        "algorithm": "shortest_path"
+    }
+    assert "evidence_subgraph" not in fake_wandb.run.config["configs"]["inference"]
     assert "WebQSP" in fake_wandb.run.tags
     assert "gpt-test" in fake_wandb.run.tags
     assert "inference_run_number:2" in fake_wandb.run.tags

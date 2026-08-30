@@ -149,11 +149,14 @@ def _build_available_wandb_config(
         runs["inference"] = _run_reference(inference_config)
         inference_payload = inference_config.get("inference")
         if isinstance(inference_payload, dict):
+            evidence_payload = inference_payload.get("evidence_subgraph")
             configs["inference"] = {
                 key: value
                 for key, value in inference_payload.items()
-                if key != "evidence_metrics"
+                if key not in {"evidence_metrics", "evidence_subgraph"}
             }
+            if isinstance(evidence_payload, dict):
+                configs["evidence"] = evidence_payload
             if inference_payload.get("model_id") is not None:
                 payload["model_id"] = inference_payload["model_id"]
             if inference_payload.get("llm_provider") is not None:

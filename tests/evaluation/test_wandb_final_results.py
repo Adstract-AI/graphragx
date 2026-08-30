@@ -413,6 +413,8 @@ def test_wandb_payload_construction(tmp_path: Path) -> None:
     )
     assert wandb_config["configs"]["evaluation"]["candidate_limit"] == 15
     assert wandb_config["configs"]["inference"]["total_requests"] == 1
+    assert wandb_config["configs"]["evidence"] == {"algorithm": "pcst"}
+    assert "evidence_subgraph" not in wandb_config["configs"]["inference"]
     loss_points = service.build_training_loss_points(wandb_config["configs"]["model"])
     assert loss_points == [
         {"epoch": 1, "average_loss": 0.8},
@@ -656,7 +658,12 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
     assert payload["Summary_Plots/ranking_ndcg_at_candidate_limit"] == 0.75
     assert not any(key.startswith("Inference/") for key in payload)
     config_payload = coordinator.config_updates[0]
-    assert set(config_payload["configs"]) == {"model", "evaluation", "inference"}
+    assert set(config_payload["configs"]) == {
+        "model",
+        "evaluation",
+        "evidence",
+        "inference",
+    }
     assert set(config_payload["runs"]) == {
         "model",
         "evaluation",
