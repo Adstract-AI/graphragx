@@ -6,7 +6,10 @@ import copy
 
 import pytest
 
-from scripts.migrate_inference_evidence_wandb_config import migrate_remote_config
+from scripts.migrate_inference_evidence_wandb_config import (
+    _resolve_wandb_path,
+    migrate_remote_config,
+)
 
 
 def test_migration_moves_evidence_out_of_inference_without_duplication() -> None:
@@ -69,3 +72,20 @@ def test_migration_rejects_conflicting_existing_evidence() -> None:
             },
             local_evidence={"algorithm": "pcst"},
         )
+
+
+def test_wandb_path_uses_saved_run_url_when_old_lineage_omits_location() -> None:
+    assert _resolve_wandb_path(
+        {
+            "run_id": "9fnbpacd",
+            "run_url": "https://wandb.ai/itonkdong-org/graphragx/runs/9fnbpacd",
+        }
+    ) == "itonkdong-org/graphragx/9fnbpacd"
+
+
+def test_wandb_path_allows_explicit_location_overrides() -> None:
+    assert _resolve_wandb_path(
+        {"run_id": "abc"},
+        entity_override="entity",
+        project_override="project",
+    ) == "entity/project/abc"

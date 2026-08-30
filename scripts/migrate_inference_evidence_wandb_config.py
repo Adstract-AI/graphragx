@@ -18,6 +18,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Sequence
+from urllib.parse import urlparse
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -58,9 +59,34 @@ def _wandb_lineage(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
     return tracking
 
 
-def _resolve_wandb_path(tracking: dict[str, Any]) -> str:
-    entity = tracking.get("entity") or os.getenv("WANDB_ENTITY")
-    project = tracking.get("project") or os.getenv("WANDB_PROJECT")
+def _wandb_location_from_url(run_url: object) -> tuple[str | None, str | None]:
+    if not isinstance(run_url, str) or not run_url:
+        return None, None
+    parts = [part for part in urlparse(run_url).path.split("/") if part]
+    if len(parts) >= 4 and parts[-2] == "runs":
+        return parts[-4], parts[-3]
+    return None, None
+
+
+def _resolve_wandb_path(
+    tracking: dict[str, Any],
+    *,
+    entity_override: str | None = None,
+    project_override: str | None = None,
+) -> str:
+    url_entity, url_project = _wandb_location_from_url(tracking.get("run_url"))
+    entity = (
+        entity_override
+        or tracking.get("entity")
+        or os.getenv("WANDB_ENTITY")
+        or url_entity
+    )
+    project = (
+        project_override
+        or tracking.get("project")
+        or os.getenv("WANDB_PROJECT")
+        or url_project
+    )
     run_id = tracking.get("run_id")
     if not entity or not project or not run_id:
         raise ValueError(
@@ -159,7 +185,13 @@ def _selected_run_directories(
     ]
 
 
-def migrate_runs(run_directories: list[Path], *, apply: bool) -> int:
+def migrate_runs(
+    run_directories: list[Path],
+    *,
+    apply: bool,
+    wandb_entity: str | None = None,
+    wandb_project: str | None = None,
+) -> int:
     failures = 0
     if not run_directories:
         print("No matching inference runs contain historical evidence config.")
@@ -169,11 +201,21 @@ def migrate_runs(run_directories: list[Path], *, apply: bool) -> int:
     api = wandb.Api() if wandb is not None else None
     for run_directory in run_directories:
         config_path = run_directory / LLM_INFERENCE_CONFIG_FILENAME
+        if not config_path.exists():
+            print(
+                f"SKIPPED {run_directory.name}: no completed "
+                f"{LLM_INFERENCE_CONFIG_FILENAME} artifact"
+            )
+            continue
         try:
             local_config = _load_object(config_path)
             evidence = _local_evidence_payload(local_config)
             tracking = _wandb_lineage(local_config, config_path)
-            wandb_path = _resolve_wandb_path(tracking)
+            wandb_path = _resolve_wandb_path(
+                tracking,
+                entity_override=wandb_entity,
+                project_override=wandb_project,
+            )
             print(
                 f"{'APPLY' if apply else 'DRY RUN'} {run_directory.name}: "
                 f"wandb={wandb_path} algorithm={evidence.get('algorithm')} "
@@ -237,6 +279,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Update existing W&B runs. Omit for a dry run.",
     )
+    parser.add_argument(
+        "--wandb-entity",
+        default=None,
+        help="Optional W&B entity override when old lineage omitted it.",
+    )
+    parser.add_argument(
+        "--wandb-project",
+        default=None,
+        help="Optional W&B project override when old lineage omitted it.",
+    )
     return parser
 
 
@@ -252,7 +304,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as error:
         print(f"Could not select inference runs: {error}", file=sys.stderr)
         return 2
-    return migrate_runs(run_directories, apply=args.apply)
+    return migrate_runs(
+        run_directories,
+        apply=args.apply,
+        wandb_entity=args.wandb_entity,
+        wandb_project=args.wandb_project,
+    )
 
 
 if __name__ == "__main__":
