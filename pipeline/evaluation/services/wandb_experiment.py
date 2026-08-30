@@ -319,6 +319,32 @@ class WandbExperimentCoordinator:
         except Exception as error:
             self._record_failure("WandB metric logging failed", error)
 
+    def set_summary(
+        self,
+        payload: dict[str, float | int | str],
+        *,
+        source_config_path: Path | None = None,
+        architecture_name: str | None = None,
+    ) -> None:
+        """Store aggregate scalars without creating misleading history steps."""
+        self.ensure_run(
+            source_config_path=source_config_path,
+            architecture_name=architecture_name,
+        )
+        if self._run is None:
+            return
+        summary = getattr(self._run, "summary", None)
+        if summary is None or not hasattr(summary, "update"):
+            self._record_failure(
+                "WandB summary update failed",
+                TypeError("Active W&B run has no mutable summary."),
+            )
+            return
+        try:
+            summary.update(payload)
+        except Exception as error:
+            self._record_failure("WandB summary update failed", error)
+
     def log_training_progress(self, payload: dict[str, float | int | str]) -> None:
         """Log one live training progress event using optimizer progress as step."""
         global_step = int(payload["global_step"])

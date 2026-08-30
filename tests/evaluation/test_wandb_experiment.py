@@ -61,6 +61,7 @@ class FakeRun:
         self.finished = False
         self.defined_metrics: list[tuple[str, dict]] = []
         self.config = FakeConfig()
+        self.summary = FakeConfig()
         self.tags: tuple[str, ...] = ()
 
     def save(self, glob_str) -> None:
@@ -104,6 +105,7 @@ class FakeWandb:
 class CapturingCoordinator:
     def __init__(self) -> None:
         self.logged: list[dict] = []
+        self.summaries: list[dict] = []
         self.config_updates: list[dict] = []
         self.artifact_calls: list[dict] = []
         self.persisted_metadata_paths: list = []
@@ -125,6 +127,9 @@ class CapturingCoordinator:
 
     def log(self, payload, **kwargs) -> None:
         self.logged.append(payload)
+
+    def set_summary(self, payload, **kwargs) -> None:
+        self.summaries.append(payload)
 
     def update_config(self, payload, **kwargs) -> None:
         self.config_updates.append(payload)
@@ -162,7 +167,7 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
         coordinator.update_config(
             {"configs": {"evaluation": {"candidate_limit": 10}}}
         )
-        coordinator.log({"Run_Summary/retrieval_hits_at_1": 0.8})
+        coordinator.set_summary({"Run_Summary/retrieval_hits_at_1": 0.8})
         coordinator.persist_metadata(config_path)
         coordinator.finish()
 
@@ -185,6 +190,11 @@ def test_coordinator_uses_one_run_and_persists_lineage(tmp_path) -> None:
         "model": {"epochs": 2},
         "evaluation": {"candidate_limit": 10},
     }
+    assert fake_wandb.run.summary["Run_Summary/retrieval_hits_at_1"] == 0.8
+    assert not any(
+        "Run_Summary/retrieval_hits_at_1" in payload
+        for payload, _ in fake_wandb.run.logged
+    )
     assert "graphragx" in fake_wandb.run.tags
     assert ("Training/global_step", {}) in fake_wandb.run.defined_metrics
     assert (
@@ -498,18 +508,19 @@ def test_inference_stage_does_not_log_raw_scalar_reports(tmp_path) -> None:
         key for payload, _ in fake_wandb.run.logged for key in payload
     }
     assert not any(key.startswith("Inference/") for key in logged_keys)
+    assert "Summary_Plots/evidence_candidate_reduction_percentage" not in logged_keys
+    assert "Run_Summary/evidence_candidate_reduction_percentage" not in logged_keys
     assert (
-        "Summary_Plots/evidence_candidate_reduction_percentage"
-        in logged_keys
-    )
-    assert (
-        "Run_Summary/evidence_candidate_reduction_percentage"
-        in logged_keys
-    )
-    assert any(
-        payload.get("Run_Summary/evidence_candidate_reduction_percentage")
+        fake_wandb.run.summary[
+            "Summary_Plots/evidence_candidate_reduction_percentage"
+        ]
         == 20.0
-        for payload, _ in fake_wandb.run.logged
+    )
+    assert (
+        fake_wandb.run.summary[
+            "Run_Summary/evidence_candidate_reduction_percentage"
+        ]
+        == 20.0
     )
     assert fake_wandb.run.config["dataset_id"] == "WebQSP"
     assert fake_wandb.run.config["model_id"] == "gpt-test"
@@ -685,7 +696,7 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
         StepContext(result=result)
     )
 
-    payload = coordinator.logged[0]
+    payload = coordinator.summaries[0]
     assert payload["Run_Summary/retrieval_hits_at_1"] == 0.4
     assert payload["Run_Summary/retrieval_evaluated_instances"] == 10
     assert payload["Run_Summary/retrieval_hits_at_10"] == 0.9
@@ -733,6 +744,7 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
     ).execute_default(StepContext(result=continuation_result))
 
     assert continuation_coordinator.logged == []
+    assert continuation_coordinator.summaries == []
     assert continuation_coordinator.artifact_calls == []
     assert len(continuation_coordinator.config_updates) == 1
     assert continuation_coordinator.tag_updates == [["evaluated_instances:10"]]
@@ -743,8 +755,8 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
         copy_to_new_experiment=True,
     ).execute_default(StepContext(result=continuation_result))
 
-    assert copied_coordinator.logged[0]["Run_Summary/retrieval_hits_at_1"] == 0.4
-    assert copied_coordinator.logged[0]["Summary_Plots/retrieval_hits_at_5"] == 0.8
+    assert copied_coordinator.summaries[0]["Run_Summary/retrieval_hits_at_1"] == 0.4
+    assert copied_coordinator.summaries[0]["Summary_Plots/retrieval_hits_at_5"] == 0.8
     assert len(copied_coordinator.artifact_calls) == 1
     assert copied_coordinator.persisted_metadata_paths == []
     assert copied_coordinator.tag_updates == [["evaluated_instances:10"]]
@@ -760,7 +772,7 @@ def test_retriever_stage_logs_legacy_run_summary_metrics(tmp_path) -> None:
         "Training/gnn_training_loss": 0.6,
     }
     assert (
-        evaluation_only_coordinator.logged[1][
+        evaluation_only_coordinator.summaries[0][
             "Run_Summary/retrieval_hits_at_1"
         ]
         == 0.4

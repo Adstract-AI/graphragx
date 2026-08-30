@@ -228,7 +228,7 @@ def test_evidence_wandb_logs_summary_metrics_and_pcst_title(tmp_path) -> None:
         model_id=None,
     )
     coordinator.update_tags.assert_called_once_with(["pcst", "pcst-constant"])
-    payload = coordinator.log.call_args.args[0]
+    payload = coordinator.set_summary.call_args.args[0]
     assert payload["Summary_Plots/evidence_average_subgraph_triples"] == 8.0
     assert payload["Summary_Plots/reasoning_context_gold_coverage"] == 0.8
     assert payload["Run_Summary/evidence_candidate_reduction_percentage"] == 25.0

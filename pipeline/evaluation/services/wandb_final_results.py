@@ -218,8 +218,8 @@ class WandbFinalResultsLoggingService(AbstractService):
                 payload = {
                     self.table_key: table,
                     self.aggregate_table_key: aggregate_table,
-                    **self.build_summary_plot_metrics(scalar_metrics),
                 }
+                summary_metrics = self.build_summary_plot_metrics(scalar_metrics)
                 run_summary_plot_metrics = self.build_run_summary_plot_metrics(
                     scalar_metrics=scalar_metrics,
                     wandb_config=wandb_config,
@@ -228,7 +228,9 @@ class WandbFinalResultsLoggingService(AbstractService):
                     wandb_config.get("configs", {}).get("model", {})
                 )
                 if run_summary_plot_metrics:
-                    run.log(run_summary_plot_metrics)
+                    run.summary.update(run_summary_plot_metrics)
+                if summary_metrics:
+                    run.summary.update(summary_metrics)
                 if loss_points:
                     for point in loss_points:
                         run.log(

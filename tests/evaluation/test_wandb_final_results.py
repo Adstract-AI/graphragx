@@ -437,6 +437,9 @@ def test_wandb_logging_success_with_fake_module(
         id = "run-1"
         url = "https://wandb.test/run-1"
 
+        def __init__(self):
+            self.summary = {}
+
         def __enter__(self):
             return self
 
@@ -470,7 +473,9 @@ def test_wandb_logging_success_with_fake_module(
 
     def fake_init(**kwargs):
         captured["init"] = kwargs
-        return FakeRun()
+        run = FakeRun()
+        captured["run"] = run
+        return run
 
     fake_wandb = SimpleNamespace(
         init=fake_init,
@@ -507,7 +512,7 @@ def test_wandb_logging_success_with_fake_module(
     assert "7_model" not in captured["init"]["tags"]
     assert "1_eval" not in captured["init"]["tags"]
     assert "1_inference" not in captured["init"]["tags"]
-    run_summary_payload = captured["logs"][0]["payload"]
+    run_summary_payload = captured["run"].summary
     assert run_summary_payload["Run_Summary/retrieval_hits_at_1"] == 0.5
     assert run_summary_payload["Run_Summary/retrieval_gold_coverage"] == 0.8
     assert run_summary_payload["Run_Summary/retrieval_full_gold_coverage"] == 0.6
@@ -536,26 +541,26 @@ def test_wandb_logging_success_with_fake_module(
     assert run_summary_payload["Run_Summary/answer_f1"] == 2 / 3
     assert run_summary_payload["Run_Summary/ranking_ndcg_at_10"] == 0.75
     assert run_summary_payload["Run_Summary/grounded_explanation_rate"] == 0.5
-    assert captured["logs"][1] == {
+    assert captured["logs"][0] == {
         "payload": {"Training/gnn_training_loss": 0.8},
         "step": 1,
     }
-    assert captured["logs"][2] == {
+    assert captured["logs"][1] == {
         "payload": {"Training/gnn_training_loss": 0.4},
         "step": 2,
     }
-    logged_payload = captured["logs"][3]["payload"]
+    logged_payload = captured["logs"][2]["payload"]
     assert "answer_f1" not in logged_payload
     assert "Summary_Metrics/aggregate_metrics" in logged_payload
     assert "Per_Instance_Metrics/per_instance_results" in logged_payload
-    assert logged_payload["Summary_Plots/answer_f1"] == 2 / 3
-    assert logged_payload["Summary_Plots/retrieval_hits_at_1"] == 0.5
+    assert run_summary_payload["Summary_Plots/answer_f1"] == 2 / 3
+    assert run_summary_payload["Summary_Plots/retrieval_hits_at_1"] == 0.5
     assert "Run_Summary/answer_f1" not in logged_payload
     assert "gnn_training_loss" not in logged_payload
     aggregate_table = logged_payload["Summary_Metrics/aggregate_metrics"]
     assert aggregate_table.columns == ["group", "metric", "value"]
     assert ["answer", "f1", 2 / 3] in aggregate_table.data
-    assert len(captured["logs"]) == 4
+    assert len(captured["logs"]) == 3
     assert any(service_name == "results/results_config.json" for _, service_name in captured["artifact_files"])
     assert not any(service_name.startswith("sources/") for _, service_name in captured["artifact_files"])
 
@@ -607,6 +612,7 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
     class CapturingCoordinator:
         def __init__(self) -> None:
             self.logged: list[dict] = []
+            self.summaries: list[dict] = []
             self.config_updates: list[dict] = []
             self.artifact_calls: list[dict] = []
             self.metadata = SimpleNamespace(
@@ -618,6 +624,9 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
 
         def log(self, payload, **kwargs) -> None:
             self.logged.append(payload)
+
+        def set_summary(self, payload, **kwargs) -> None:
+            self.summaries.append(payload)
 
         def update_config(self, payload, **kwargs) -> None:
             self.config_updates.append(payload)
@@ -633,7 +642,7 @@ def test_shared_experiment_restores_legacy_run_summary_metrics(
         coordinator=coordinator,
     ).execute_default(StepContext(result=final_result))
 
-    payload = coordinator.logged[0]
+    payload = coordinator.summaries[0]
     assert "Run_Summary/retrieval_hits_at_1" not in payload
     assert "Run_Summary/retrieval_hits_at_10" not in payload
     assert payload["Run_Summary/retrieval_gold_coverage"] == 0.8
