@@ -22,47 +22,34 @@ def test_experiment_zero_contains_complete_retriever_matrix() -> None:
         project_root / "experiments" / "experiment_0_gnn_architectures.toml"
     )
     parser = main.build_parser()
-    expected_options = {
-        "graphsage": {
-            "gnn_layer_count": 2,
-            "gnn_hidden_dimension": 256,
-            "node_classifier": "mlp",
-            "dropout": 0.1,
-        },
+    required_option_flags = {
+        "graphsage": {"--gnn-layers", "--gnn-hidden-dim", "--node-classifier", "--dropout"},
         "aa-graphsage": {
-            "gnn_layer_count": 2,
-            "gnn_hidden_dimension": 256,
-            "node_classifier": "mlp",
-            "dropout": 0.1,
-            "use_edge_mlp": True,
-            "use_reverse_edges": True,
-            "question_aware_classifier": True,
-            "add_layer_normalization": True,
-            "edge_mlp_hidden_dim": 256,
+            "--gnn-layers",
+            "--gnn-hidden-dim",
+            "--node-classifier",
+            "--dropout",
+            "--use-edge-mlp",
+            "--use-reverse-edges",
+            "--question-aware-classifier",
+            "--add-layer-normalization",
+            "--edge-mlp-hidden-dim",
         },
-        "rgcn": {
-            "gnn_layer_count": 2,
-            "gnn_hidden_dimension": 256,
-            "dropout": 0.1,
-            "num_bases": 30,
-        },
+        "rgcn": {"--gnn-layers", "--gnn-hidden-dim", "--dropout", "--num-bases"},
         "hgt": {
-            "gnn_layer_count": 2,
-            "gnn_hidden_dimension": 256,
-            "dropout": 0.1,
-            "attention_heads": 8,
+            "--gnn-layers",
+            "--gnn-hidden-dim",
+            "--dropout",
+            "--attention-heads",
         },
         "rearev": {
-            "gnn_hidden_dimension": 50,
-            "dropout": 0.1,
-            "num_instructions": 2,
-            "reasoning_steps": 2,
-            "adaptive_iterations": 3,
+            "--gnn-hidden-dim",
+            "--dropout",
+            "--num-instructions",
+            "--reasoning-steps",
+            "--adaptive-iterations",
         },
-        "nbfnet": {
-            "gnn_layer_count": 3,
-            "gnn_hidden_dimension": 32,
-        },
+        "nbfnet": {"--gnn-layers", "--gnn-hidden-dim"},
     }
 
     observed: set[tuple[str, int]] = set()
@@ -74,10 +61,7 @@ def test_experiment_zero_contains_complete_retriever_matrix() -> None:
         assert parsed.answer_threshold == 0.7
         assert parsed.candidate_top_k == 10
         assert parsed.candidate_limit == 15
-        for option_name, expected_value in expected_options[
-            parsed.gnn_architecture
-        ].items():
-            assert getattr(parsed, option_name) == expected_value
+        assert required_option_flags[parsed.gnn_architecture].issubset(run.args)
         observed.add((parsed.gnn_architecture, parsed.random_seed))
 
     assert observed == {

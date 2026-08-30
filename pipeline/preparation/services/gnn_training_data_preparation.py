@@ -305,6 +305,13 @@ class GnnTrainingDataPreparationService(AbstractService):
         prepared_instances: list[PreparedGnnTrainingInstance] = []
         skipped_instances = 0
         for offset, instance in enumerate(selected_instances):
+            if not instance.nodes:
+                skipped_instances += 1
+                logger.warning(
+                    f"Skipping empty {architecture.display_name} training graph: "
+                    f"instance_index={start_index + offset}"
+                )
+                continue
             seed_node_indices = None
             if requirements.uses_seed_distributions:
                 seed_ids = sorted(
@@ -314,7 +321,7 @@ class GnnTrainingDataPreparationService(AbstractService):
                         if entity in instance.node2id
                     }
                 )
-                if not instance.nodes or not seed_ids:
+                if not seed_ids:
                     skipped_instances += 1
                     logger.warning(
                         f"Skipping {architecture.display_name} training graph without "
