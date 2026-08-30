@@ -32,7 +32,11 @@ from pipeline.evaluation.models import (
     GraphTriple,
     ReasoningPathsForPrediction,
     ReasoningSampleForPrediction,
+    SavedEvidenceSubgraphRun,
     SavedLlmInferenceRun,
+)
+from pipeline.evaluation.services.evidence_run_storage import (
+    EvidenceRunStorageService,
 )
 from pipeline.evaluation.services import (
     LangChainOpenAiAnswerGenerationService,
@@ -441,6 +445,57 @@ class BuildEvidenceSubgraphsBatchStep(
 # Historical public name retained as an alias. Without a specialized context the
 # generic step defaults to shortest paths, matching the old behavior.
 ExtractShortestPathsBatchStep = BuildEvidenceSubgraphsBatchStep
+
+
+class SaveEvidenceSubgraphsContext(StepContext[ExtractedReasoningPathsBatch]):
+    """Context for persisting an evidence-only run."""
+
+    pipeline_configuration: BuiltPipelineConfiguration
+    gnn_evaluation_result: GnnAnswerRetrieverEvaluationResult
+
+
+class SaveEvidenceSubgraphsStep(
+    AbstractStep[SavedEvidenceSubgraphRun, ExtractedReasoningPathsBatch]
+):
+    """Persist evidence rows and aggregate metrics without invoking an LLM."""
+
+    def __init__(
+        self,
+        *,
+        run_name: str | None = None,
+        storage_service: EvidenceRunStorageService | None = None,
+        force_default: bool = False,
+    ) -> None:
+        super().__init__(force_default=force_default)
+        self.run_name = run_name
+        self.storage_service = storage_service or EvidenceRunStorageService()
+
+    def execute_default(
+        self,
+        context: SaveEvidenceSubgraphsContext,
+    ) -> SavedEvidenceSubgraphRun:
+        paths_batch = context.result
+        if paths_batch is None:
+            raise ShortestPathExtractionException(
+                "Evidence persistence requires constructed evidence subgraphs."
+            )
+        evidence_root = (
+            context.gnn_evaluation_result.evaluation_run_directory.parent.parent
+            / "evidence"
+        )
+        result = self.storage_service.save(
+            paths_batch=paths_batch,
+            evaluation_result=context.gnn_evaluation_result,
+            configuration=context.pipeline_configuration,
+            evidence_root=evidence_root,
+            run_name=self.run_name,
+        )
+        logger.info(
+            f"Saved evidence-only run: run={result.evidence_run_name} "
+            f"algorithm={result.subgraph_algorithm} "
+            f"instances={result.evidence_metrics.get('evaluated_instances', len(paths_batch.items))}"
+        )
+        return result
 
 
 class GenerateFinalAnswersBatchStep(

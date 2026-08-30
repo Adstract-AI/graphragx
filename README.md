@@ -134,6 +134,21 @@ To run LLM inference from an existing retriever evaluation:
 uv run python main.py --inference-only --retriever-run-number 7 --default
 ```
 
+To construct and evaluate evidence from a saved retriever run without making any
+LLM calls:
+
+```bash
+uv run python main.py --evidence-only \
+  --retriever-run-number 7 \
+  --subgraph-algorithm shortest_path \
+  --evidence-run-name experiment-1a-sp \
+  --default
+```
+
+Replace `shortest_path` with `pcst` and add the PCST cost flags to create the
+corresponding PCST evidence run. Evidence-only artifacts are saved under
+`data/webqsp/evidence/`.
+
 ### Running An Experiment Manifest
 
 For a sequence of predefined runs, use the lightweight TOML experiment runner:
@@ -189,6 +204,7 @@ kernels.
 | `--retriever-only` | Trains the GNN, evaluates it on the test split, saves retriever predictions and metrics, and stops before LLM inference. |
 | `--evaluation-only` | Evaluates a previously saved GNN model and then runs LLM inference/final results. Use this with `--evaluation-model-run-name` or `--evaluation-model-run-number`. |
 | `--inference-only` | Loads a saved retriever evaluation and runs LLM inference/final results without loading or training the GNN. Use a retriever run selector. |
+| `--evidence-only` | Loads a saved retriever evaluation, constructs and saves SP/PCST evidence subgraphs and aggregate context metrics, and stops without calling an LLM. Use a retriever run selector. |
 
 ### Dataset And Pipeline Configuration
 
@@ -275,8 +291,9 @@ The compact matrices are still copied into VRAM at the start of every process be
 | `--candidate-top-k CANDIDATE_TOP_K` | Minimum number of selected candidates when threshold selection returns too few; must be at least 10. |
 | `--candidate-limit CANDIDATE_LIMIT` | Maximum number of selected answer candidates after threshold and top-k selection. `--limit` is an alias. |
 | `--evaluation-run-name EVALUATION_RUN_NAME` | Optional label for the saved evaluation run folder. |
-| `--retriever-run-name RETRIEVER_RUN_NAME` | Saved retriever evaluation folder name or suffix required by inference-only mode. |
-| `--retriever-run-number RETRIEVER_RUN_NUMBER` | Saved retriever evaluation numeric prefix required by inference-only mode. |
+| `--retriever-run-name RETRIEVER_RUN_NAME` | Saved retriever evaluation folder name or suffix required by inference-only and evidence-only modes. |
+| `--retriever-run-number RETRIEVER_RUN_NUMBER` | Saved retriever evaluation numeric prefix required by inference-only and evidence-only modes. |
+| `--evidence-run-name EVIDENCE_RUN_NAME` | Optional label for the versioned evidence-only run folder. |
 | `--evaluation-max-instances EVALUATION_MAX_INSTANCES` | Optional limit for how many WebQSP test instances to evaluate. If omitted, the full test split is used. |
 | `--evaluation-log-every EVALUATION_LOG_EVERY` | How often GNN evaluation progress is logged, measured in evaluated instances. |
 | `--evaluation-profile` | Reports synchronized model loading, embedding preparation, input, forward, prediction, and persistence timings. Use for short diagnostics because synchronization reduces throughput. |
@@ -339,7 +356,7 @@ uv run python main.py --inference-only \
 | `--wandb-training-log-every WANDB_TRAINING_LOG_EVERY` | How often live training loss is sent to W&B, measured in processed instances. Use `0` to disable live loss events. |
 | `--wandb-upload-retriever` | Upload the trained GNN retriever weights to W&B. Off by default; configs, metrics, and result artifacts are still uploaded. |
 
-New W&B runs use a dataset-wide sequential identifier in the form `run_number_YYYYMMDD_HHMMSS`, independent of which pipeline mode creates them. Full, training, and retriever stages reuse their logical experiment within the command. Every evaluation-only command creates a new W&B run and copies the selected model's training metrics, configuration, tags, and available artifact metadata before adding retrieval and optional inference results. Every inference-only command creates a new W&B run and copies the selected retriever metrics and configuration into it. This keeps repeated evaluations and LLM inference runs independently comparable without modifying their upstream W&B runs. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts. Large retriever weight files are excluded from W&B by default; use `--wandb-upload-retriever` to include them.
+New W&B runs use a dataset-wide sequential identifier in the form `run_number_YYYYMMDD_HHMMSS`, independent of which pipeline mode creates them. Full, training, and retriever stages reuse their logical experiment within the command. Every evaluation-only command creates a new W&B run and copies the selected model's training metrics, configuration, tags, and available artifact metadata before adding retrieval and optional inference results. Every inference-only command creates a new W&B run and copies the selected retriever metrics and configuration into it. Evidence-only behaves the same way but stops after evidence construction; its title ends in `_sp` or `_pcst`. Evidence metrics are logged under `Summary_Plots`, while candidate reduction, context gold coverage, full context-gold coverage, and empty-context rate are also available under `Run_Summary`. This keeps repeated evidence and LLM inference runs independently comparable without modifying their upstream W&B runs. If an older artifact has no W&B lineage, the pipeline creates a run and backfills the available upstream metrics and artifacts. Large retriever weight files are excluded from W&B by default; use `--wandb-upload-retriever` to include them.
 
 W&B tags are populated incrementally from the stages available in each mode. Depending on the completed stages, tags include the dataset, selected GNN architecture, LLM id, embedding models, trained/evaluated instance counts, and model, evaluation, and inference run numbers. Resumed runs preserve their existing tags, and duplicate values are removed.
 

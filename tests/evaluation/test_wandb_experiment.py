@@ -236,6 +236,11 @@ def test_inference_run_name_appends_available_algorithm_and_model() -> None:
         evidence_algorithm=None,
         model_id=None,
     ) == "1_20260829_120000_hgt"
+    assert WandbExperimentCoordinator.build_inference_run_name(
+        "1_20260829_120000_hgt",
+        evidence_algorithm="pcst",
+        model_id=None,
+    ) == "1_20260829_120000_hgt_pcst"
 
 
 def test_coordinator_preserves_persisted_lineage_run_name(tmp_path) -> None:
