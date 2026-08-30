@@ -128,6 +128,50 @@ def test_experiment_one_a_contains_bounded_nbfnet_evidence_matrix() -> None:
     }
 
 
+def test_experiment_one_b_contains_final_deepseek_matrix() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    manifest = load_manifest(
+        project_root / "experiments" / "experiment_1b_llm_end_to_end.toml"
+    )
+    parser = main.build_parser()
+    expected_retrievers = {
+        "exp0_nbfnet_seed42_retriever",
+        "exp0_nbfnet_seed1337_retriever",
+        "exp0_nbfnet_seed2026_retriever",
+    }
+    strategies_by_retriever: dict[str, set[tuple[str, str | None, float | None]]] = {
+        retriever: set() for retriever in expected_retrievers
+    }
+
+    assert len(manifest.runs) == 9
+    for run in manifest.runs:
+        parsed = parser.parse_args([*manifest.default_args, *run.args])
+        assert parsed.run_mode == "inference-only"
+        assert parsed.retriever_run_name in expected_retrievers
+        assert parsed.llm_provider == "deepseek"
+        assert parsed.main_llm_model == "deepseek-v4-flash"
+        assert parsed.reasoning_effort == "none"
+        assert parsed.llm_inference_batch_size == 500
+        assert parsed.llm_inference_parallel_calls == 500
+        assert parsed.generate_explanation is False
+        strategies_by_retriever[parsed.retriever_run_name].add(
+            (
+                parsed.subgraph_algorithm,
+                parsed.pcst_edge_cost_strategy,
+                parsed.pcst_edge_cost,
+            )
+        )
+
+    expected_strategies = {
+        ("shortest_path", None, None),
+        ("pcst", "constant", 1.0),
+        ("pcst", "semantic", 1.0),
+    }
+    assert strategies_by_retriever == {
+        retriever: expected_strategies for retriever in expected_retrievers
+    }
+
+
 def _write_manifest(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path

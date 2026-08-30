@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -16,6 +16,7 @@ from pydantic import Field
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext
 from pipeline.evaluation.exceptions import (
+    InsufficientLlmCreditsException,
     LlmAnswerGenerationException,
     ShortestPathExtractionException,
 )
@@ -593,6 +594,8 @@ class GenerateFinalAnswersBatchStep(
             completion_tokens = int(result.get("completion_tokens", 0))
             total_tokens = int(result.get("total_tokens", 0))
             estimated_cost_usd = float(result.get("estimated_cost_usd", 0.0))
+        except InsufficientLlmCreditsException:
+            raise
         except Exception as error:  # keep batch inference usable for later review
             error_message = str(error)
             prompt_tokens = 0
@@ -756,6 +759,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             if self.inference_parallel_calls > 1
             else None
         )
+        abort_executor = False
         try:
             for batch_number, batch_items in enumerate(
                 self._chunk_items(paths_batch.items, self.inference_batch_size),
@@ -813,9 +817,19 @@ class GenerateAndSaveFinalAnswersBatchesStep(
                     f"successful={cumulative_batch.successful_answers} "
                     f"failed={cumulative_batch.failed_answers}"
                 )
+        except InsufficientLlmCreditsException:
+            abort_executor = True
+            logger.error(
+                "Stopping LLM inference immediately because the provider reported "
+                "insufficient credits."
+            )
+            raise
         finally:
             if executor is not None:
-                executor.shutdown(wait=True)
+                executor.shutdown(
+                    wait=not abort_executor,
+                    cancel_futures=abort_executor,
+                )
 
         final_answers = GeneratedFinalAnswersBatch(
             dataset_id=paths_batch.dataset_id,
@@ -928,7 +942,25 @@ class GenerateAndSaveFinalAnswersBatchesStep(
         )
         if executor is None:
             return [generate_answer(item) for item in batch_items]
-        return list(executor.map(generate_answer, batch_items))
+        futures = {
+            executor.submit(generate_answer, item): item_index
+            for item_index, item in enumerate(batch_items)
+        }
+        ordered_results: list[GeneratedAnswerForPrediction | None] = [
+            None
+        ] * len(batch_items)
+        try:
+            for future in as_completed(futures):
+                ordered_results[futures[future]] = future.result()
+        except InsufficientLlmCreditsException:
+            for future in futures:
+                future.cancel()
+            raise
+        return [
+            result
+            for result in ordered_results
+            if result is not None
+        ]
 
     def _resolve_llm_provider(
         self,

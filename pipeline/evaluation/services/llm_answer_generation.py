@@ -27,7 +27,10 @@ from helpers.openai_rate_limit_logging import (
     is_openai_rate_limit_error,
     rate_limit_wait_seconds,
 )
-from pipeline.evaluation.exceptions import LlmAnswerGenerationException
+from pipeline.evaluation.exceptions import (
+    InsufficientLlmCreditsException,
+    LlmAnswerGenerationException,
+)
 from pipeline.services import AbstractService
 
 logger = get_logger(__name__)
@@ -151,7 +154,14 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                     f"elapsed_seconds={elapsed_seconds:.2f} "
                     f"prompt_chars={len(prompt)}"
                 )
+        except InsufficientLlmCreditsException:
+            raise
         except Exception as error:
+            if self.is_insufficient_credit_error(error):
+                raise InsufficientLlmCreditsException(
+                    f"LLM provider has insufficient credits for model {model_id}: "
+                    f"{error}"
+                ) from error
             raise LlmAnswerGenerationException(
                 f"LLM answer generation failed: {error}"
             ) from error
@@ -188,6 +198,11 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
             try:
                 return chat_model.invoke(messages)
             except Exception as error:
+                if self.is_insufficient_credit_error(error):
+                    raise InsufficientLlmCreditsException(
+                        f"LLM provider has insufficient credits for model "
+                        f"{model_id}: {error}"
+                    ) from error
                 if not is_openai_rate_limit_error(error):
                     raise
 
@@ -211,6 +226,52 @@ class LangChainOpenAiAnswerGenerationService(AbstractService):
                 time.sleep(wait_seconds)
 
         return chat_model.invoke(messages)
+
+    @classmethod
+    def is_insufficient_credit_error(cls, error: BaseException) -> bool:
+        """Recognize provider billing exhaustion without treating rate limits as fatal."""
+        markers = (
+            "insufficient balance",
+            "insufficient_balance",
+            "insufficient credits",
+            "insufficient_credits",
+            "insufficient quota",
+            "insufficient_quota",
+            "out of credits",
+            "credit balance",
+            "billing hard limit",
+            "billing_hard_limit",
+        )
+        visited: set[int] = set()
+        current: BaseException | None = error
+        while current is not None and id(current) not in visited:
+            visited.add(id(current))
+            response = getattr(current, "response", None)
+            status_code = getattr(current, "status_code", None)
+            if status_code is None:
+                status_code = getattr(response, "status_code", None)
+            if status_code == 402:
+                return True
+
+            values: list[object] = [current, getattr(current, "body", None)]
+            if response is not None:
+                values.extend(
+                    [
+                        getattr(response, "text", None),
+                        getattr(response, "content", None),
+                    ]
+                )
+                try:
+                    values.append(response.json())
+                except Exception:
+                    pass
+            searchable = " ".join(
+                str(value).lower() for value in values if value is not None
+            )
+            if any(marker in searchable for marker in markers):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
 
     def _get_chat_model(
         self,

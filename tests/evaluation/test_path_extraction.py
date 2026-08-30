@@ -38,6 +38,7 @@ from pipeline.evaluation.models import (
 from pipeline.evaluation.services.llm_inference_storage import (
     LlmInferenceStorageService,
 )
+from pipeline.evaluation.exceptions import InsufficientLlmCreditsException
 
 
 def make_sample() -> EvaluationSample:
@@ -631,6 +632,40 @@ class LlmAnswerGenerationStepTests(unittest.TestCase):
 
 
 class LlmInferenceBatchStepTests(unittest.TestCase):
+    def test_insufficient_credits_are_not_recorded_as_an_ordinary_failed_answer(
+        self,
+    ) -> None:
+        class InsufficientCreditsService:
+            def generate_answer_with_explanation(self, **kwargs):
+                raise InsufficientLlmCreditsException("insufficient credits")
+
+        extracted_paths = ShortestPathExtractionService().extract_paths(
+            sample=make_sample(),
+            candidates=[CandidateNodeScore(node_id="Jaxon Bieber", score=1.0)],
+        )
+        prediction = EvaluatedAnswerRetrievalInstance(
+            instance_index=0,
+            question=make_sample().question,
+            q_entity=make_sample().q_entities,
+            a_entity=make_sample().a_entities,
+            answer_candidates=[],
+            gold_answer_scores=[],
+            hit_at_1=False,
+            missing_gold_in_graph=False,
+        )
+        item = ReasoningPathsForPrediction(
+            instance_index=0,
+            prediction=prediction,
+            extracted_paths=extracted_paths,
+        )
+
+        with self.assertRaises(InsufficientLlmCreditsException):
+            GenerateFinalAnswersBatchStep(
+                model_id="deepseek-v4-flash",
+                llm_provider="deepseek",
+                answer_generation_service=InsufficientCreditsService(),
+            )._generate_answer(item)
+
     def test_internal_type_error_is_recorded_without_retrying_request(self) -> None:
         extracted_paths = ShortestPathExtractionService().extract_paths(
             sample=make_sample(),

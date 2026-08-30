@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from pipeline.evaluation.exceptions import LlmAnswerGenerationException
+from pipeline.evaluation.exceptions import InsufficientLlmCreditsException
 from pipeline.evaluation.services.llm_answer_generation import (
     LangChainOpenAiAnswerGenerationService,
 )
@@ -16,6 +17,20 @@ class FakeResponse:
 
 class FakeRateLimitError(Exception):
     response = FakeResponse()
+
+
+class FakeInsufficientCreditResponse:
+    status_code = 402
+    headers = {}
+
+
+class FakeInsufficientCreditError(Exception):
+    response = FakeInsufficientCreditResponse()
+
+
+class FakeInsufficientCreditChatModel:
+    def invoke(self, messages):
+        raise FakeInsufficientCreditError("Insufficient Balance")
 
 
 class FakeChatModel:
@@ -114,6 +129,36 @@ class LlmAnswerGenerationRateLimitTests(unittest.TestCase):
                 and "operation=llm_answer_generation" in message
                 and "\033[91m" in message
                 for message in logs.output
+            )
+        )
+
+    def test_insufficient_credit_error_fails_without_rate_limit_retry(self) -> None:
+        service = LangChainOpenAiAnswerGenerationService()
+        chat_model = FakeInsufficientCreditChatModel()
+
+        with patch("time.sleep") as sleep, self.assertRaisesRegex(
+            InsufficientLlmCreditsException,
+            "insufficient credits",
+        ):
+            service._invoke_with_visible_rate_limit_retries(
+                chat_model=chat_model,
+                messages=[],
+                model_id="deepseek-v4-flash",
+                prompt="question",
+            )
+
+        sleep.assert_not_called()
+
+    def test_insufficient_credit_marker_is_recognized_inside_wrapped_error(self) -> None:
+        cause = RuntimeError(
+            "Error code: 429 - {'error': {'code': 'insufficient_quota'}}"
+        )
+        wrapped = LlmAnswerGenerationException("request failed")
+        wrapped.__cause__ = cause
+
+        self.assertTrue(
+            LangChainOpenAiAnswerGenerationService.is_insufficient_credit_error(
+                wrapped
             )
         )
 
