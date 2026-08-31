@@ -15,8 +15,8 @@ args = [
   "--llm-provider", "openai",
   "--main-llm-model", "gpt-5.6-luna",
   "--reasoning-effort", "none",
-  "--llm-inference-batch-size", "500",
-  "--llm-inference-parallel-calls", "500",
+  "--llm-inference-batch-size", "20",
+  "--llm-inference-parallel-calls", "20",
 ]
 
 [[runs]]
