@@ -1,10 +1,13 @@
 # Experiment 1B: final end-to-end LLM comparison.
 #
 # Reuse the three winning NBFNet retriever runs from Experiment 0 and compare
-# the three evidence configurations selected by Experiment 1A:
+# the primary evidence configurations selected by Experiment 1A plus a
+# low-cost PCST sensitivity setting:
 # - shortest-path union
 # - PCST constant edge cost with lambda 1.0
+# - PCST constant edge cost with lambda 0.01
 # - PCST semantic edge cost with lambda 1.0
+# - PCST semantic edge cost with lambda 0.01
 #
 # Every run uses the same DeepSeek model and inference settings. Explanations
 # are disabled by omitting --generate-explanation. Batch size and parallel-call
@@ -45,6 +48,17 @@ args = [
 ]
 
 [[runs]]
+id = "exp1b_nbfnet_seed42_deepseek_pcst_constant_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "constant",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "42",
+  "--inference-run-name", "exp1b_nbfnet_seed42_deepseek_pcst_constant_lambda_0p01",
+]
+
+[[runs]]
 id = "exp1b_nbfnet_seed42_deepseek_pcst_semantic_l10"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
@@ -53,6 +67,17 @@ args = [
   "--pcst-edge-cost", "1.0",
   "--seed", "42",
   "--inference-run-name", "exp1b_nbfnet_seed42_deepseek_pcst_semantic_l10",
+]
+
+[[runs]]
+id = "exp1b_nbfnet_seed42_deepseek_pcst_semantic_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "semantic",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "42",
+  "--inference-run-name", "exp1b_nbfnet_seed42_deepseek_pcst_semantic_lambda_0p01",
 ]
 
 [[runs]]
@@ -76,6 +101,17 @@ args = [
 ]
 
 [[runs]]
+id = "exp1b_nbfnet_seed1337_deepseek_pcst_constant_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "constant",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "1337",
+  "--inference-run-name", "exp1b_nbfnet_seed1337_deepseek_pcst_constant_lambda_0p01",
+]
+
+[[runs]]
 id = "exp1b_nbfnet_seed1337_deepseek_pcst_semantic_l10"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
@@ -84,6 +120,17 @@ args = [
   "--pcst-edge-cost", "1.0",
   "--seed", "1337",
   "--inference-run-name", "exp1b_nbfnet_seed1337_deepseek_pcst_semantic_l10",
+]
+
+[[runs]]
+id = "exp1b_nbfnet_seed1337_deepseek_pcst_semantic_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "semantic",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "1337",
+  "--inference-run-name", "exp1b_nbfnet_seed1337_deepseek_pcst_semantic_lambda_0p01",
 ]
 
 [[runs]]
@@ -107,6 +154,17 @@ args = [
 ]
 
 [[runs]]
+id = "exp1b_nbfnet_seed2026_deepseek_pcst_constant_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "constant",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "2026",
+  "--inference-run-name", "exp1b_nbfnet_seed2026_deepseek_pcst_constant_lambda_0p01",
+]
+
+[[runs]]
 id = "exp1b_nbfnet_seed2026_deepseek_pcst_semantic_l10"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
@@ -115,4 +173,15 @@ args = [
   "--pcst-edge-cost", "1.0",
   "--seed", "2026",
   "--inference-run-name", "exp1b_nbfnet_seed2026_deepseek_pcst_semantic_l10",
+]
+
+[[runs]]
+id = "exp1b_nbfnet_seed2026_deepseek_pcst_semantic_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "semantic",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "2026",
+  "--inference-run-name", "exp1b_nbfnet_seed2026_deepseek_pcst_semantic_lambda_0p01",
 ]
