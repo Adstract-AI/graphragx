@@ -1,0 +1,179 @@
+# Experiment 1C: paired LLM-provider/model comparison with GPT-5.6 Luna.
+#
+# This mirrors the complete DeepSeek Experiment 1B matrix while holding the
+# retriever runs, evidence configurations, seeds, reasoning effort, prompt
+# behavior, and concurrency settings fixed. Only the inference model/provider
+# changes.
+
+version = 1
+
+[defaults]
+args = [
+  "--inference-only",
+  "--dataset", "WebQSP",
+  "--default",
+  "--llm-provider", "openai",
+  "--main-llm-model", "gpt-5.6-luna",
+  "--reasoning-effort", "none",
+  "--llm-inference-batch-size", "500",
+  "--llm-inference-parallel-calls", "500",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed42_luna_sp"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
+  "--subgraph-algorithm", "shortest_path",
+  "--seed", "42",
+  "--inference-run-name", "exp1c_nbfnet_seed42_luna_sp",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed42_luna_pcst_constant_l10"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "constant",
+  "--pcst-edge-cost", "1.0",
+  "--seed", "42",
+  "--inference-run-name", "exp1c_nbfnet_seed42_luna_pcst_constant_l10",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed42_luna_pcst_constant_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "constant",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "42",
+  "--inference-run-name", "exp1c_nbfnet_seed42_luna_pcst_constant_lambda_0p01",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed42_luna_pcst_semantic_l10"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "semantic",
+  "--pcst-edge-cost", "1.0",
+  "--seed", "42",
+  "--inference-run-name", "exp1c_nbfnet_seed42_luna_pcst_semantic_l10",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed42_luna_pcst_semantic_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "semantic",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "42",
+  "--inference-run-name", "exp1c_nbfnet_seed42_luna_pcst_semantic_lambda_0p01",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed1337_luna_sp"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
+  "--subgraph-algorithm", "shortest_path",
+  "--seed", "1337",
+  "--inference-run-name", "exp1c_nbfnet_seed1337_luna_sp",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed1337_luna_pcst_constant_l10"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "constant",
+  "--pcst-edge-cost", "1.0",
+  "--seed", "1337",
+  "--inference-run-name", "exp1c_nbfnet_seed1337_luna_pcst_constant_l10",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed1337_luna_pcst_constant_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "constant",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "1337",
+  "--inference-run-name", "exp1c_nbfnet_seed1337_luna_pcst_constant_lambda_0p01",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed1337_luna_pcst_semantic_l10"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "semantic",
+  "--pcst-edge-cost", "1.0",
+  "--seed", "1337",
+  "--inference-run-name", "exp1c_nbfnet_seed1337_luna_pcst_semantic_l10",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed1337_luna_pcst_semantic_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "semantic",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "1337",
+  "--inference-run-name", "exp1c_nbfnet_seed1337_luna_pcst_semantic_lambda_0p01",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed2026_luna_sp"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
+  "--subgraph-algorithm", "shortest_path",
+  "--seed", "2026",
+  "--inference-run-name", "exp1c_nbfnet_seed2026_luna_sp",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed2026_luna_pcst_constant_l10"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "constant",
+  "--pcst-edge-cost", "1.0",
+  "--seed", "2026",
+  "--inference-run-name", "exp1c_nbfnet_seed2026_luna_pcst_constant_l10",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed2026_luna_pcst_constant_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "constant",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "2026",
+  "--inference-run-name", "exp1c_nbfnet_seed2026_luna_pcst_constant_lambda_0p01",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed2026_luna_pcst_semantic_l10"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "semantic",
+  "--pcst-edge-cost", "1.0",
+  "--seed", "2026",
+  "--inference-run-name", "exp1c_nbfnet_seed2026_luna_pcst_semantic_l10",
+]
+
+[[runs]]
+id = "exp1c_nbfnet_seed2026_luna_pcst_semantic_lambda_0p01"
+args = [
+  "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
+  "--subgraph-algorithm", "pcst",
+  "--pcst-edge-cost-strategy", "semantic",
+  "--pcst-edge-cost", "0.01",
+  "--seed", "2026",
+  "--inference-run-name", "exp1c_nbfnet_seed2026_luna_pcst_semantic_lambda_0p01",
+]
