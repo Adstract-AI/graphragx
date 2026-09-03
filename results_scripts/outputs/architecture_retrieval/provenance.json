@@ -1,5 +1,5 @@
 {
-  "experiment_file": "/Users/itonkdong/Work/Fax/NLP/project/graphragx/experiments/experiment_0_gnn_architectures.toml",
+  "experiment_file": "/home/viktor.kostadinoski/graphragx/experiments/experiment_0_gnn_architectures.toml",
   "metrics": {
     "average_candidate_count": "Summary_Plots/retrieval_average_candidate_count",
     "evaluated_instances": "Summary_Plots/retrieval_evaluated_instances",

@@ -297,7 +297,7 @@ def write_latex_tables(output_dir: Path, rows: list[dict[str, float | str | int]
             rel_tol=0.0,
             abs_tol=1e-12,
         ):
-            return rf"\textbf{{{value}}}"
+            return rf"{{\boldmath {value}}}"
         return value
 
     primary_lines = [
