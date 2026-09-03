@@ -10,7 +10,7 @@
     "average_construction_time_ms",
     "average_objective"
   ],
-  "experiment_file": "/Users/itonkdong/Work/Fax/NLP/project/graphragx/experiments/experiment_1a_evidence_subgraphs.toml",
+  "experiment_file": "/home/viktor.kostadinoski/graphragx/experiments/experiment_1a_evidence_subgraphs.toml",
   "explicit_additional_groups": [
     "experiment1_b"
   ],
