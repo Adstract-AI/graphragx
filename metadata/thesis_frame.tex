@@ -1,0 +1,174 @@
+\documentclass[14pt]{extarticle}
+
+\usepackage[
+    a4paper,
+    top=40mm,
+    bottom=40mm,
+    left=30mm,
+    right=30mm
+]{geometry}
+
+\usepackage[macedonian]{babel}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+
+\newcommand{\UniversityName}
+    {Универзитет „Св. Кирил и Методиј“}
+\newcommand{\FacultyName}
+    {Факултет за информатички науки и компјутерско инженерство}
+\newcommand{\ProjectType}
+    {дипломска работа}
+\newcommand{\ProjectTitle}
+    {Напредни архитектури на граф невронски мрежи за пребарување и расудување над графови при одговарање на прашања над графови на знаење}
+\newcommand{\ProjectMentor}
+    {Име и презиме на менторот}
+\newcommand{\ProjectCandidate}
+    {Име и презиме на кандидатот}
+\newcommand{\ProjectCandidateIndex}
+    {Број на индекс}
+\newcommand{\ProjectDate}
+    {Месец и година}
+
+\date{}
+
+\begin{document}
+
+\begin{titlepage}
+    \begin{center}
+        {\Large \UniversityName}\par
+        \vspace{0.5cm}
+        {\Large \FacultyName}\par
+
+        \vspace*{\fill}
+
+        {\Large\textbf{\MakeUppercase{\ProjectTitle}}}\par
+        \vspace{1cm}
+        {\large\textsc{\ProjectType}}\par
+
+        \vspace*{\fill}
+
+        \begin{minipage}[t]{0.49\textwidth}
+            \large\textbf{Ментор}\par
+            \ProjectMentor
+        \end{minipage}
+        \hfill
+        \begin{minipage}[t]{0.45\textwidth}
+            \raggedleft
+            \large\textbf{Кандидат}\par
+            \ProjectCandidate\par
+            \ProjectCandidateIndex
+        \end{minipage}
+
+        \vspace{1cm}
+        \rule{\textwidth}{0.5mm}
+        {\large \ProjectDate}
+    \end{center}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\listoftables
+\listoffigures
+\newpage
+
+\section{Вовед}
+
+\textbf{Мотивација.}
+
+\textbf{Проблем и цел на трудот.}
+
+\textbf{Истражувачки прашања.}
+
+\textbf{Придонеси на трудот.}
+
+\textbf{Организација на трудот.}
+
+\section{Теоретска основа и сродни истражувања}
+
+\textbf{Графови на знаење и одговарање на прашања.}
+
+\textbf{Генерирање збогатено со пребарување.}
+
+\textbf{Граф невронски мрежи.}
+
+\textbf{Сродни архитектури.}
+
+\textbf{Конструкција на доказен подграф.}
+
+\textbf{Позиционирање на трудот.}
+
+\section{Методологија и архитектура на системот}
+
+\textbf{Формулација на задачата.}
+
+\textbf{Преглед на целосниот тек.}
+
+\textbf{Подготовка на WebQSP.}
+
+\textbf{Заедничка рамка за пребарување на одговори.}
+
+\textbf{GraphSAGE.}
+
+\textbf{Напреден GraphSAGE.}
+
+\textbf{R-GCN.}
+
+\textbf{HGT.}
+
+\textbf{ReaRev.}
+
+\textbf{NBFNet.}
+
+\textbf{Унија на најкратки патеки.}
+
+\textbf{Prize-Collecting Steiner Tree.}
+
+\textbf{Генерирање на конечниот одговор.}
+
+\textbf{Репродуктивност.}
+
+\section{Експериментална поставеност}
+
+\textbf{Податочно множество.}
+
+\textbf{Заедничка конфигурација.}
+
+\textbf{Метрики за пребарување.}
+
+\textbf{Метрики за доказниот контекст.}
+
+\textbf{Метрики за конечниот одговор.}
+
+\textbf{Експеримент I -- споредба на архитектурите.}
+
+\textbf{Експеримент II -- споредба на доказните подграфови.}
+
+\textbf{Експеримент III -- споредба на јазичните модели.}
+
+\section{Резултати и дискусија}
+
+\textbf{Споредба на архитектурите за пребарување.}
+
+\textbf{Влијание на конструкцијата на доказниот подграф.}
+
+\textbf{Влијание на јазичниот модел.}
+
+\textbf{Загуба на информации низ системот.}
+
+\textbf{Ограничувања и закани по валидноста.}
+
+\section{Заклучок}
+
+\section{Идни подобрувања}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
