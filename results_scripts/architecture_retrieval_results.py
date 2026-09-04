@@ -388,8 +388,14 @@ def _plot_grouped_bars(
     series = list(series)
     x = np.arange(len(rows), dtype=float)
     width = 0.8 / len(series)
-    fig, axis = plt.subplots(figsize=(10.4, 5.2))
-    colors = ("#4472C4", "#70AD47", "#ED7D31", "#A5A5A5")
+    fig, axis = plt.subplots(figsize=(11.2 if len(series) == 5 else 10.4, 5.2))
+    metric_colors = {
+        "hits_at_1": "#8064A2",
+        "hits_at_10": "#4472C4",
+        "ndcg_at_10": "#70AD47",
+        "retrieval_gold_coverage": "#ED7D31",
+        "retrieval_full_gold_coverage": "#A5A5A5",
+    }
     for index, (metric, label) in enumerate(series):
         means = [float(row[f"{metric}_mean"]) for row in rows]
         errors = [float(row[f"{metric}_std"]) for row in rows]
@@ -401,7 +407,7 @@ def _plot_grouped_bars(
             yerr=errors,
             capsize=3,
             label=label,
-            color=colors[index % len(colors)],
+            color=metric_colors.get(metric, "#4472C4"),
             edgecolor="black",
             linewidth=0.35,
         )
@@ -429,6 +435,32 @@ def write_figures(output_dir: Path, rows: list[dict[str, float | str | int]]) ->
         rows=rows,
         filename="architecture_primary_metrics",
         series=(
+            ("hits_at_10", "Hits@10"),
+            ("ndcg_at_10", "nDCG@10"),
+            ("retrieval_gold_coverage", "RetrievalGoldCoverage"),
+            (
+                "retrieval_full_gold_coverage",
+                "RetrievalFullGoldCoverage",
+            ),
+        ),
+    )
+    _plot_grouped_bars(
+        output_dir=output_dir,
+        rows=rows,
+        filename="architecture_primary_metrics_hits1_no_full_coverage",
+        series=(
+            ("hits_at_1", "Hits@1"),
+            ("hits_at_10", "Hits@10"),
+            ("ndcg_at_10", "nDCG@10"),
+            ("retrieval_gold_coverage", "RetrievalGoldCoverage"),
+        ),
+    )
+    _plot_grouped_bars(
+        output_dir=output_dir,
+        rows=rows,
+        filename="architecture_primary_metrics_hits1_all_metrics",
+        series=(
+            ("hits_at_1", "Hits@1"),
             ("hits_at_10", "Hits@10"),
             ("ndcg_at_10", "nDCG@10"),
             ("retrieval_gold_coverage", "RetrievalGoldCoverage"),
