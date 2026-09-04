@@ -5,8 +5,8 @@
     "experiment2_winners"
   ],
   "experiment_files": [
-    "/Users/itonkdong/Work/Fax/NLP/project/graphragx/experiments/experiment_1b_llm_end_to_end.toml",
-    "/Users/itonkdong/Work/Fax/NLP/project/graphragx/experiments/experiment_1c_gpt_5_6_luna_end_to_end.toml"
+    "/home/viktor.kostadinoski/graphragx/experiments/experiment_1b_llm_end_to_end.toml",
+    "/home/viktor.kostadinoski/graphragx/experiments/experiment_1c_gpt_5_6_luna_end_to_end.toml"
   ],
   "explicitly_excluded_superseded_group": "experiment2",
   "runs": [
