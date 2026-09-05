@@ -358,7 +358,7 @@ def write_table(path: Path, rows: list[dict[str, Any]]) -> None:
         r"\toprule",
         (
             r"Јазичен модел & Доказен подграф & Hit & Precision & Recall & "
-            r"F1 & ExactMatch & Токени [милиони] \\"
+            r"F1 & ExactMatch & TotalTokens [милиони] \\"
         ),
         r"\midrule",
     ]
@@ -444,12 +444,13 @@ def _plot_quality_tokens(path_pdf: Path, path_png: Path, rows: list[dict[str, An
             alpha=0.42,
             hatch="//",
         )
-    axes[2].set_title("Потрошени токени")
-    axes[2].set_ylabel("Милиони токени")
+    axes[2].set_title("TotalTokens")
+    axes[2].set_ylabel("Средна вредност [милиони]")
     axes[2].grid(axis="y", alpha=0.25)
     for axis in axes:
         axis.set_xticks(x, labels, rotation=20, ha="right")
-    axes[0].set_ylabel("Вредност")
+    axes[0].set_ylabel("Средна вредност")
+    axes[1].set_ylabel("Средна вредност")
     handles, legend_labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, legend_labels, loc="upper center", ncol=2, frameon=False)
     fig.tight_layout(rect=(0, 0, 1, 0.91))
@@ -490,7 +491,7 @@ def _plot_context_outcomes(path_pdf: Path, path_png: Path, rows: list[dict[str, 
         axis.set_ylim(0, 1)
         axis.grid(axis="y", alpha=0.25)
     for axis in axes[:, 0]:
-        axis.set_ylabel("Удел од прашањата")
+        axis.set_ylabel("Средна вредност")
     for axis in axes[-1, :]:
         axis.set_xticks(x, labels, rotation=20, ha="right")
     handles, legend_labels = axes[0, 0].get_legend_handles_labels()

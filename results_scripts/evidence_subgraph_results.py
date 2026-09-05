@@ -335,8 +335,8 @@ def write_latex_table(path: Path, rows: list[dict[str, Any]]) -> None:
         r"\begin{tabular}{lcccccc}",
         r"\toprule",
         (
-            r"Постапка & Тројки & Јазли & ContextCandidateCoverage & "
-            r"Намалување [\%] & ContextGoldCoverage & ContextFullGoldCoverage \\"
+            r"Постапка & AverageTriples & AverageDistinctNodes & ContextCandidateCoverage & "
+            r"CandidateReduction [\%] & ContextGoldCoverage & ContextFullGoldCoverage \\"
         ),
         r"\midrule",
     ]
@@ -373,8 +373,8 @@ def write_figure(output_dir: Path, rows: list[dict[str, Any]]) -> None:
     x = np.arange(len(lambda_values), dtype=float)
     shortest = next(row for row in rows if row["algorithm"] == "shortest_path")
     plot_specs = (
-        ("average_subgraph_triples", "Просечен број тројки"),
-        ("candidate_reduction_percentage", "Намалување на кандидатите [\%]"),
+        ("average_subgraph_triples", "AverageTriples"),
+        ("candidate_reduction_percentage", "CandidateReduction [%]"),
         ("context_gold_coverage", "ContextGoldCoverage"),
         ("context_full_gold_coverage", "ContextFullGoldCoverage"),
     )
