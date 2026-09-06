@@ -1,5 +1,9 @@
 # Getting started
 
+For the containerized setup that runs the application and Qdrant together, see
+[Docker Compose](docker.md). The instructions below describe a native Python
+installation.
+
 ## Requirements
 
 - Python 3.11 (the supported range is `>=3.11,<3.14`);
@@ -13,8 +17,9 @@ The lockfile is the reproducible dependency source. From the repository root:
 uv sync --frozen
 ```
 
-`uv` installs the development group by default, including `pytest` and
-`torch-geometric`. Run commands through the managed environment:
+`uv` installs the development group by default, including `pytest`,
+`torch-geometric`, and the figure-generation dependencies. Run commands through
+the managed environment:
 
 ```bash
 uv run graphragx --help

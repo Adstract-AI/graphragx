@@ -19,8 +19,19 @@ Language Model Reasoning](https://arxiv.org/abs/2405.20139).
 
 ## Quick start
 
-Install [uv](https://docs.astral.sh/uv/), then create the locked Python 3.11
-environment:
+The shortest setup uses Docker Compose. Copy the environment template, add the
+required API keys, and run the small example experiment together with Qdrant:
+
+```bash
+cp .env.example .env
+docker compose up --build --abort-on-container-exit --exit-code-from graphragx
+```
+
+See [Docker Compose](docs/docker.md) for command overrides, official
+experiments, scripts, persistent paths, and optional NVIDIA GPU access.
+
+For a native environment, install [uv](https://docs.astral.sh/uv/), then create
+the locked Python 3.11 environment:
 
 ```bash
 uv sync --frozen
@@ -84,6 +95,7 @@ Additional `probe_*.toml` files are diagnostics, not official experiments.
 
 - [Documentation index](docs/index.md)
 - [Installation and first runs](docs/getting-started.md)
+- [Docker Compose](docs/docker.md)
 - [Pipeline and supported architectures](docs/pipeline.md)
 - [Configuration reference](docs/configuration.md)
 - [Experiment manifests and result scripts](docs/experiments.md)

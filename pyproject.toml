@@ -33,7 +33,9 @@ build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
+    "matplotlib",
     "pytest",
+    "reportlab",
     "torch-geometric",
 ]
 

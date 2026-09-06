@@ -8,6 +8,8 @@ of truth.
 
 - [Getting started](getting-started.md) — installation, services, credentials,
   and first commands.
+- [Docker Compose](docker.md) — one-command example execution, command
+  overrides, persistent data, and optional NVIDIA GPU access.
 - [Pipeline](pipeline.md) — processing stages, run modes, retriever
   architectures, evidence construction, and answer generation.
 - [Configuration](configuration.md) — command-line options and validation rules.
