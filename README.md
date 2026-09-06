@@ -6,7 +6,7 @@ The current implementation is focused on WebQSP. The pipeline prepares local gra
 
 This project was highly inspired by **GNN-RAG: Graph Neural Retrieval for Large Language Model Reasoning**: https://arxiv.org/pdf/2405.20139
 
-For the full project explanation, read the final paper at [`metadata/GraphRagX.pdf`](metadata/GraphRagX.pdf). Architecture graphs, supporting reports, and metric explanations are also available in the [`metadata/`](metadata/) folder.
+For the full project explanation, read the final paper at [`metadata/initial/graphragx.pdf`](metadata/initial/graphragx.pdf). Architecture graphs, supporting reports, and metric explanations are also available in the [`metadata/`](metadata/) folder.
 
 ## Setup
 

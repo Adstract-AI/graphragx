@@ -53,7 +53,7 @@ If you use an AI coding agent, give it the relevant files from `agents_metadata/
 
 - `agents_metadata/guidlines/PROJECT_GUIDELINES.MD`
 - `agents_metadata/guidlines/SERVICE_GUIDELINES.MD`
-- `agents_metadata/guidlines/ERROR_HANDLING_GUIDELINES.MD`
+- `agents_metadata/guidlines/error_handling_guildline.MD`
 - `agents_metadata/pipeline_overview/PIPELINE_OVERVIEW.md`
 
 The agent metadata explains the project architecture, conventions, error-handling expectations, and the intended pipeline flow. This helps agents make changes that match the existing codebase.

@@ -76,3 +76,4 @@ wandb/
 qdrant_storage/
 qdrant_data_backup.tar.gz
 .experiment-runs/
+agents_metadata/
