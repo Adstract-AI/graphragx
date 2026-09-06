@@ -415,9 +415,9 @@ def _plot_quality_tokens(path_pdf: Path, path_png: Path, rows: list[dict[str, An
         ):
             axis.bar(
                 positions,
-                [row[f"{metric}_mean"] for row in selected],
+                [float(row[f"{metric}_mean"]) for row in selected],
                 width,
-                yerr=[row[f"{metric}_std"] for row in selected],
+                yerr=[float(row[f"{metric}_std"]) for row in selected],
                 capsize=3,
                 color=colors[model],
                 label=MODEL_LABELS[model],
@@ -467,22 +467,27 @@ def _plot_context_outcomes(path_pdf: Path, path_png: Path, rows: list[dict[str, 
     outcomes = (
         ("full_context_complete_answer", "FullContextCompleteAnswer"),
         ("full_context_llm_omission", "FullContextLLMOmission"),
-        ("partial_context_fully_utilized", "PartialContextFullyUtilized"),
-        ("partial_context_underutilized", "PartialContextUnderutilized"),
+        ("llm_omission_given_full_context", "LLMOmissionGivenFullContext"),
     )
     x = np.arange(len(labels), dtype=float)
     width = 0.36
     colors = {"deepseek-v4-flash": "#4472C4", "gpt-5.6-luna": "#ED7D31"}
-    fig, axes = plt.subplots(2, 2, figsize=(13.5, 8.5), sharex=True)
-    for axis, (metric, title) in zip(axes.flat, outcomes, strict=True):
+    fig = plt.figure(figsize=(13.5, 8.5))
+    grid = fig.add_gridspec(2, 2, hspace=0.48)
+    axes = (
+        fig.add_subplot(grid[0, 0]),
+        fig.add_subplot(grid[0, 1]),
+        fig.add_subplot(grid[1, :]),
+    )
+    for axis, (metric, title) in zip(axes, outcomes, strict=True):
         for model_index, model in enumerate(MODEL_ORDER):
             selected = [row for row in rows if row["model"] == model]
             positions = x + (model_index - 0.5) * width
             axis.bar(
                 positions,
-                [row[f"{metric}_mean"] for row in selected],
+                [float(row[f"{metric}_mean"]) for row in selected],
                 width,
-                yerr=[row[f"{metric}_std"] for row in selected],
+                yerr=[float(row[f"{metric}_std"]) for row in selected],
                 capsize=3,
                 color=colors[model],
                 label=MODEL_LABELS[model],
@@ -490,13 +495,21 @@ def _plot_context_outcomes(path_pdf: Path, path_png: Path, rows: list[dict[str, 
         axis.set_title(title)
         axis.set_ylim(0, 1)
         axis.grid(axis="y", alpha=0.25)
-    for axis in axes[:, 0]:
-        axis.set_ylabel("Средна вредност")
-    for axis in axes[-1, :]:
+    axes[0].set_ylabel("Средна вредност")
+    axes[2].set_ylabel("Средна вредност")
+    for axis in axes:
         axis.set_xticks(x, labels, rotation=20, ha="right")
-    handles, legend_labels = axes[0, 0].get_legend_handles_labels()
+        axis.tick_params(axis="x", labelsize=8.5)
+    handles, legend_labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, legend_labels, loc="upper center", ncol=2, frameon=False)
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.subplots_adjust(
+        left=0.075,
+        right=0.985,
+        bottom=0.11,
+        top=0.88,
+        wspace=0.18,
+        hspace=0.48,
+    )
     fig.savefig(path_pdf, bbox_inches="tight")
     fig.savefig(path_png, dpi=220, bbox_inches="tight")
     plt.close(fig)
