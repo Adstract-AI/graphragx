@@ -25,7 +25,7 @@ dependencies = [
 
 [project.scripts]
 graphragx = "main:main"
-graphragx-experiments = "scripts.run_experiments:main"
+graphragx-experiments = "scripts.experiments.run_experiments:main"
 
 [build-system]
 requires = ["setuptools>=77,<85"]

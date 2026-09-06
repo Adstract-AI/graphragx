@@ -21,9 +21,13 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EXPERIMENT = PROJECT_ROOT / "experiments/experiment_0_gnn_architectures.toml"
-DEFAULT_OUTPUT = PROJECT_ROOT / "results_scripts/outputs/architecture_retrieval"
+DEFAULT_FIGURES = PROJECT_ROOT / "metadata/figures/architecture_retrieval"
+DEFAULT_TABLES = PROJECT_ROOT / "metadata/tables/architecture_retrieval"
+DEFAULT_RESULTS_METADATA = (
+    PROJECT_ROOT / "metadata/results_metadata/architecture_retrieval"
+)
 
 ARCHITECTURE_ORDER = (
     "graphsage",
@@ -382,7 +386,7 @@ def _plot_grouped_bars(
     except ImportError as error:
         raise RuntimeError(
             "Figure generation requires Matplotlib (for example: "
-            "uv run --with matplotlib python results_scripts/architecture_retrieval_results.py)."
+            "uv run --with matplotlib python scripts/results/architecture_retrieval_results.py)."
         ) from error
 
     series = list(series)
@@ -560,7 +564,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--experiment", type=Path, default=DEFAULT_EXPERIMENT)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--figures-dir", type=Path, default=DEFAULT_FIGURES)
+    parser.add_argument("--tables-dir", type=Path, default=DEFAULT_TABLES)
+    parser.add_argument(
+        "--results-metadata-dir",
+        type=Path,
+        default=DEFAULT_RESULTS_METADATA,
+    )
     parser.add_argument(
         "--no-figures",
         action="store_true",
@@ -578,14 +588,18 @@ def main() -> int:
         group_prefix=arguments.wandb_group_prefix,
         expected_runs=expected,
     )
-    output_dir = arguments.output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    figures_dir = arguments.figures_dir.resolve()
+    tables_dir = arguments.tables_dir.resolve()
+    results_metadata_dir = arguments.results_metadata_dir.resolve()
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    results_metadata_dir.mkdir(parents=True, exist_ok=True)
     summary = aggregate_records(records)
-    write_raw_csv(output_dir / "architecture_runs.csv", records)
-    write_summary_csv(output_dir / "architecture_summary.csv", summary)
-    write_latex_tables(output_dir, summary)
+    write_raw_csv(results_metadata_dir / "architecture_runs.csv", records)
+    write_summary_csv(results_metadata_dir / "architecture_summary.csv", summary)
+    write_latex_tables(tables_dir, summary)
     write_manifest(
-        output_dir / "provenance.json",
+        results_metadata_dir / "provenance.json",
         entity=arguments.entity,
         project=arguments.project,
         group_prefix=arguments.wandb_group_prefix,
@@ -593,8 +607,12 @@ def main() -> int:
         records=records,
     )
     if not arguments.no_figures:
-        write_figures(output_dir, summary)
-    print(f"Wrote architecture retrieval results to {output_dir}")
+        write_figures(figures_dir, summary)
+    print(
+        "Wrote architecture retrieval results to "
+        f"figures={figures_dir}, tables={tables_dir}, "
+        f"metadata={results_metadata_dir}"
+    )
     return 0
 
 

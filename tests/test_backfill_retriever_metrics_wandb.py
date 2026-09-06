@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from scripts.backfill_retriever_metrics_wandb import (
+from scripts.one_time.backfill_retriever_metrics_wandb import (
     _retrieval_metrics_payload,
     _selected_run_directories,
     _wandb_payload,

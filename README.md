@@ -162,7 +162,7 @@ The same runner uses the active interpreter and therefore also works in the
 local Conda environment:
 
 ```bash
-conda run -n data-science python scripts/run_experiments.py experiments/example.toml
+conda run -n data-science python scripts/experiments/run_experiments.py experiments/example.toml
 ```
 
 Each `[[runs]]` entry contains an `id`, its ordinary `main.py` `args`, and an

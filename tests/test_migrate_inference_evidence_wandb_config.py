@@ -6,7 +6,7 @@ import copy
 
 import pytest
 
-from scripts.migrate_inference_evidence_wandb_config import (
+from scripts.one_time.migrate_inference_evidence_wandb_config import (
     _resolve_wandb_path,
     migrate_remote_config,
 )

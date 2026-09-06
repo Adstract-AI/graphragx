@@ -13,7 +13,7 @@ from reportlab.lib.colors import Color, HexColor, white
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FIGURES = ROOT / "figures"
+FIGURES = ROOT / "metadata/figures/system_architecture"
 
 INK = HexColor("#263746")
 MUTED = HexColor("#617080")

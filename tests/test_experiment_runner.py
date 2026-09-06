@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import main
 
-from scripts.run_experiments import (
+from scripts.experiments.run_experiments import (
     ExperimentManifestError,
     load_manifest,
     resolve_execution_order,
@@ -98,7 +98,7 @@ def test_experiment_one_a_contains_bounded_nbfnet_evidence_matrix() -> None:
     }
     shortest_path_count = 0
 
-    assert len(manifest.runs) == 21
+    assert len(manifest.runs) == 27
     for run in manifest.runs:
         parsed = parser.parse_args([*manifest.default_args, *run.args])
         assert parsed.run_mode == "evidence-only"
@@ -120,11 +120,11 @@ def test_experiment_one_a_contains_bounded_nbfnet_evidence_matrix() -> None:
 
     assert shortest_path_count == 3
     assert counts_by_retriever == {
-        retriever: 7 for retriever in expected_retrievers
+        retriever: 9 for retriever in expected_retrievers
     }
     assert lambdas_by_mode == {
-        "constant": {0.25, 0.5, 1.0},
-        "semantic": {0.25, 0.5, 1.0},
+        "constant": {0.01, 0.25, 0.5, 1.0},
+        "semantic": {0.01, 0.25, 0.5, 1.0},
     }
 
 
@@ -143,7 +143,7 @@ def test_experiment_one_b_contains_final_deepseek_matrix() -> None:
         retriever: set() for retriever in expected_retrievers
     }
 
-    assert len(manifest.runs) == 9
+    assert len(manifest.runs) == 15
     for run in manifest.runs:
         parsed = parser.parse_args([*manifest.default_args, *run.args])
         assert parsed.run_mode == "inference-only"
@@ -164,7 +164,9 @@ def test_experiment_one_b_contains_final_deepseek_matrix() -> None:
 
     expected_strategies = {
         ("shortest_path", None, None),
+        ("pcst", "constant", 0.01),
         ("pcst", "constant", 1.0),
+        ("pcst", "semantic", 0.01),
         ("pcst", "semantic", 1.0),
     }
     assert strategies_by_retriever == {

@@ -21,14 +21,16 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DEEPSEEK_EXPERIMENT = (
     PROJECT_ROOT / "experiments/experiment_1b_llm_end_to_end.toml"
 )
 DEFAULT_GPT_EXPERIMENT = (
     PROJECT_ROOT / "experiments/experiment_1c_gpt_5_6_luna_end_to_end.toml"
 )
-DEFAULT_OUTPUT = PROJECT_ROOT / "results_scripts/outputs/end_to_end_llm"
+DEFAULT_FIGURES = PROJECT_ROOT / "metadata/figures/end_to_end_llm"
+DEFAULT_TABLES = PROJECT_ROOT / "metadata/tables/end_to_end_llm"
+DEFAULT_RESULTS_METADATA = PROJECT_ROOT / "metadata/results_metadata/end_to_end_llm"
 
 MODEL_ORDER = ("deepseek-v4-flash", "gpt-5.6-luna")
 MODEL_LABELS = {
@@ -551,7 +553,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project", default="graphragx")
     parser.add_argument("--deepseek-experiment", type=Path, default=DEFAULT_DEEPSEEK_EXPERIMENT)
     parser.add_argument("--gpt-experiment", type=Path, default=DEFAULT_GPT_EXPERIMENT)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--figures-dir", type=Path, default=DEFAULT_FIGURES)
+    parser.add_argument("--tables-dir", type=Path, default=DEFAULT_TABLES)
+    parser.add_argument(
+        "--results-metadata-dir",
+        type=Path,
+        default=DEFAULT_RESULTS_METADATA,
+    )
     return parser.parse_args()
 
 
@@ -573,8 +581,12 @@ def main() -> int:
     if len(records) != 30:
         raise RuntimeError(f"Expected 30 corrected end-to-end runs, found {len(records)}.")
     rows = aggregate(records)
-    output = arguments.output_dir.resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    figures_dir = arguments.figures_dir.resolve()
+    tables_dir = arguments.tables_dir.resolve()
+    results_metadata_dir = arguments.results_metadata_dir.resolve()
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    results_metadata_dir.mkdir(parents=True, exist_ok=True)
     run_rows: list[dict[str, Any]] = []
     for record in records:
         run_rows.append(
@@ -590,26 +602,30 @@ def main() -> int:
                 **record.metrics,
             }
         )
-    _write_csv(output / "end_to_end_llm_runs.csv", run_rows)
-    _write_csv(output / "end_to_end_llm_summary.csv", rows)
-    write_table(output / "end_to_end_llm_results.tex", rows)
+    _write_csv(results_metadata_dir / "end_to_end_llm_runs.csv", run_rows)
+    _write_csv(results_metadata_dir / "end_to_end_llm_summary.csv", rows)
+    write_table(tables_dir / "end_to_end_llm_results.tex", rows)
     _plot_quality_tokens(
-        output / "end_to_end_llm_quality_tokens.pdf",
-        output / "end_to_end_llm_quality_tokens.png",
+        figures_dir / "end_to_end_llm_quality_tokens.pdf",
+        figures_dir / "end_to_end_llm_quality_tokens.png",
         rows,
     )
     _plot_context_outcomes(
-        output / "end_to_end_context_outcomes.pdf",
-        output / "end_to_end_context_outcomes.png",
+        figures_dir / "end_to_end_context_outcomes.pdf",
+        figures_dir / "end_to_end_context_outcomes.png",
         rows,
     )
     write_provenance(
-        output / "provenance.json",
+        results_metadata_dir / "provenance.json",
         records=records,
         experiment_paths=experiment_paths,
         groups=groups,
     )
-    print(f"Wrote end-to-end LLM results to {output}")
+    print(
+        "Wrote end-to-end LLM results to "
+        f"figures={figures_dir}, tables={tables_dir}, "
+        f"metadata={results_metadata_dir}"
+    )
     return 0
 
 

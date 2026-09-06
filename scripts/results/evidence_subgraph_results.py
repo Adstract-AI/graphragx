@@ -19,9 +19,11 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EXPERIMENT = PROJECT_ROOT / "experiments/experiment_1a_evidence_subgraphs.toml"
-DEFAULT_OUTPUT = PROJECT_ROOT / "results_scripts/outputs/evidence_subgraphs"
+DEFAULT_FIGURES = PROJECT_ROOT / "metadata/figures/evidence_subgraphs"
+DEFAULT_TABLES = PROJECT_ROOT / "metadata/tables/evidence_subgraphs"
+DEFAULT_RESULTS_METADATA = PROJECT_ROOT / "metadata/results_metadata/evidence_subgraphs"
 
 METRICS = {
     "average_subgraph_triples": "Summary_Plots/evidence_average_subgraph_triples",
@@ -491,7 +493,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--entity", default="itonkdong-org")
     parser.add_argument("--project", default="graphragx")
     parser.add_argument("--experiment", type=Path, default=DEFAULT_EXPERIMENT)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--figures-dir", type=Path, default=DEFAULT_FIGURES)
+    parser.add_argument("--tables-dir", type=Path, default=DEFAULT_TABLES)
+    parser.add_argument(
+        "--results-metadata-dir",
+        type=Path,
+        default=DEFAULT_RESULTS_METADATA,
+    )
     parser.add_argument("--wandb-group-prefix", default="experiment1")
     parser.add_argument(
         "--additional-group",
@@ -516,14 +524,18 @@ def main() -> int:
         base_group=arguments.wandb_group_prefix,
         additional_groups=set(arguments.additional_group),
     )
-    output_dir = arguments.output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    figures_dir = arguments.figures_dir.resolve()
+    tables_dir = arguments.tables_dir.resolve()
+    results_metadata_dir = arguments.results_metadata_dir.resolve()
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    results_metadata_dir.mkdir(parents=True, exist_ok=True)
     rows = aggregate(records)
-    write_raw_csv(output_dir / "evidence_runs.csv", records)
-    write_summary_csv(output_dir / "evidence_summary.csv", rows)
-    write_latex_table(output_dir / "evidence_primary_table.tex", rows)
+    write_raw_csv(results_metadata_dir / "evidence_runs.csv", records)
+    write_summary_csv(results_metadata_dir / "evidence_summary.csv", rows)
+    write_latex_table(tables_dir / "evidence_primary_table.tex", rows)
     write_provenance(
-        output_dir / "provenance.json",
+        results_metadata_dir / "provenance.json",
         entity=arguments.entity,
         project=arguments.project,
         experiment_path=arguments.experiment,
@@ -532,8 +544,12 @@ def main() -> int:
         records=records,
     )
     if not arguments.no_figures:
-        write_figure(output_dir, rows)
-    print(f"Wrote evidence-subgraph results to {output_dir}")
+        write_figure(figures_dir, rows)
+    print(
+        "Wrote evidence-subgraph results to "
+        f"figures={figures_dir}, tables={tables_dir}, "
+        f"metadata={results_metadata_dir}"
+    )
     return 0
 
 
