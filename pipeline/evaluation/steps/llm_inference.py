@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -16,7 +16,6 @@ from pydantic import Field
 from helpers.logging_config import get_logger
 from pipeline.abstract import AbstractStep, StepContext
 from pipeline.evaluation.exceptions import (
-    InsufficientLlmCreditsException,
     LlmAnswerGenerationException,
     ShortestPathExtractionException,
 )
@@ -33,11 +32,7 @@ from pipeline.evaluation.models import (
     GraphTriple,
     ReasoningPathsForPrediction,
     ReasoningSampleForPrediction,
-    SavedEvidenceSubgraphRun,
     SavedLlmInferenceRun,
-)
-from pipeline.evaluation.services.evidence_run_storage import (
-    EvidenceRunStorageService,
 )
 from pipeline.evaluation.services import (
     LangChainOpenAiAnswerGenerationService,
@@ -448,57 +443,6 @@ class BuildEvidenceSubgraphsBatchStep(
 ExtractShortestPathsBatchStep = BuildEvidenceSubgraphsBatchStep
 
 
-class SaveEvidenceSubgraphsContext(StepContext[ExtractedReasoningPathsBatch]):
-    """Context for persisting an evidence-only run."""
-
-    pipeline_configuration: BuiltPipelineConfiguration
-    gnn_evaluation_result: GnnAnswerRetrieverEvaluationResult
-
-
-class SaveEvidenceSubgraphsStep(
-    AbstractStep[SavedEvidenceSubgraphRun, ExtractedReasoningPathsBatch]
-):
-    """Persist evidence rows and aggregate metrics without invoking an LLM."""
-
-    def __init__(
-        self,
-        *,
-        run_name: str | None = None,
-        storage_service: EvidenceRunStorageService | None = None,
-        force_default: bool = False,
-    ) -> None:
-        super().__init__(force_default=force_default)
-        self.run_name = run_name
-        self.storage_service = storage_service or EvidenceRunStorageService()
-
-    def execute_default(
-        self,
-        context: SaveEvidenceSubgraphsContext,
-    ) -> SavedEvidenceSubgraphRun:
-        paths_batch = context.result
-        if paths_batch is None:
-            raise ShortestPathExtractionException(
-                "Evidence persistence requires constructed evidence subgraphs."
-            )
-        evidence_root = (
-            context.gnn_evaluation_result.evaluation_run_directory.parent.parent
-            / "evidence"
-        )
-        result = self.storage_service.save(
-            paths_batch=paths_batch,
-            evaluation_result=context.gnn_evaluation_result,
-            configuration=context.pipeline_configuration,
-            evidence_root=evidence_root,
-            run_name=self.run_name,
-        )
-        logger.info(
-            f"Saved evidence-only run: run={result.evidence_run_name} "
-            f"algorithm={result.subgraph_algorithm} "
-            f"instances={result.evidence_metrics.get('evaluated_instances', len(paths_batch.items))}"
-        )
-        return result
-
-
 class GenerateFinalAnswersBatchStep(
     AbstractStep[GeneratedFinalAnswersBatch, ExtractedReasoningPathsBatch]
 ):
@@ -562,28 +506,40 @@ class GenerateFinalAnswersBatchStep(
         item: ReasoningPathsForPrediction,
     ) -> GeneratedAnswerForPrediction:
         extracted_paths = item.extracted_paths
-        answers: list[str] = []
+        answer = ""
         explanation = ""
         raw_response = ""
         error_message = None
         started_at = time.monotonic()
         try:
-            result = self.answer_generation_service.generate_answer_with_explanation(
-                question=extracted_paths.sample.question,
-                reasoning_paths_text=extracted_paths.reasoning_paths_text,
-                model_id=self.model_id,
-                provider_id=self.llm_provider,
-                reasoning_effort=self.reasoning_effort,
-                generate_explanation=self.generate_explanation,
-            )
-            raw_answers = result.get("answers")
-            if not isinstance(raw_answers, list) or any(
-                not isinstance(value, str) for value in raw_answers
-            ):
-                raise ValueError(
-                    "Answer generation service must return an 'answers' array of strings."
+            generation_kwargs = {
+                "question": extracted_paths.sample.question,
+                "reasoning_paths_text": extracted_paths.reasoning_paths_text,
+                "model_id": self.model_id,
+            }
+            try:
+                result = self.answer_generation_service.generate_answer_with_explanation(
+                    **generation_kwargs,
+                    provider_id=self.llm_provider,
+                    reasoning_effort=self.reasoning_effort,
+                    generate_explanation=self.generate_explanation,
                 )
-            answers = [value.strip() for value in raw_answers if value.strip()]
+            except TypeError as error:
+                if not any(
+                    name in str(error)
+                    for name in (
+                        "provider_id",
+                        "reasoning_effort",
+                        "generate_explanation",
+                    )
+                ):
+                    raise
+                # Keep existing injected/custom services compatible with the
+                # pre-provider method contract.
+                result = self.answer_generation_service.generate_answer_with_explanation(
+                    **generation_kwargs,
+                )
+            answer = result["answer"]
             explanation = (
                 result.get("explanation", "")
                 if self.generate_explanation
@@ -594,8 +550,6 @@ class GenerateFinalAnswersBatchStep(
             completion_tokens = int(result.get("completion_tokens", 0))
             total_tokens = int(result.get("total_tokens", 0))
             estimated_cost_usd = float(result.get("estimated_cost_usd", 0.0))
-        except InsufficientLlmCreditsException:
-            raise
         except Exception as error:  # keep batch inference usable for later review
             error_message = str(error)
             prompt_tokens = 0
@@ -641,7 +595,7 @@ class GenerateFinalAnswersBatchStep(
             evidence_construction=extracted_paths.construction,
             model_id=self.model_id,
             llm_provider=self.llm_provider,
-            answers=answers,
+            answer=answer,
             explanation=explanation,
             raw_response=raw_response,
             prompt_tokens=prompt_tokens,
@@ -759,7 +713,6 @@ class GenerateAndSaveFinalAnswersBatchesStep(
             if self.inference_parallel_calls > 1
             else None
         )
-        abort_executor = False
         try:
             for batch_number, batch_items in enumerate(
                 self._chunk_items(paths_batch.items, self.inference_batch_size),
@@ -817,19 +770,9 @@ class GenerateAndSaveFinalAnswersBatchesStep(
                     f"successful={cumulative_batch.successful_answers} "
                     f"failed={cumulative_batch.failed_answers}"
                 )
-        except InsufficientLlmCreditsException:
-            abort_executor = True
-            logger.error(
-                "Stopping LLM inference immediately because the provider reported "
-                "insufficient credits."
-            )
-            raise
         finally:
             if executor is not None:
-                executor.shutdown(
-                    wait=not abort_executor,
-                    cancel_futures=abort_executor,
-                )
+                executor.shutdown(wait=True)
 
         final_answers = GeneratedFinalAnswersBatch(
             dataset_id=paths_batch.dataset_id,
@@ -942,25 +885,7 @@ class GenerateAndSaveFinalAnswersBatchesStep(
         )
         if executor is None:
             return [generate_answer(item) for item in batch_items]
-        futures = {
-            executor.submit(generate_answer, item): item_index
-            for item_index, item in enumerate(batch_items)
-        }
-        ordered_results: list[GeneratedAnswerForPrediction | None] = [
-            None
-        ] * len(batch_items)
-        try:
-            for future in as_completed(futures):
-                ordered_results[futures[future]] = future.result()
-        except InsufficientLlmCreditsException:
-            for future in futures:
-                future.cancel()
-            raise
-        return [
-            result
-            for result in ordered_results
-            if result is not None
-        ]
+        return list(executor.map(generate_answer, batch_items))
 
     def _resolve_llm_provider(
         self,

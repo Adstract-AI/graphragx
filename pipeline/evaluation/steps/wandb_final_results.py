@@ -113,6 +113,10 @@ class LogFinalResultsToWandbStep(
         except (OSError, json.JSONDecodeError):
             results_config = {}
         artifacts = results_config.get("artifacts", {})
+        inference_ref = artifacts.get("inference", {}) if isinstance(artifacts, dict) else {}
+        inference_name = str(
+            inference_ref.get("name") or final_result.results_run_name
+        )
         evaluation_ref = artifacts.get("evaluation", {}) if isinstance(artifacts, dict) else {}
         evaluation_config_value = evaluation_ref.get("evaluation_config_path")
         source_config_path = (
@@ -144,10 +148,11 @@ class LogFinalResultsToWandbStep(
         payload.update(
             self.logging_service.build_summary_plot_metrics(scalar_metrics)
         )
-        self.coordinator.log_aggregate_metrics(
+        self.coordinator.log(
             payload,
             source_config_path=source_config_path,
         )
+        inference_config_value = inference_ref.get("inference_config_path")
         artifact_paths = [
             final_result.results_config_path,
             final_result.retrieval_metrics_path,
@@ -155,9 +160,13 @@ class LogFinalResultsToWandbStep(
             final_result.per_instance_results_path,
         ]
         self.coordinator.persist_metadata(final_result.results_config_path)
+        if isinstance(inference_config_value, str):
+            inference_config_path = project_absolute_path(inference_config_value)
+            artifact_paths.append(inference_config_path)
+            self.coordinator.persist_metadata(inference_config_path)
         self.coordinator.log_artifact(
-            name=f"results-{final_result.results_run_name}",
-            artifact_type="final-results",
+            name=f"inference-{inference_name}",
+            artifact_type="inference-results",
             paths=artifact_paths,
             source_config_path=source_config_path,
         )
