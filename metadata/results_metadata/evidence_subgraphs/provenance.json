@@ -10,10 +10,7 @@
     "average_construction_time_ms",
     "average_objective"
   ],
-  "experiment_file": "/home/viktor.kostadinoski/graphragx/experiments/experiment_1a_evidence_subgraphs.toml",
-  "explicit_additional_groups": [
-    "experiment1_b"
-  ],
+  "experiment_file": "/Users/itonkdong/Work/Fax/NLP/project/graphragx/experiments/experiment_1a_evidence_subgraphs.toml",
   "metrics": {
     "average_collected_prize": "Summary_Plots/evidence_average_collected_prize",
     "average_distinct_nodes": "Summary_Plots/evidence_average_distinct_nodes",
@@ -80,7 +77,7 @@
       "evidence_lineage_name": "29_exp1a_nbfnet_seed42_pcst_semantic_lambda_0p01",
       "experiment_id": "exp1a_nbfnet_seed42_pcst_semantic_lambda_0p01",
       "seed": 42,
-      "wandb_group": "experiment1_b",
+      "wandb_group": "experiment1",
       "wandb_run_id": "qdyzy3cs",
       "wandb_run_name": "165_20260831_124933_nbfnet_pcst",
       "wandb_run_url": "https://wandb.ai/itonkdong-org/graphragx/runs/qdyzy3cs"
@@ -130,7 +127,7 @@
       "evidence_lineage_name": "30_exp1a_nbfnet_seed1337_pcst_constant_lambda_0p01",
       "experiment_id": "exp1a_nbfnet_seed1337_pcst_constant_lambda_0p01",
       "seed": 1337,
-      "wandb_group": "experiment1_b",
+      "wandb_group": "experiment1",
       "wandb_run_id": "8ge3oj20",
       "wandb_run_name": "166_20260831_125040_nbfnet_pcst",
       "wandb_run_url": "https://wandb.ai/itonkdong-org/graphragx/runs/8ge3oj20"

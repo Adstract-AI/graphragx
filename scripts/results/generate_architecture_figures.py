@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import math
+import shutil
+import subprocess
 from pathlib import Path
 
 from reportlab.pdfbase import pdfmetrics
@@ -14,6 +16,7 @@ from reportlab.lib.colors import Color, HexColor, white
 
 ROOT = Path(__file__).resolve().parents[2]
 FIGURES = ROOT / "metadata/figures/system_architecture"
+PNG_DPI = 300
 
 INK = HexColor("#263746")
 MUTED = HexColor("#617080")
@@ -547,13 +550,44 @@ def draw_information_flow(output: Path) -> None:
     c.save()
 
 
+def render_png(pdf_path: Path, *, dpi: int = PNG_DPI) -> Path:
+    """Rasterize a single-page PDF beside its source at publication quality."""
+    renderer = shutil.which("pdftoppm")
+    if renderer is None:
+        raise RuntimeError(
+            "pdftoppm is required to generate PNG architecture figures. "
+            "Install Poppler and rerun the script."
+        )
+    output_path = pdf_path.with_suffix(".png")
+    subprocess.run(
+        [
+            renderer,
+            "-singlefile",
+            "-png",
+            "-r",
+            str(dpi),
+            str(pdf_path),
+            str(output_path.with_suffix("")),
+        ],
+        check=True,
+    )
+    if not output_path.is_file():
+        raise RuntimeError(f"PNG renderer did not create {output_path}.")
+    return output_path
+
+
 def main() -> None:
     register_fonts()
     FIGURES.mkdir(parents=True, exist_ok=True)
-    draw_system_overview(FIGURES / "system_overview.pdf")
-    draw_information_flow(FIGURES / "information_flow.pdf")
-    print(f"Wrote {FIGURES / 'system_overview.pdf'}")
-    print(f"Wrote {FIGURES / 'information_flow.pdf'}")
+    pdf_paths = (
+        FIGURES / "system_overview.pdf",
+        FIGURES / "information_flow.pdf",
+    )
+    draw_system_overview(pdf_paths[0])
+    draw_information_flow(pdf_paths[1])
+    output_paths = [*pdf_paths, *(render_png(path) for path in pdf_paths)]
+    for output_path in output_paths:
+        print(f"Wrote {output_path}")
 
 
 if __name__ == "__main__":

@@ -146,7 +146,6 @@ def fetch_records(
     project: str,
     expected_runs: list[ExpectedRun],
     base_group: str,
-    additional_groups: set[str],
 ) -> list[RunRecord]:
     try:
         import wandb
@@ -158,11 +157,10 @@ def fetch_records(
         f"{base_group}_seed_winners",
         f"{base_group}_winners",
     }
-    accepted_groups = authoritative_groups | additional_groups
     project_runs = list(wandb.Api().runs(f"{entity}/{project}", per_page=300))
     indexed: list[tuple[Any, str, dict[str, Any]]] = []
     for run in project_runs:
-        if str(run.group or "") not in accepted_groups:
+        if str(run.group or "") not in authoritative_groups:
             continue
         config = dict(run.config or {})
         indexed.append((run, _lineage_name(config), config))
@@ -290,7 +288,7 @@ def write_raw_csv(path: Path, records: list[RunRecord]) -> None:
         *metric_names,
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         for record in records:
             writer.writerow(
@@ -321,7 +319,12 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     for metric_name in [*METRICS, *PCST_METRICS]:
         fields.extend((f"{metric_name}_mean", f"{metric_name}_std"))
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=fields,
+            extrasaction="ignore",
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -448,7 +451,6 @@ def write_provenance(
     project: str,
     experiment_path: Path,
     base_group: str,
-    additional_groups: set[str],
     records: list[RunRecord],
 ) -> None:
     payload = {
@@ -459,7 +461,6 @@ def write_provenance(
             f"{base_group}_seed_winners",
             f"{base_group}_winners",
         ],
-        "explicit_additional_groups": sorted(additional_groups),
         "selection_rule": (
             "Exact experiment-defined evidence lineage with matching algorithm, "
             "cost strategy, and lambda; one complete run per declared run."
@@ -501,15 +502,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RESULTS_METADATA,
     )
     parser.add_argument("--wandb-group-prefix", default="experiment1")
-    parser.add_argument(
-        "--additional-group",
-        action="append",
-        default=[],
-        help=(
-            "Explicit extra group allowed only for exact experiment-defined lineage "
-            "matches. Repeat the option for multiple groups."
-        ),
-    )
     parser.add_argument("--no-figures", action="store_true")
     return parser
 
@@ -522,7 +514,6 @@ def main() -> int:
         project=arguments.project,
         expected_runs=expected,
         base_group=arguments.wandb_group_prefix,
-        additional_groups=set(arguments.additional_group),
     )
     figures_dir = arguments.figures_dir.resolve()
     tables_dir = arguments.tables_dir.resolve()
@@ -540,7 +531,6 @@ def main() -> int:
         project=arguments.project,
         experiment_path=arguments.experiment,
         base_group=arguments.wandb_group_prefix,
-        additional_groups=set(arguments.additional_group),
         records=records,
     )
     if not arguments.no_figures:
