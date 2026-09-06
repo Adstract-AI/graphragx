@@ -72,10 +72,10 @@ A successful run is skipped on restart only when its command hash is unchanged.
 
 ## Official experiments
 
-The code uses zero-based experiment numbers. The thesis presents the same
-sequence as Experiments 1–3.
+The code uses zero-based experiment numbers. Human-facing result presentations
+may label the same sequence as Experiments 1–3.
 
-| Code manifest | Thesis stage | Purpose |
+| Code manifest | Presentation stage | Purpose |
 | --- | ---: | --- |
 | `experiment_0_gnn_architectures.toml` | 1 | Compare six GNN retrievers over three seeds. |
 | `experiment_1_evidence_subgraphs.toml` | 2 | Compare shortest paths with constant and semantic PCST using the winning NBFNet retrievers. No LLM calls. |

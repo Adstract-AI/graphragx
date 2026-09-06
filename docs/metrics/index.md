@@ -66,5 +66,5 @@ sent as W&B scalars.
 - Final per-question values:
   `data/webqsp/results/<run>/per_instance_results.jsonl`.
 
-W&B uses exact snake_case implementation keys. The PascalCase names used in the
-thesis are presentation aliases and do not change persisted or W&B keys.
+W&B uses exact snake_case implementation keys. The PascalCase names used in
+result presentations are aliases and do not change persisted or W&B keys.

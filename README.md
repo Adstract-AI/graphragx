@@ -12,7 +12,7 @@ The current implementation targets **WebQSP** and supports:
 - constant and semantic PCST edge costs;
 - OpenAI, DeepSeek, and FINKI Vezilka-compatible LLM inference;
 - local, per-stage artifacts and optional Weights & Biases tracking;
-- resumable TOML experiment manifests and thesis result-generation scripts.
+- resumable TOML experiment manifests and reproducible result-generation scripts.
 
 The implementation was inspired by [GNN-RAG: Graph Neural Retrieval for Large
 Language Model Reasoning](https://arxiv.org/abs/2405.20139).
@@ -105,9 +105,14 @@ Additional `probe_*.toml` files are diagnostics, not official experiments.
 
 ## Outputs and research material
 
-Runtime artifacts are written under `data/webqsp/`. Generated thesis figures,
-tables, and provenance records live under `metadata/`. The final thesis is
-available at [metadata/thesis/thesis.pdf](metadata/thesis/thesis.pdf).
+Runtime artifacts are written under `data/webqsp/`. Generated figures, tables,
+and provenance records live under `metadata/`.
+
+## Project lineage
+
+This implementation builds on top of the initial `graphragX` project. The
+accompanying [final thesis](metadata/thesis/thesis.pdf) documents the extended
+system, methodology, and experimental findings.
 
 ## Credits
 

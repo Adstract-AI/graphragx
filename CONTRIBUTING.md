@@ -14,7 +14,8 @@ Read the main project documentation:
 - `agents-metadata/overview/pipeline_overview.md`
 
 The `docs/` folder contains the maintained software documentation. The
-`metadata/` folder contains the thesis and generated research material.
+`metadata/` folder contains generated figures, tables, provenance, and other
+research material.
 `agents-metadata/` contains instructions for AI coding agents and should be used
 as context when an agent contributes changes.
 

@@ -105,7 +105,7 @@ W&B failure metadata is persisted in the local stage configuration when
 possible. Local pipeline artifacts remain usable even when optional W&B upload
 fails.
 
-## Thesis material
+## Generated research material
 
 `metadata/` is deliberately separate from runtime artifacts:
 
@@ -114,7 +114,6 @@ metadata/
 ├── figures/
 ├── tables/
 ├── results_metadata/
-├── thesis/
 └── initial_project/
 ```
 

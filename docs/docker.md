@@ -34,7 +34,7 @@ The following host paths are mounted into the application container:
 | Host path | Container path | Contents |
 | --- | --- | --- |
 | `data/` | `/app/data` | prepared WebQSP data and run artifacts |
-| `metadata/` | `/app/metadata` | generated thesis figures, tables, and metadata |
+| `metadata/` | `/app/metadata` | generated figures, tables, and result metadata |
 | `.experiment-runs/` | `/app/.experiment-runs` | resumable manifest state |
 | `wandb/` | `/app/wandb` | local W&B files and offline runs |
 

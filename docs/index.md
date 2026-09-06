@@ -32,6 +32,6 @@ of truth.
   extension points, and documentation maintenance.
 - [Contributing](../CONTRIBUTING.md) — contribution checklist and agent context.
 
-The final thesis and generated research material are kept under
-[`metadata/`](../metadata/); they are outputs and research records, not the
-software manual.
+Generated figures, tables, provenance, and other research material are kept
+under [`metadata/`](../metadata/); they are outputs and research records, not
+the software manual.

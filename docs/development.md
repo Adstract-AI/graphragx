@@ -12,11 +12,11 @@ graphragx/
 ├── experiments/               # official manifests, probes, and one example
 ├── scripts/
 │   ├── experiments/           # resumable manifest runner
-│   ├── results/               # read-only W&B-to-thesis generators
+│   ├── results/               # read-only W&B result generators
 │   └── one_time/              # explicitly scoped historical migrations
 ├── tests/                     # unit and pipeline-composition tests
 ├── docs/                      # maintained software documentation
-├── metadata/                  # thesis, generated figures/tables, provenance
+├── metadata/                  # generated figures, tables, and provenance
 └── data/webqsp/               # generated runtime artifacts; not source code
 ```
 
