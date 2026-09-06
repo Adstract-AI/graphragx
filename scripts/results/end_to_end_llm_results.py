@@ -2,7 +2,7 @@
 """Build thesis outputs for the corrected end-to-end LLM experiments.
 
 The script reads W&B only. Runs are resolved by the inference lineage names in
-the DeepSeek and GPT experiment TOML files. The superseded ``experiment2``
+``experiments/experiment_2_end_to_end.toml``. The superseded ``experiment2``
 group is deliberately excluded; the corrected literal ``experiment2*`` group
 and its seed/winner companion groups are authoritative.
 """
@@ -22,12 +22,7 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DEEPSEEK_EXPERIMENT = (
-    PROJECT_ROOT / "experiments/experiment_1b_llm_end_to_end.toml"
-)
-DEFAULT_GPT_EXPERIMENT = (
-    PROJECT_ROOT / "experiments/experiment_1c_gpt_5_6_luna_end_to_end.toml"
-)
+DEFAULT_EXPERIMENT = PROJECT_ROOT / "experiments/experiment_2_end_to_end.toml"
 DEFAULT_FIGURES = PROJECT_ROOT / "metadata/figures/end_to_end_llm"
 DEFAULT_TABLES = PROJECT_ROOT / "metadata/tables/end_to_end_llm"
 DEFAULT_RESULTS_METADATA = PROJECT_ROOT / "metadata/results_metadata/end_to_end_llm"
@@ -140,21 +135,31 @@ def load_expected_runs(path: Path) -> list[ExpectedRun]:
     with path.open("rb") as handle:
         payload = tomllib.load(handle)
     default_arguments = [str(value) for value in payload.get("defaults", {}).get("args", [])]
-    provider = _argument_value(default_arguments, "--llm-provider")
-    model = _argument_value(default_arguments, "--main-llm-model")
     expected: list[ExpectedRun] = []
     for run in payload.get("runs", []):
         arguments = [str(value) for value in run.get("args", [])]
-        algorithm = _argument_value(arguments, "--subgraph-algorithm")
-        strategy = _optional_argument_value(arguments, "--pcst-edge-cost-strategy")
-        lambda_value = _optional_argument_value(arguments, "--pcst-edge-cost")
+        effective_arguments = [*default_arguments, *arguments]
+        algorithm = _argument_value(effective_arguments, "--subgraph-algorithm")
+        strategy = _optional_argument_value(
+            effective_arguments, "--pcst-edge-cost-strategy"
+        )
+        lambda_value = _optional_argument_value(
+            effective_arguments, "--pcst-edge-cost"
+        )
         expected.append(
             ExpectedRun(
                 experiment_id=str(run["id"]),
-                inference_name=_argument_value(arguments, "--inference-run-name"),
-                seed=int(_argument_value(arguments, "--seed")),
-                provider=provider,
-                model=model,
+                inference_name=str(
+                    run.get("wandb_lineage_name")
+                    or _argument_value(
+                        effective_arguments, "--inference-run-name"
+                    )
+                ),
+                seed=int(_argument_value(effective_arguments, "--seed")),
+                provider=_argument_value(effective_arguments, "--llm-provider"),
+                model=_argument_value(
+                    effective_arguments, "--main-llm-model"
+                ),
                 algorithm=algorithm,
                 cost_strategy=strategy,
                 edge_cost_lambda=float(lambda_value) if lambda_value is not None else None,
@@ -332,7 +337,11 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=list(rows[0]),
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -521,13 +530,13 @@ def write_provenance(
     path: Path,
     *,
     records: list[RunRecord],
-    experiment_paths: list[Path],
+    experiment_path: Path,
     groups: set[str],
 ) -> None:
     payload = {
         "authoritative_groups": sorted(groups),
         "explicitly_excluded_superseded_group": "experiment2",
-        "experiment_files": [str(item) for item in experiment_paths],
+        "experiment_file": str(experiment_path),
         "token_source": "configs.inference API-reported usage totals",
         "runs": [
             {
@@ -551,8 +560,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--entity", default="itonkdong-org")
     parser.add_argument("--project", default="graphragx")
-    parser.add_argument("--deepseek-experiment", type=Path, default=DEFAULT_DEEPSEEK_EXPERIMENT)
-    parser.add_argument("--gpt-experiment", type=Path, default=DEFAULT_GPT_EXPERIMENT)
+    parser.add_argument("--experiment", type=Path, default=DEFAULT_EXPERIMENT)
     parser.add_argument("--figures-dir", type=Path, default=DEFAULT_FIGURES)
     parser.add_argument("--tables-dir", type=Path, default=DEFAULT_TABLES)
     parser.add_argument(
@@ -565,12 +573,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     arguments = parse_args()
-    experiment_paths = [arguments.deepseek_experiment, arguments.gpt_experiment]
-    expected_runs = [
-        expected
-        for path in experiment_paths
-        for expected in load_expected_runs(path)
-    ]
+    expected_runs = load_expected_runs(arguments.experiment)
     groups = {"experiment2*", "experiment2_seed_winners", "experiment2_winners"}
     records = fetch_records(
         entity=arguments.entity,
@@ -618,7 +621,7 @@ def main() -> int:
     write_provenance(
         results_metadata_dir / "provenance.json",
         records=records,
-        experiment_paths=experiment_paths,
+        experiment_path=arguments.experiment,
         groups=groups,
     )
     print(

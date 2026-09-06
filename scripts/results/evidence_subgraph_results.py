@@ -2,7 +2,7 @@
 """Build thesis outputs for the evidence-subgraph experiment.
 
 Runs are resolved by the evidence lineage names declared in
-``experiments/experiment_1a_evidence_subgraphs.toml``. W&B is read only.
+``experiments/experiment_1_evidence_subgraphs.toml``. W&B is read only.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_EXPERIMENT = PROJECT_ROOT / "experiments/experiment_1a_evidence_subgraphs.toml"
+DEFAULT_EXPERIMENT = PROJECT_ROOT / "experiments/experiment_1_evidence_subgraphs.toml"
 DEFAULT_FIGURES = PROJECT_ROOT / "metadata/figures/evidence_subgraphs"
 DEFAULT_TABLES = PROJECT_ROOT / "metadata/tables/evidence_subgraphs"
 DEFAULT_RESULTS_METADATA = PROJECT_ROOT / "metadata/results_metadata/evidence_subgraphs"
@@ -109,7 +109,10 @@ def load_expected_runs(path: Path) -> list[ExpectedRun]:
         expected.append(
             ExpectedRun(
                 experiment_id=str(run["id"]),
-                evidence_name=_argument_value(arguments, "--evidence-run-name"),
+                evidence_name=str(
+                    run.get("wandb_lineage_name")
+                    or _argument_value(arguments, "--evidence-run-name")
+                ),
                 seed=int(_argument_value(arguments, "--seed")),
                 algorithm=algorithm,
                 cost_strategy=cost_strategy,

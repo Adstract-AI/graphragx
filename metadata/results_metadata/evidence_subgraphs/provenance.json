@@ -10,7 +10,7 @@
     "average_construction_time_ms",
     "average_objective"
   ],
-  "experiment_file": "/Users/itonkdong/Work/Fax/NLP/project/graphragx/experiments/experiment_1a_evidence_subgraphs.toml",
+  "experiment_file": "/Users/itonkdong/Work/Fax/NLP/project/graphragx/experiments/experiment_1_evidence_subgraphs.toml",
   "metrics": {
     "average_collected_prize": "Summary_Plots/evidence_average_collected_prize",
     "average_distinct_nodes": "Summary_Plots/evidence_average_distinct_nodes",
@@ -25,7 +25,7 @@
     {
       "configuration_id": "shortest_path",
       "evidence_lineage_name": "1_exp1a_nbfnet_seed42_sp",
-      "experiment_id": "exp1a_nbfnet_seed42_sp",
+      "experiment_id": "exp1_nbfnet_seed42_sp",
       "seed": 42,
       "wandb_group": "experiment1",
       "wandb_run_id": "aarinynz",
@@ -35,7 +35,7 @@
     {
       "configuration_id": "pcst_constant_0.01",
       "evidence_lineage_name": "28_exp1a_nbfnet_seed42_pcst_constant_lambda_0p01",
-      "experiment_id": "exp1a_nbfnet_seed42_pcst_constant_lambda_0p01",
+      "experiment_id": "exp1_nbfnet_seed42_pcst_constant_lambda_0p01",
       "seed": 42,
       "wandb_group": "experiment1",
       "wandb_run_id": "yro7rop9",
@@ -45,7 +45,7 @@
     {
       "configuration_id": "pcst_constant_0.25",
       "evidence_lineage_name": "2_exp1a_nbfnet_seed42_pcst_constant_l025",
-      "experiment_id": "exp1a_nbfnet_seed42_pcst_constant_l025",
+      "experiment_id": "exp1_nbfnet_seed42_pcst_constant_l025",
       "seed": 42,
       "wandb_group": "experiment1",
       "wandb_run_id": "94tbxiho",
@@ -55,7 +55,7 @@
     {
       "configuration_id": "pcst_constant_0.5",
       "evidence_lineage_name": "3_exp1a_nbfnet_seed42_pcst_constant_l05",
-      "experiment_id": "exp1a_nbfnet_seed42_pcst_constant_l05",
+      "experiment_id": "exp1_nbfnet_seed42_pcst_constant_l05",
       "seed": 42,
       "wandb_group": "experiment1",
       "wandb_run_id": "2qfddc4b",
@@ -65,7 +65,7 @@
     {
       "configuration_id": "pcst_constant_1",
       "evidence_lineage_name": "4_exp1a_nbfnet_seed42_pcst_constant_l10",
-      "experiment_id": "exp1a_nbfnet_seed42_pcst_constant_l10",
+      "experiment_id": "exp1_nbfnet_seed42_pcst_constant_l10",
       "seed": 42,
       "wandb_group": "experiment1",
       "wandb_run_id": "rexz8bsx",
@@ -75,7 +75,7 @@
     {
       "configuration_id": "pcst_semantic_0.01",
       "evidence_lineage_name": "29_exp1a_nbfnet_seed42_pcst_semantic_lambda_0p01",
-      "experiment_id": "exp1a_nbfnet_seed42_pcst_semantic_lambda_0p01",
+      "experiment_id": "exp1_nbfnet_seed42_pcst_semantic_lambda_0p01",
       "seed": 42,
       "wandb_group": "experiment1",
       "wandb_run_id": "qdyzy3cs",
@@ -85,7 +85,7 @@
     {
       "configuration_id": "pcst_semantic_0.25",
       "evidence_lineage_name": "5_exp1a_nbfnet_seed42_pcst_semantic_l025",
-      "experiment_id": "exp1a_nbfnet_seed42_pcst_semantic_l025",
+      "experiment_id": "exp1_nbfnet_seed42_pcst_semantic_l025",
       "seed": 42,
       "wandb_group": "experiment1",
       "wandb_run_id": "o2qxph7x",
@@ -95,7 +95,7 @@
     {
       "configuration_id": "pcst_semantic_0.5",
       "evidence_lineage_name": "6_exp1a_nbfnet_seed42_pcst_semantic_l05",
-      "experiment_id": "exp1a_nbfnet_seed42_pcst_semantic_l05",
+      "experiment_id": "exp1_nbfnet_seed42_pcst_semantic_l05",
       "seed": 42,
       "wandb_group": "experiment1",
       "wandb_run_id": "ycg0iqki",
@@ -105,7 +105,7 @@
     {
       "configuration_id": "pcst_semantic_1",
       "evidence_lineage_name": "7_exp1a_nbfnet_seed42_pcst_semantic_l10",
-      "experiment_id": "exp1a_nbfnet_seed42_pcst_semantic_l10",
+      "experiment_id": "exp1_nbfnet_seed42_pcst_semantic_l10",
       "seed": 42,
       "wandb_group": "experiment1",
       "wandb_run_id": "7nr1obww",
@@ -115,7 +115,7 @@
     {
       "configuration_id": "shortest_path",
       "evidence_lineage_name": "8_exp1a_nbfnet_seed1337_sp",
-      "experiment_id": "exp1a_nbfnet_seed1337_sp",
+      "experiment_id": "exp1_nbfnet_seed1337_sp",
       "seed": 1337,
       "wandb_group": "experiment1",
       "wandb_run_id": "r8swb3b8",
@@ -125,7 +125,7 @@
     {
       "configuration_id": "pcst_constant_0.01",
       "evidence_lineage_name": "30_exp1a_nbfnet_seed1337_pcst_constant_lambda_0p01",
-      "experiment_id": "exp1a_nbfnet_seed1337_pcst_constant_lambda_0p01",
+      "experiment_id": "exp1_nbfnet_seed1337_pcst_constant_lambda_0p01",
       "seed": 1337,
       "wandb_group": "experiment1",
       "wandb_run_id": "8ge3oj20",
@@ -135,7 +135,7 @@
     {
       "configuration_id": "pcst_constant_0.25",
       "evidence_lineage_name": "9_exp1a_nbfnet_seed1337_pcst_constant_l025",
-      "experiment_id": "exp1a_nbfnet_seed1337_pcst_constant_l025",
+      "experiment_id": "exp1_nbfnet_seed1337_pcst_constant_l025",
       "seed": 1337,
       "wandb_group": "experiment1",
       "wandb_run_id": "5k91go6y",
@@ -145,7 +145,7 @@
     {
       "configuration_id": "pcst_constant_0.5",
       "evidence_lineage_name": "10_exp1a_nbfnet_seed1337_pcst_constant_l05",
-      "experiment_id": "exp1a_nbfnet_seed1337_pcst_constant_l05",
+      "experiment_id": "exp1_nbfnet_seed1337_pcst_constant_l05",
       "seed": 1337,
       "wandb_group": "experiment1",
       "wandb_run_id": "yj66xfjl",
@@ -155,7 +155,7 @@
     {
       "configuration_id": "pcst_constant_1",
       "evidence_lineage_name": "11_exp1a_nbfnet_seed1337_pcst_constant_l10",
-      "experiment_id": "exp1a_nbfnet_seed1337_pcst_constant_l10",
+      "experiment_id": "exp1_nbfnet_seed1337_pcst_constant_l10",
       "seed": 1337,
       "wandb_group": "experiment1",
       "wandb_run_id": "mxb795gy",
@@ -165,7 +165,7 @@
     {
       "configuration_id": "pcst_semantic_0.01",
       "evidence_lineage_name": "31_exp1a_nbfnet_seed1337_pcst_semantic_lambda_0p01",
-      "experiment_id": "exp1a_nbfnet_seed1337_pcst_semantic_lambda_0p01",
+      "experiment_id": "exp1_nbfnet_seed1337_pcst_semantic_lambda_0p01",
       "seed": 1337,
       "wandb_group": "experiment1",
       "wandb_run_id": "t8wh8ra9",
@@ -175,7 +175,7 @@
     {
       "configuration_id": "pcst_semantic_0.25",
       "evidence_lineage_name": "12_exp1a_nbfnet_seed1337_pcst_semantic_l025",
-      "experiment_id": "exp1a_nbfnet_seed1337_pcst_semantic_l025",
+      "experiment_id": "exp1_nbfnet_seed1337_pcst_semantic_l025",
       "seed": 1337,
       "wandb_group": "experiment1",
       "wandb_run_id": "bjrgh3z0",
@@ -185,7 +185,7 @@
     {
       "configuration_id": "pcst_semantic_0.5",
       "evidence_lineage_name": "13_exp1a_nbfnet_seed1337_pcst_semantic_l05",
-      "experiment_id": "exp1a_nbfnet_seed1337_pcst_semantic_l05",
+      "experiment_id": "exp1_nbfnet_seed1337_pcst_semantic_l05",
       "seed": 1337,
       "wandb_group": "experiment1",
       "wandb_run_id": "0xj4f6sm",
@@ -195,7 +195,7 @@
     {
       "configuration_id": "pcst_semantic_1",
       "evidence_lineage_name": "14_exp1a_nbfnet_seed1337_pcst_semantic_l10",
-      "experiment_id": "exp1a_nbfnet_seed1337_pcst_semantic_l10",
+      "experiment_id": "exp1_nbfnet_seed1337_pcst_semantic_l10",
       "seed": 1337,
       "wandb_group": "experiment1",
       "wandb_run_id": "rjipbij6",
@@ -205,7 +205,7 @@
     {
       "configuration_id": "shortest_path",
       "evidence_lineage_name": "15_exp1a_nbfnet_seed2026_sp",
-      "experiment_id": "exp1a_nbfnet_seed2026_sp",
+      "experiment_id": "exp1_nbfnet_seed2026_sp",
       "seed": 2026,
       "wandb_group": "experiment1_winners",
       "wandb_run_id": "76qoecir",
@@ -215,7 +215,7 @@
     {
       "configuration_id": "pcst_constant_0.01",
       "evidence_lineage_name": "32_exp1a_nbfnet_seed2026_pcst_constant_lambda_0p01",
-      "experiment_id": "exp1a_nbfnet_seed2026_pcst_constant_lambda_0p01",
+      "experiment_id": "exp1_nbfnet_seed2026_pcst_constant_lambda_0p01",
       "seed": 2026,
       "wandb_group": "experiment1_winners",
       "wandb_run_id": "l7jhfcpe",
@@ -225,7 +225,7 @@
     {
       "configuration_id": "pcst_constant_0.25",
       "evidence_lineage_name": "16_exp1a_nbfnet_seed2026_pcst_constant_l025",
-      "experiment_id": "exp1a_nbfnet_seed2026_pcst_constant_l025",
+      "experiment_id": "exp1_nbfnet_seed2026_pcst_constant_l025",
       "seed": 2026,
       "wandb_group": "experiment1_seed_winners",
       "wandb_run_id": "uk8zsaaa",
@@ -235,7 +235,7 @@
     {
       "configuration_id": "pcst_constant_0.5",
       "evidence_lineage_name": "17_exp1a_nbfnet_seed2026_pcst_constant_l05",
-      "experiment_id": "exp1a_nbfnet_seed2026_pcst_constant_l05",
+      "experiment_id": "exp1_nbfnet_seed2026_pcst_constant_l05",
       "seed": 2026,
       "wandb_group": "experiment1_seed_winners",
       "wandb_run_id": "ff8e0giq",
@@ -245,7 +245,7 @@
     {
       "configuration_id": "pcst_constant_1",
       "evidence_lineage_name": "18_exp1a_nbfnet_seed2026_pcst_constant_l10",
-      "experiment_id": "exp1a_nbfnet_seed2026_pcst_constant_l10",
+      "experiment_id": "exp1_nbfnet_seed2026_pcst_constant_l10",
       "seed": 2026,
       "wandb_group": "experiment1_winners",
       "wandb_run_id": "da69xkhh",
@@ -255,7 +255,7 @@
     {
       "configuration_id": "pcst_semantic_0.01",
       "evidence_lineage_name": "33_exp1a_nbfnet_seed2026_pcst_semantic_lambda_0p01",
-      "experiment_id": "exp1a_nbfnet_seed2026_pcst_semantic_lambda_0p01",
+      "experiment_id": "exp1_nbfnet_seed2026_pcst_semantic_lambda_0p01",
       "seed": 2026,
       "wandb_group": "experiment1_winners",
       "wandb_run_id": "f5gpt04e",
@@ -265,7 +265,7 @@
     {
       "configuration_id": "pcst_semantic_0.25",
       "evidence_lineage_name": "19_exp1a_nbfnet_seed2026_pcst_semantic_l025",
-      "experiment_id": "exp1a_nbfnet_seed2026_pcst_semantic_l025",
+      "experiment_id": "exp1_nbfnet_seed2026_pcst_semantic_l025",
       "seed": 2026,
       "wandb_group": "experiment1_seed_winners",
       "wandb_run_id": "hgouzya9",
@@ -275,7 +275,7 @@
     {
       "configuration_id": "pcst_semantic_0.5",
       "evidence_lineage_name": "20_exp1a_nbfnet_seed2026_pcst_semantic_l05",
-      "experiment_id": "exp1a_nbfnet_seed2026_pcst_semantic_l05",
+      "experiment_id": "exp1_nbfnet_seed2026_pcst_semantic_l05",
       "seed": 2026,
       "wandb_group": "experiment1_seed_winners",
       "wandb_run_id": "98jb0akz",
@@ -285,7 +285,7 @@
     {
       "configuration_id": "pcst_semantic_1",
       "evidence_lineage_name": "21_exp1a_nbfnet_seed2026_pcst_semantic_l10",
-      "experiment_id": "exp1a_nbfnet_seed2026_pcst_semantic_l10",
+      "experiment_id": "exp1_nbfnet_seed2026_pcst_semantic_l10",
       "seed": 2026,
       "wandb_group": "experiment1_winners",
       "wandb_run_id": "coc5k7g7",

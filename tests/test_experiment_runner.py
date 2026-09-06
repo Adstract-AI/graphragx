@@ -53,6 +53,7 @@ def test_experiment_zero_contains_complete_retriever_matrix() -> None:
     }
 
     observed: set[tuple[str, int]] = set()
+    hgt_layers: set[int] = set()
     for run in manifest.runs:
         parsed = parser.parse_args([*manifest.default_args, *run.args])
         assert parsed.run_mode == "retriever-only"
@@ -62,7 +63,12 @@ def test_experiment_zero_contains_complete_retriever_matrix() -> None:
         assert parsed.candidate_top_k == 10
         assert parsed.candidate_limit == 15
         assert required_option_flags[parsed.gnn_architecture].issubset(run.args)
+        assert run.run_id.startswith("exp0_")
+        assert parsed.training_run_name.startswith("exp0_")
+        assert parsed.evaluation_run_name.startswith("exp0_")
         observed.add((parsed.gnn_architecture, parsed.random_seed))
+        if parsed.gnn_architecture == "hgt":
+            hgt_layers.add(parsed.gnn_layer_count)
 
     assert observed == {
         (architecture, seed)
@@ -76,12 +82,13 @@ def test_experiment_zero_contains_complete_retriever_matrix() -> None:
         )
         for seed in (42, 1337, 2026)
     }
+    assert hgt_layers == {3}
 
 
-def test_experiment_one_a_contains_bounded_nbfnet_evidence_matrix() -> None:
+def test_experiment_one_contains_bounded_nbfnet_evidence_matrix() -> None:
     project_root = Path(__file__).resolve().parents[1]
     manifest = load_manifest(
-        project_root / "experiments" / "experiment_1a_evidence_subgraphs.toml"
+        project_root / "experiments" / "experiment_1_evidence_subgraphs.toml"
     )
     parser = main.build_parser()
     expected_retrievers = {
@@ -106,6 +113,8 @@ def test_experiment_one_a_contains_bounded_nbfnet_evidence_matrix() -> None:
         assert parsed.main_llm_model is None
         assert parsed.llm_provider is None
         assert "--inference-run-name" not in run.args
+        assert run.run_id.startswith("exp1_")
+        assert parsed.evidence_run_name == run.run_id
         counts_by_retriever[parsed.retriever_run_name] += 1
         if parsed.subgraph_algorithm == "shortest_path":
             shortest_path_count += 1
@@ -128,10 +137,10 @@ def test_experiment_one_a_contains_bounded_nbfnet_evidence_matrix() -> None:
     }
 
 
-def test_experiment_one_b_contains_final_deepseek_matrix() -> None:
+def test_experiment_two_contains_complete_end_to_end_matrix() -> None:
     project_root = Path(__file__).resolve().parents[1]
     manifest = load_manifest(
-        project_root / "experiments" / "experiment_1b_llm_end_to_end.toml"
+        project_root / "experiments" / "experiment_2_end_to_end.toml"
     )
     parser = main.build_parser()
     expected_retrievers = {
@@ -139,22 +148,36 @@ def test_experiment_one_b_contains_final_deepseek_matrix() -> None:
         "exp0_nbfnet_seed1337_retriever",
         "exp0_nbfnet_seed2026_retriever",
     }
-    strategies_by_retriever: dict[str, set[tuple[str, str | None, float | None]]] = {
-        retriever: set() for retriever in expected_retrievers
+    expected_models = {"deepseek-v4-flash", "gpt-5.6-luna"}
+    strategies_by_model_and_retriever: dict[
+        tuple[str, str], set[tuple[str, str | None, float | None]]
+    ] = {
+        (model, retriever): set()
+        for model in expected_models
+        for retriever in expected_retrievers
     }
 
-    assert len(manifest.runs) == 15
+    assert len(manifest.runs) == 30
     for run in manifest.runs:
         parsed = parser.parse_args([*manifest.default_args, *run.args])
         assert parsed.run_mode == "inference-only"
         assert parsed.retriever_run_name in expected_retrievers
-        assert parsed.llm_provider == "deepseek"
-        assert parsed.main_llm_model == "deepseek-v4-flash"
+        assert parsed.main_llm_model in expected_models
         assert parsed.reasoning_effort == "none"
-        assert parsed.llm_inference_batch_size == 500
-        assert parsed.llm_inference_parallel_calls == 500
+        if parsed.main_llm_model == "deepseek-v4-flash":
+            assert parsed.llm_provider == "deepseek"
+            assert parsed.llm_inference_batch_size == 500
+            assert parsed.llm_inference_parallel_calls == 500
+        else:
+            assert parsed.llm_provider == "openai"
+            assert parsed.llm_inference_batch_size == 20
+            assert parsed.llm_inference_parallel_calls == 20
         assert parsed.generate_explanation is False
-        strategies_by_retriever[parsed.retriever_run_name].add(
+        assert run.run_id.startswith("exp2_")
+        assert parsed.inference_run_name == run.run_id
+        strategies_by_model_and_retriever[
+            (parsed.main_llm_model, parsed.retriever_run_name)
+        ].add(
             (
                 parsed.subgraph_algorithm,
                 parsed.pcst_edge_cost_strategy,
@@ -169,9 +192,40 @@ def test_experiment_one_b_contains_final_deepseek_matrix() -> None:
         ("pcst", "semantic", 0.01),
         ("pcst", "semantic", 1.0),
     }
-    assert strategies_by_retriever == {
-        retriever: expected_strategies for retriever in expected_retrievers
+    assert strategies_by_model_and_retriever == {
+        (model, retriever): expected_strategies
+        for model in expected_models
+        for retriever in expected_retrievers
     }
+
+
+def test_experiment_directory_has_only_three_official_manifests() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    experiment_files = {
+        path.name for path in (project_root / "experiments").glob("experiment_*.toml")
+    }
+    assert experiment_files == {
+        "experiment_0_gnn_architectures.toml",
+        "experiment_1_evidence_subgraphs.toml",
+        "experiment_2_end_to_end.toml",
+    }
+
+
+def test_probe_manifests_and_run_names_use_probe_prefix() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    probe_paths = sorted((project_root / "experiments").glob("probe_*.toml"))
+    assert {path.name for path in probe_paths} == {
+        "probe_end_to_end_recovery.toml",
+        "probe_pcst_low_cost.toml",
+    }
+    parser = main.build_parser()
+    for path in probe_paths:
+        manifest = load_manifest(path)
+        for run in manifest.runs:
+            parsed = parser.parse_args([*manifest.default_args, *run.args])
+            assert run.run_id.startswith("probe_")
+            output_name = parsed.evidence_run_name or parsed.inference_run_name
+            assert output_name.startswith("probe_")
 
 
 def _write_manifest(path: Path, body: str) -> Path:

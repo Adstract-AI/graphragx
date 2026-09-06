@@ -177,7 +177,7 @@ args = [
 id = "exp0_hgt_seed1337"
 args = [
   "--gnn-architecture", "hgt",
-  "--gnn-layers", "2",
+  "--gnn-layers", "3",
   "--gnn-hidden-dim", "128",
   "--dropout", "0.1",
   "--attention-heads", "8",

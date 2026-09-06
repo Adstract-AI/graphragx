@@ -4,15 +4,12 @@
     "experiment2_seed_winners",
     "experiment2_winners"
   ],
-  "experiment_files": [
-    "/home/viktor.kostadinoski/graphragx/experiments/experiment_1b_llm_end_to_end.toml",
-    "/home/viktor.kostadinoski/graphragx/experiments/experiment_1c_gpt_5_6_luna_end_to_end.toml"
-  ],
+  "experiment_file": "/Users/itonkdong/Work/Fax/NLP/project/graphragx/experiments/experiment_2_end_to_end.toml",
   "explicitly_excluded_superseded_group": "experiment2",
   "runs": [
     {
       "configuration_id": "shortest_path",
-      "experiment_id": "exp1b_nbfnet_seed42_deepseek_sp",
+      "experiment_id": "exp2_nbfnet_seed42_deepseek_sp",
       "inference_lineage_name": "76_recovery_exp1b_nbfnet_seed42_deepseek_sp",
       "model": "deepseek-v4-flash",
       "seed": 42,
@@ -23,7 +20,7 @@
     },
     {
       "configuration_id": "pcst_constant_1",
-      "experiment_id": "exp1b_nbfnet_seed42_deepseek_pcst_constant_l10",
+      "experiment_id": "exp2_nbfnet_seed42_deepseek_pcst_constant_l10",
       "inference_lineage_name": "77_recovery_exp1b_nbfnet_seed42_deepseek_pcst_constant_l10",
       "model": "deepseek-v4-flash",
       "seed": 42,
@@ -34,7 +31,7 @@
     },
     {
       "configuration_id": "pcst_constant_0.01",
-      "experiment_id": "exp1b_nbfnet_seed42_deepseek_pcst_constant_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed42_deepseek_pcst_constant_lambda_0p01",
       "inference_lineage_name": "70_exp1b_nbfnet_seed42_deepseek_pcst_constant_lambda_0p01",
       "model": "deepseek-v4-flash",
       "seed": 42,
@@ -45,7 +42,7 @@
     },
     {
       "configuration_id": "pcst_semantic_1",
-      "experiment_id": "exp1b_nbfnet_seed42_deepseek_pcst_semantic_l10",
+      "experiment_id": "exp2_nbfnet_seed42_deepseek_pcst_semantic_l10",
       "inference_lineage_name": "78_recovery_exp1b_nbfnet_seed42_deepseek_pcst_semantic_l10",
       "model": "deepseek-v4-flash",
       "seed": 42,
@@ -56,7 +53,7 @@
     },
     {
       "configuration_id": "pcst_semantic_0.01",
-      "experiment_id": "exp1b_nbfnet_seed42_deepseek_pcst_semantic_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed42_deepseek_pcst_semantic_lambda_0p01",
       "inference_lineage_name": "71_exp1b_nbfnet_seed42_deepseek_pcst_semantic_lambda_0p01",
       "model": "deepseek-v4-flash",
       "seed": 42,
@@ -67,7 +64,7 @@
     },
     {
       "configuration_id": "shortest_path",
-      "experiment_id": "exp1b_nbfnet_seed1337_deepseek_sp",
+      "experiment_id": "exp2_nbfnet_seed1337_deepseek_sp",
       "inference_lineage_name": "79_recovery_exp1b_nbfnet_seed1337_deepseek_sp",
       "model": "deepseek-v4-flash",
       "seed": 1337,
@@ -78,7 +75,7 @@
     },
     {
       "configuration_id": "pcst_constant_1",
-      "experiment_id": "exp1b_nbfnet_seed1337_deepseek_pcst_constant_l10",
+      "experiment_id": "exp2_nbfnet_seed1337_deepseek_pcst_constant_l10",
       "inference_lineage_name": "80_recovery_exp1b_nbfnet_seed1337_deepseek_pcst_constant_l10",
       "model": "deepseek-v4-flash",
       "seed": 1337,
@@ -89,7 +86,7 @@
     },
     {
       "configuration_id": "pcst_constant_0.01",
-      "experiment_id": "exp1b_nbfnet_seed1337_deepseek_pcst_constant_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed1337_deepseek_pcst_constant_lambda_0p01",
       "inference_lineage_name": "72_exp1b_nbfnet_seed1337_deepseek_pcst_constant_lambda_0p01",
       "model": "deepseek-v4-flash",
       "seed": 1337,
@@ -100,7 +97,7 @@
     },
     {
       "configuration_id": "pcst_semantic_1",
-      "experiment_id": "exp1b_nbfnet_seed1337_deepseek_pcst_semantic_l10",
+      "experiment_id": "exp2_nbfnet_seed1337_deepseek_pcst_semantic_l10",
       "inference_lineage_name": "81_recovery_exp1b_nbfnet_seed1337_deepseek_pcst_semantic_l10",
       "model": "deepseek-v4-flash",
       "seed": 1337,
@@ -111,7 +108,7 @@
     },
     {
       "configuration_id": "pcst_semantic_0.01",
-      "experiment_id": "exp1b_nbfnet_seed1337_deepseek_pcst_semantic_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed1337_deepseek_pcst_semantic_lambda_0p01",
       "inference_lineage_name": "73_exp1b_nbfnet_seed1337_deepseek_pcst_semantic_lambda_0p01",
       "model": "deepseek-v4-flash",
       "seed": 1337,
@@ -122,7 +119,7 @@
     },
     {
       "configuration_id": "shortest_path",
-      "experiment_id": "exp1b_nbfnet_seed2026_deepseek_sp",
+      "experiment_id": "exp2_nbfnet_seed2026_deepseek_sp",
       "inference_lineage_name": "82_recovery_exp1b_nbfnet_seed2026_deepseek_sp",
       "model": "deepseek-v4-flash",
       "seed": 2026,
@@ -133,7 +130,7 @@
     },
     {
       "configuration_id": "pcst_constant_1",
-      "experiment_id": "exp1b_nbfnet_seed2026_deepseek_pcst_constant_l10",
+      "experiment_id": "exp2_nbfnet_seed2026_deepseek_pcst_constant_l10",
       "inference_lineage_name": "83_recovery_exp1b_nbfnet_seed2026_deepseek_pcst_constant_l10",
       "model": "deepseek-v4-flash",
       "seed": 2026,
@@ -144,7 +141,7 @@
     },
     {
       "configuration_id": "pcst_constant_0.01",
-      "experiment_id": "exp1b_nbfnet_seed2026_deepseek_pcst_constant_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed2026_deepseek_pcst_constant_lambda_0p01",
       "inference_lineage_name": "74_exp1b_nbfnet_seed2026_deepseek_pcst_constant_lambda_0p01",
       "model": "deepseek-v4-flash",
       "seed": 2026,
@@ -155,7 +152,7 @@
     },
     {
       "configuration_id": "pcst_semantic_1",
-      "experiment_id": "exp1b_nbfnet_seed2026_deepseek_pcst_semantic_l10",
+      "experiment_id": "exp2_nbfnet_seed2026_deepseek_pcst_semantic_l10",
       "inference_lineage_name": "84_recovery_exp1b_nbfnet_seed2026_deepseek_pcst_semantic_l10",
       "model": "deepseek-v4-flash",
       "seed": 2026,
@@ -166,7 +163,7 @@
     },
     {
       "configuration_id": "pcst_semantic_0.01",
-      "experiment_id": "exp1b_nbfnet_seed2026_deepseek_pcst_semantic_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed2026_deepseek_pcst_semantic_lambda_0p01",
       "inference_lineage_name": "75_exp1b_nbfnet_seed2026_deepseek_pcst_semantic_lambda_0p01",
       "model": "deepseek-v4-flash",
       "seed": 2026,
@@ -177,7 +174,7 @@
     },
     {
       "configuration_id": "shortest_path",
-      "experiment_id": "exp1c_nbfnet_seed42_luna_sp",
+      "experiment_id": "exp2_nbfnet_seed42_luna_sp",
       "inference_lineage_name": "85_exp1c_nbfnet_seed42_luna_sp",
       "model": "gpt-5.6-luna",
       "seed": 42,
@@ -188,7 +185,7 @@
     },
     {
       "configuration_id": "pcst_constant_1",
-      "experiment_id": "exp1c_nbfnet_seed42_luna_pcst_constant_l10",
+      "experiment_id": "exp2_nbfnet_seed42_luna_pcst_constant_l10",
       "inference_lineage_name": "86_exp1c_nbfnet_seed42_luna_pcst_constant_l10",
       "model": "gpt-5.6-luna",
       "seed": 42,
@@ -199,7 +196,7 @@
     },
     {
       "configuration_id": "pcst_constant_0.01",
-      "experiment_id": "exp1c_nbfnet_seed42_luna_pcst_constant_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed42_luna_pcst_constant_lambda_0p01",
       "inference_lineage_name": "87_exp1c_nbfnet_seed42_luna_pcst_constant_lambda_0p01",
       "model": "gpt-5.6-luna",
       "seed": 42,
@@ -210,7 +207,7 @@
     },
     {
       "configuration_id": "pcst_semantic_1",
-      "experiment_id": "exp1c_nbfnet_seed42_luna_pcst_semantic_l10",
+      "experiment_id": "exp2_nbfnet_seed42_luna_pcst_semantic_l10",
       "inference_lineage_name": "88_exp1c_nbfnet_seed42_luna_pcst_semantic_l10",
       "model": "gpt-5.6-luna",
       "seed": 42,
@@ -221,7 +218,7 @@
     },
     {
       "configuration_id": "pcst_semantic_0.01",
-      "experiment_id": "exp1c_nbfnet_seed42_luna_pcst_semantic_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed42_luna_pcst_semantic_lambda_0p01",
       "inference_lineage_name": "89_exp1c_nbfnet_seed42_luna_pcst_semantic_lambda_0p01",
       "model": "gpt-5.6-luna",
       "seed": 42,
@@ -232,7 +229,7 @@
     },
     {
       "configuration_id": "shortest_path",
-      "experiment_id": "exp1c_nbfnet_seed1337_luna_sp",
+      "experiment_id": "exp2_nbfnet_seed1337_luna_sp",
       "inference_lineage_name": "90_exp1c_nbfnet_seed1337_luna_sp",
       "model": "gpt-5.6-luna",
       "seed": 1337,
@@ -243,7 +240,7 @@
     },
     {
       "configuration_id": "pcst_constant_1",
-      "experiment_id": "exp1c_nbfnet_seed1337_luna_pcst_constant_l10",
+      "experiment_id": "exp2_nbfnet_seed1337_luna_pcst_constant_l10",
       "inference_lineage_name": "91_exp1c_nbfnet_seed1337_luna_pcst_constant_l10",
       "model": "gpt-5.6-luna",
       "seed": 1337,
@@ -254,7 +251,7 @@
     },
     {
       "configuration_id": "pcst_constant_0.01",
-      "experiment_id": "exp1c_nbfnet_seed1337_luna_pcst_constant_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed1337_luna_pcst_constant_lambda_0p01",
       "inference_lineage_name": "92_exp1c_nbfnet_seed1337_luna_pcst_constant_lambda_0p01",
       "model": "gpt-5.6-luna",
       "seed": 1337,
@@ -265,7 +262,7 @@
     },
     {
       "configuration_id": "pcst_semantic_1",
-      "experiment_id": "exp1c_nbfnet_seed1337_luna_pcst_semantic_l10",
+      "experiment_id": "exp2_nbfnet_seed1337_luna_pcst_semantic_l10",
       "inference_lineage_name": "93_exp1c_nbfnet_seed1337_luna_pcst_semantic_l10",
       "model": "gpt-5.6-luna",
       "seed": 1337,
@@ -276,7 +273,7 @@
     },
     {
       "configuration_id": "pcst_semantic_0.01",
-      "experiment_id": "exp1c_nbfnet_seed1337_luna_pcst_semantic_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed1337_luna_pcst_semantic_lambda_0p01",
       "inference_lineage_name": "94_exp1c_nbfnet_seed1337_luna_pcst_semantic_lambda_0p01",
       "model": "gpt-5.6-luna",
       "seed": 1337,
@@ -287,7 +284,7 @@
     },
     {
       "configuration_id": "shortest_path",
-      "experiment_id": "exp1c_nbfnet_seed2026_luna_sp",
+      "experiment_id": "exp2_nbfnet_seed2026_luna_sp",
       "inference_lineage_name": "95_exp1c_nbfnet_seed2026_luna_sp",
       "model": "gpt-5.6-luna",
       "seed": 2026,
@@ -298,7 +295,7 @@
     },
     {
       "configuration_id": "pcst_constant_1",
-      "experiment_id": "exp1c_nbfnet_seed2026_luna_pcst_constant_l10",
+      "experiment_id": "exp2_nbfnet_seed2026_luna_pcst_constant_l10",
       "inference_lineage_name": "96_exp1c_nbfnet_seed2026_luna_pcst_constant_l10",
       "model": "gpt-5.6-luna",
       "seed": 2026,
@@ -309,7 +306,7 @@
     },
     {
       "configuration_id": "pcst_constant_0.01",
-      "experiment_id": "exp1c_nbfnet_seed2026_luna_pcst_constant_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed2026_luna_pcst_constant_lambda_0p01",
       "inference_lineage_name": "97_exp1c_nbfnet_seed2026_luna_pcst_constant_lambda_0p01",
       "model": "gpt-5.6-luna",
       "seed": 2026,
@@ -320,7 +317,7 @@
     },
     {
       "configuration_id": "pcst_semantic_1",
-      "experiment_id": "exp1c_nbfnet_seed2026_luna_pcst_semantic_l10",
+      "experiment_id": "exp2_nbfnet_seed2026_luna_pcst_semantic_l10",
       "inference_lineage_name": "98_exp1c_nbfnet_seed2026_luna_pcst_semantic_l10",
       "model": "gpt-5.6-luna",
       "seed": 2026,
@@ -331,7 +328,7 @@
     },
     {
       "configuration_id": "pcst_semantic_0.01",
-      "experiment_id": "exp1c_nbfnet_seed2026_luna_pcst_semantic_lambda_0p01",
+      "experiment_id": "exp2_nbfnet_seed2026_luna_pcst_semantic_lambda_0p01",
       "inference_lineage_name": "99_exp1c_nbfnet_seed2026_luna_pcst_semantic_lambda_0p01",
       "model": "gpt-5.6-luna",
       "seed": 2026,

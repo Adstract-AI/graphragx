@@ -1,4 +1,4 @@
-# Recovery rerun for the nine original Experiment 1B inference configurations.
+# Probe: recovery rerun for the nine original Experiment 2 inference configurations.
 #
 # This intentionally excludes the six lambda=0.01 PCST runs added later. It
 # creates fresh local inference runs and fresh W&B runs for:
@@ -22,94 +22,94 @@ args = [
 ]
 
 [[runs]]
-id = "recovery_exp1b_nbfnet_seed42_deepseek_sp"
+id = "probe_end_to_end_recovery_nbfnet_seed42_deepseek_sp"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
   "--subgraph-algorithm", "shortest_path",
   "--seed", "42",
-  "--inference-run-name", "recovery_exp1b_nbfnet_seed42_deepseek_sp",
+  "--inference-run-name", "probe_end_to_end_recovery_nbfnet_seed42_deepseek_sp",
 ]
 
 [[runs]]
-id = "recovery_exp1b_nbfnet_seed42_deepseek_pcst_constant_l10"
+id = "probe_end_to_end_recovery_nbfnet_seed42_deepseek_pcst_constant_l10"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
   "--subgraph-algorithm", "pcst",
   "--pcst-edge-cost-strategy", "constant",
   "--pcst-edge-cost", "1.0",
   "--seed", "42",
-  "--inference-run-name", "recovery_exp1b_nbfnet_seed42_deepseek_pcst_constant_l10",
+  "--inference-run-name", "probe_end_to_end_recovery_nbfnet_seed42_deepseek_pcst_constant_l10",
 ]
 
 [[runs]]
-id = "recovery_exp1b_nbfnet_seed42_deepseek_pcst_semantic_l10"
+id = "probe_end_to_end_recovery_nbfnet_seed42_deepseek_pcst_semantic_l10"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed42_retriever",
   "--subgraph-algorithm", "pcst",
   "--pcst-edge-cost-strategy", "semantic",
   "--pcst-edge-cost", "1.0",
   "--seed", "42",
-  "--inference-run-name", "recovery_exp1b_nbfnet_seed42_deepseek_pcst_semantic_l10",
+  "--inference-run-name", "probe_end_to_end_recovery_nbfnet_seed42_deepseek_pcst_semantic_l10",
 ]
 
 [[runs]]
-id = "recovery_exp1b_nbfnet_seed1337_deepseek_sp"
+id = "probe_end_to_end_recovery_nbfnet_seed1337_deepseek_sp"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
   "--subgraph-algorithm", "shortest_path",
   "--seed", "1337",
-  "--inference-run-name", "recovery_exp1b_nbfnet_seed1337_deepseek_sp",
+  "--inference-run-name", "probe_end_to_end_recovery_nbfnet_seed1337_deepseek_sp",
 ]
 
 [[runs]]
-id = "recovery_exp1b_nbfnet_seed1337_deepseek_pcst_constant_l10"
+id = "probe_end_to_end_recovery_nbfnet_seed1337_deepseek_pcst_constant_l10"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
   "--subgraph-algorithm", "pcst",
   "--pcst-edge-cost-strategy", "constant",
   "--pcst-edge-cost", "1.0",
   "--seed", "1337",
-  "--inference-run-name", "recovery_exp1b_nbfnet_seed1337_deepseek_pcst_constant_l10",
+  "--inference-run-name", "probe_end_to_end_recovery_nbfnet_seed1337_deepseek_pcst_constant_l10",
 ]
 
 [[runs]]
-id = "recovery_exp1b_nbfnet_seed1337_deepseek_pcst_semantic_l10"
+id = "probe_end_to_end_recovery_nbfnet_seed1337_deepseek_pcst_semantic_l10"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed1337_retriever",
   "--subgraph-algorithm", "pcst",
   "--pcst-edge-cost-strategy", "semantic",
   "--pcst-edge-cost", "1.0",
   "--seed", "1337",
-  "--inference-run-name", "recovery_exp1b_nbfnet_seed1337_deepseek_pcst_semantic_l10",
+  "--inference-run-name", "probe_end_to_end_recovery_nbfnet_seed1337_deepseek_pcst_semantic_l10",
 ]
 
 [[runs]]
-id = "recovery_exp1b_nbfnet_seed2026_deepseek_sp"
+id = "probe_end_to_end_recovery_nbfnet_seed2026_deepseek_sp"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
   "--subgraph-algorithm", "shortest_path",
   "--seed", "2026",
-  "--inference-run-name", "recovery_exp1b_nbfnet_seed2026_deepseek_sp",
+  "--inference-run-name", "probe_end_to_end_recovery_nbfnet_seed2026_deepseek_sp",
 ]
 
 [[runs]]
-id = "recovery_exp1b_nbfnet_seed2026_deepseek_pcst_constant_l10"
+id = "probe_end_to_end_recovery_nbfnet_seed2026_deepseek_pcst_constant_l10"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
   "--subgraph-algorithm", "pcst",
   "--pcst-edge-cost-strategy", "constant",
   "--pcst-edge-cost", "1.0",
   "--seed", "2026",
-  "--inference-run-name", "recovery_exp1b_nbfnet_seed2026_deepseek_pcst_constant_l10",
+  "--inference-run-name", "probe_end_to_end_recovery_nbfnet_seed2026_deepseek_pcst_constant_l10",
 ]
 
 [[runs]]
-id = "recovery_exp1b_nbfnet_seed2026_deepseek_pcst_semantic_l10"
+id = "probe_end_to_end_recovery_nbfnet_seed2026_deepseek_pcst_semantic_l10"
 args = [
   "--retriever-run-name", "exp0_nbfnet_seed2026_retriever",
   "--subgraph-algorithm", "pcst",
   "--pcst-edge-cost-strategy", "semantic",
   "--pcst-edge-cost", "1.0",
   "--seed", "2026",
-  "--inference-run-name", "recovery_exp1b_nbfnet_seed2026_deepseek_pcst_semantic_l10",
+  "--inference-run-name", "probe_end_to_end_recovery_nbfnet_seed2026_deepseek_pcst_semantic_l10",
 ]
