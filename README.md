@@ -111,8 +111,7 @@ available at [metadata/thesis/thesis.pdf](metadata/thesis/thesis.pdf).
 
 ## Credits
 
-Created by **Andrea Stevanoska** and **Viktor Kostadinoski**, supervised by
-**M.Sc. Martina Toshevska** and **PhD Sonja Gievska** at FINKI, Ss. Cyril and
+Created by **Viktor Kostadinoski**, supervised by **PhD Sonja Gievska** at FINKI, Ss. Cyril and
 Methodius University in Skopje.
 
 ## License

@@ -6,7 +6,6 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
 authors = [
-    { name = "Andrea Stevanoska" },
     { name = "Viktor Kostadinoski" },
 ]
 dependencies = [
