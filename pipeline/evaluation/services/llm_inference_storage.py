@@ -257,7 +257,7 @@ class LlmInferenceStorageService(AbstractService):
                 "answer_candidates": item.answer_candidates,
                 "model_id": item.model_id,
                 "llm_provider": item.llm_provider,
-                "answers": item.answers,
+                "answer": item.answer,
                 "explanation": item.explanation,
                 "raw_response": item.raw_response,
                 "prompt_tokens": item.prompt_tokens,

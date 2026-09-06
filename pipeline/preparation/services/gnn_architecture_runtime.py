@@ -44,7 +44,6 @@ class PreparedReaRevBatch:
     initialization_relation_index: Any
     node_graph_index: Any
     seed_distribution: Any
-    seed_mask: Any
     node_labels: Any
     graph_count: int
     valid_target_graphs: Any
@@ -172,10 +171,7 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
         return [str(relation) for relation in relations]
 
     @staticmethod
-    def _seed_metadata(
-        instance: WebQSPProcessedInstance,
-        torch: ModuleType,
-    ) -> tuple[Any, Any]:
+    def _seed_distribution(instance: WebQSPProcessedInstance, torch: ModuleType):
         node_count = len(instance.nodes)
         if node_count <= 0:
             raise ValueError("ReaRev graphs must contain at least one node.")
@@ -187,20 +183,14 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
             }
         )
         distribution = torch.zeros(node_count, dtype=torch.float32)
-        seed_mask = torch.zeros(node_count, dtype=torch.bool)
         if seed_ids:
-            seed_index = torch.tensor(seed_ids, dtype=torch.long)
-            distribution[seed_index] = 1.0 / len(seed_ids)
-            seed_mask[seed_index] = True
-            return distribution, seed_mask
+            distribution[torch.tensor(seed_ids, dtype=torch.long)] = 1.0 / len(seed_ids)
+            return distribution
         logger.warning(
             "ReaRev graph has no question entity in the local graph; using a uniform "
             "seed distribution over all nodes."
         )
-        return (
-            torch.full((node_count,), 1.0 / node_count, dtype=torch.float32),
-            seed_mask,
-        )
+        return torch.full((node_count,), 1.0 / node_count, dtype=torch.float32)
 
     @staticmethod
     def _initialization_edges(
@@ -266,16 +256,13 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
                 initialization_edge_index, initialization_edge_type = (
                     self._initialization_edges(instance, relation_vocabulary, torch)
                 )
-                seed_distribution, seed_mask = self._seed_metadata(instance, torch)
                 common = dict(
                     source_instance_index=source_instance_index,
-                    gold_answer_count=len(set(instance.a_entity)),
                     edge_index=edge_index,
                     edge_type=edge_type,
                     question_input_ids=question_input_ids[offset],
                     question_attention_mask=question_attention_mask[offset],
-                    seed_distribution=seed_distribution,
-                    seed_mask=seed_mask,
+                    seed_distribution=self._seed_distribution(instance, torch),
                     initialization_edge_index=initialization_edge_index,
                     initialization_edge_type=initialization_edge_type,
                 )
@@ -428,7 +415,7 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
             raise ValueError("ReaRev batches cannot be empty.")
         edge_parts, edge_type_parts = [], []
         init_edge_parts, init_type_parts = [], []
-        graph_parts, seed_parts, seed_mask_parts, label_parts = [], [], [], []
+        graph_parts, seed_parts, label_parts = [], [], []
         node_offset = 0
         for graph_id, instance in enumerate(instances):
             node_count = int(instance.seed_distribution.shape[0])
@@ -438,9 +425,6 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
             init_type_parts.append(instance.initialization_edge_type)
             graph_parts.append(torch.full((node_count,), graph_id, dtype=torch.long))
             seed_parts.append(instance.seed_distribution)
-            if instance.seed_mask is None:
-                raise ValueError("Prepared ReaRev seed mask is missing.")
-            seed_mask_parts.append(instance.seed_mask)
             labels = getattr(instance, "node_labels", None)
             label_parts.append(
                 labels.float() if labels is not None else torch.zeros(node_count)
@@ -479,7 +463,6 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
             initialization_relation_index=init_relation_index.to(device),
             node_graph_index=torch.cat(graph_parts).to(device),
             seed_distribution=torch.cat(seed_parts).to(device),
-            seed_mask=torch.cat(seed_mask_parts).to(device),
             node_labels=labels.to(device),
             graph_count=len(instances),
             valid_target_graphs=valid.to(device),
@@ -498,7 +481,6 @@ class ReaRevRuntimeStrategy(DefaultGnnRuntimeStrategy):
             "initialization_relation_index": batch.initialization_relation_index,
             "node_graph_index": batch.node_graph_index,
             "seed_distribution": batch.seed_distribution,
-            "seed_mask": batch.seed_mask,
             "graph_count": batch.graph_count,
         }
 

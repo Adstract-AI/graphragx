@@ -15,9 +15,5 @@ class LlmAnswerGenerationException(PipelineException):
     """Raised when final LLM answer generation fails."""
 
 
-class InsufficientLlmCreditsException(LlmAnswerGenerationException):
-    """Raised when an LLM provider rejects a request for insufficient credit."""
-
-
 class FinalResultsEvaluationException(PipelineException):
     """Raised when final results evaluation cannot be computed or stored."""

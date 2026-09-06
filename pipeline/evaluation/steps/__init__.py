@@ -21,8 +21,6 @@ from pipeline.evaluation.steps.llm_inference import (
     ExtractShortestPathsBatchStep,
     GenerateAndSaveFinalAnswersBatchesStep,
     GenerateFinalAnswersBatchStep,
-    SaveEvidenceSubgraphsContext,
-    SaveEvidenceSubgraphsStep,
     SaveInferenceRunStep,
 )
 from pipeline.evaluation.steps.mock_candidate_scoring import MockCandidateNodeScoringStep
@@ -44,8 +42,6 @@ __all__ = [
     "ExtractShortestPathsStep",
     "GenerateFinalAnswersBatchStep",
     "GenerateFinalAnswerStep",
-    "SaveEvidenceSubgraphsContext",
-    "SaveEvidenceSubgraphsStep",
     "GnnPredictionCandidateScoringStep",
     "MockCandidateNodeScoringStep",
     "SaveInferenceRunStep",

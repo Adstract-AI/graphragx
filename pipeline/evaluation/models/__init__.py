@@ -28,7 +28,6 @@ from pipeline.evaluation.models.llm_inference import (
     GeneratedFinalAnswersBatch,
     ReasoningPathsForPrediction,
     ReasoningSampleForPrediction,
-    SavedEvidenceSubgraphRun,
     SavedLlmInferenceRun,
 )
 from pipeline.evaluation.models.path_extraction import (
@@ -72,6 +71,5 @@ __all__ = [
     "ReasoningPathsForPrediction",
     "ReasoningPath",
     "ReasoningSampleForPrediction",
-    "SavedEvidenceSubgraphRun",
     "SavedLlmInferenceRun",
 ]

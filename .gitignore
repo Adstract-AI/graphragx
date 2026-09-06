@@ -72,11 +72,6 @@ wheels/
 skills/
 deprecated/
 data/*
-!data/.gitkeep
-wandb/*
-!wandb/.gitkeep
+wandb/
 qdrant_storage/
 qdrant_data_backup.tar.gz
-.experiment-runs/*
-!.experiment-runs/.gitkeep
-agents_metadata/

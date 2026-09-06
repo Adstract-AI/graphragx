@@ -20,7 +20,6 @@ _TRAINING_KEYS = (
     "batch_size",
     "device",
     "profile",
-    "random_seed",
     "embedding_cache_device",
     "embedding_cache_dtype",
     "loss_function",
